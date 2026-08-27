@@ -109,6 +109,7 @@ PlayerBar::PlayerBar(QWidget *parent)
     m_sourceBadge->setStyleSheet(QStringLiteral(
         "QLabel{color:#8F8F9C;background:rgba(255,255,255,0.06);"
         "border-radius:8px;padding:1px 7px;font-size:11px;}"));
+    m_sourceBadge->setVisible(false);
 
     auto *titleRow = new QHBoxLayout;
     titleRow->setContentsMargins(0, 0, 0, 0);
@@ -329,12 +330,8 @@ void PlayerBar::paintEvent(QPaintEvent *)
 
     // 1px 边缘光:border rgba(255,255,255,.14)
     p.setBrush(Qt::NoBrush);
-    p.setPen(QPen(QColor(255, 255, 255, 36), 1));
+    p.setPen(QPen(QColor(255, 255, 255, 22), 1));
     p.drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), radius, radius);
-    // 顶部内高光:inset 0 1px 0 rgba(255,255,255,.2)
-    p.setPen(Qt::NoPen);
-    p.setBrush(QColor(255, 255, 255, 51));
-    p.drawRoundedRect(QRectF(r.left() + 1, r.top() + 1, r.width() - 2, 4), 3, 3);
 }
 
 void PlayerBar::setBackdropSource(QWidget *widget)
@@ -353,6 +350,7 @@ void PlayerBar::setSong(const core::Song &song, bool favorite)
         m_sourceBadge->setText(song.isCached() ? QStringLiteral("☁ 已缓存") : QStringLiteral("☁ 在线"));
     else
         m_sourceBadge->setText(QStringLiteral("本地"));
+    m_sourceBadge->setVisible(!m_sourceBadge->text().isEmpty());
     m_heartBtn->setIcon(makeSvgIcon(favorite ? QStringLiteral(":/icons/icon-heart-fill.svg")
                                        : QStringLiteral(":/icons/icon-heart.svg"), 18));
     if (!song.coverPath.isEmpty()) {
