@@ -5,6 +5,11 @@
 
 #include <QWidget>
 
+namespace core {
+class MusicSource;
+}
+
+class QButtonGroup;
 class QLabel;
 class QPushButton;
 
@@ -20,6 +25,8 @@ public:
 
     void setSong(const core::Song &song, const QPixmap &cover);
     void setLyrics(const QList<core::LyricLine> &lines);
+    void setSourceProvider(core::MusicSource *source);
+    void loadLyricsFor(const core::Song &song);
     void setPosition(qint64 ms);
     void setLyricFontSize(int px);
     core::Song currentSong() const { return m_song; }
@@ -27,12 +34,14 @@ public:
 signals:
     void seekRequested(qint64 ms);
     void editLyricsRequested();
+    void commentsRequested();
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
 
 private:
     void updateBackdrop();
+    void applyLyricMode();
 
     QLabel *m_backdrop = nullptr;
     QLabel *m_cover = nullptr;
@@ -40,6 +49,13 @@ private:
     QLabel *m_artist = nullptr;
     LyricWidget *m_lyric = nullptr;
     QPushButton *m_editBtn = nullptr;
+    QPushButton *m_commentsBtn = nullptr;
+    QButtonGroup *m_modeGroup = nullptr;
+    core::MusicSource *m_source = nullptr;
+    QList<core::LyricLine> m_lrc;
+    QList<core::LyricLine> m_tlyrc;
+    QList<core::LyricLine> m_romalrc;
+    int m_lyricMode = 0;
     core::Song m_song;
     QPixmap m_coverPix;
 };

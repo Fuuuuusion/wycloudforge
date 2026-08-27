@@ -19,6 +19,15 @@ struct Song
     qint64 playCount = 0;
     qint64 lastPlayedMs = 0;
 
+    // 多源:0 本地文件,1 网易云,2 QQ音乐(预留)
+    int source = 0;
+    qint64 onlineId = 0;
+    QString coverUrl;
+    QString cachePath;
+    qint64 albumId = 0;
+
+    bool isOnline() const { return source > 0; }
+    bool isCached() const { return isOnline() && !cachePath.isEmpty(); }
     bool operator==(const Song &other) const { return id == other.id && filePath == other.filePath; }
 };
 

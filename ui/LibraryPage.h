@@ -5,6 +5,7 @@
 #include <QWidget>
 
 class QGridLayout;
+class QButtonGroup;
 class QStackedWidget;
 class QVBoxLayout;
 
@@ -33,14 +34,16 @@ signals:
 private:
     void rebuildArtists();
     void rebuildAlbums();
+    void applyFilter();
 
     SongListView *m_songList = nullptr;
     QGridLayout *m_artistGrid = nullptr;
     QGridLayout *m_albumGrid = nullptr;
     QStackedWidget *m_stack = nullptr;
     QList<core::Song> m_songs;
+    QList<core::Song> m_filtered;
     qint64 m_playingId = -1;
+    int m_filter = 0; // 0 全部 / 1 本地 / 2 在线 / 3 已缓存
 };
 
 } // namespace ui
-

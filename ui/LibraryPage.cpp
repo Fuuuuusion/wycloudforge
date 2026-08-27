@@ -49,6 +49,33 @@ LibraryPage::LibraryPage(QWidget *parent)
     tabLayout->addStretch(1);
     layout->addWidget(tabRow);
 
+    auto *filterRow = new QWidget(this);
+    auto *filterLayout = new QHBoxLayout(filterRow);
+    filterLayout->setContentsMargins(0, 0, 0, 0);
+    filterLayout->setSpacing(8);
+    auto *filterGroup = new QButtonGroup(this);
+    filterGroup->setExclusive(true);
+    const QStringList filters = { QStringLiteral("全部"), QStringLiteral("本地"),
+                                  QStringLiteral("在线"), QStringLiteral("已缓存") };
+    for (int i = 0; i < filters.size(); ++i) {
+        auto *btn = new QPushButton(filters[i], filterRow);
+        btn->setCheckable(true);
+        btn->setCursor(Qt::PointingHandCursor);
+        btn->setStyleSheet(QStringLiteral(
+            "QPushButton{border:none;background:rgba(255,255,255,0.06);color:#9A9AA5;"
+            "font-size:12px;padding:4px 14px;border-radius:999px;}"
+            "QPushButton:hover{background:rgba(255,255,255,0.1);color:#E8E8E8;}"
+            "QPushButton:checked{background:rgba(236,65,65,0.18);color:#EC4141;font-weight:600;}"));
+        filterGroup->addButton(btn, i);
+        filterLayout->addWidget(btn);
+    }
+    filterLayout->addStretch(1);
+    layout->addWidget(filterRow);
+    connect(filterGroup, &QButtonGroup::idClicked, this, [this](int id) {
+        m_filter = id;
+        applyFilter();
+    });
+
     m_stack = new QStackedWidget(this);
 
     m_songList = new SongListView;
@@ -98,14 +125,30 @@ void LibraryPage::setSongs(const QList<core::Song> &songs, qint64 playingId)
 {
     m_songs = songs;
     m_playingId = playingId;
-    m_songList->setSongs(songs, playingId);
+    applyFilter();
     rebuildArtists();
     rebuildAlbums();
 }
 
 QList<core::Song> LibraryPage::currentSongs() const
 {
-    return m_songs;
+    return m_filtered;
+}
+
+void LibraryPage::applyFilter()
+{
+    m_filtered.clear();
+    for (const core::Song &s : m_songs) {
+        const bool online = s.isOnline();
+        switch (m_filter) {
+        case 0: m_filtered.append(s); break;
+        case 1: if (!online) m_filtered.append(s); break;
+        case 2: if (online) m_filtered.append(s); break;
+        case 3: if (online && s.isCached()) m_filtered.append(s); break;
+        default: break;
+        }
+    }
+    m_songList->setSongs(m_filtered, m_playingId);
 }
 
 void LibraryPage::rebuildArtists()

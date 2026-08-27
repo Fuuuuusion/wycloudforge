@@ -1,9 +1,13 @@
 #include "PlayerService.h"
 
+#include "core/LibraryService.h"
+
 #include <algorithm>
 #include <numeric>
 
+#include <QFileInfo>
 #include <QRandomGenerator>
+#include <QTimer>
 #include <QUrl>
 
 namespace core {
@@ -19,6 +23,7 @@ PlayerService::PlayerService(QObject *parent)
     });
     connect(&m_player, &QMediaPlayer::positionChanged, this, [this](qint64 pos) {
         emit positionChanged(pos);
+        maybeCacheCurrent(pos);
     });
     connect(&m_player, &QMediaPlayer::durationChanged, this, [this](qint64 dur) {
         emit durationChanged(dur);
@@ -180,10 +185,72 @@ void PlayerService::loadCurrent(bool autoPlay)
     if (m_index < 0 || m_index >= m_playlist.size())
         return;
     const Song &song = m_playlist[m_index];
+    ++m_loadToken;
+    m_currentUrl.clear();
+
+    if (song.isOnline() && m_source && m_lib) {
+        m_cacheSaved = false;
+        const QString cached = m_lib->cachePathFor(song.id);
+        if (!cached.isEmpty() && QFileInfo::exists(cached)) {
+            m_cacheSaved = true;
+            m_player.setSource(QUrl::fromLocalFile(cached));
+            if (autoPlay)
+                m_player.play();
+            emit songChanged(song, m_index);
+            return;
+        }
+        const int token = m_loadToken;
+        m_source->songUrls({ song.onlineId },
+                           [this, token, autoPlay](const QJsonArray &arr) {
+                               if (token != m_loadToken)
+                                   return;
+                               QString url;
+                               if (!arr.isEmpty())
+                                   url = arr.first().toObject().value(QStringLiteral("url")).toString();
+                               if (url.isEmpty()) {
+                                   emit errorOccurred(QStringLiteral("歌曲不可用(可能受版权/VIP 限制)"));
+                                   QTimer::singleShot(0, this, [this] { next(); });
+                                   return;
+                               }
+                               m_currentUrl = url;
+                               m_player.setSource(QUrl(url));
+                               if (autoPlay)
+                                   m_player.play();
+                           },
+                           [this, token](const QString &err) {
+                               if (token != m_loadToken)
+                                   return;
+                               emit errorOccurred(QStringLiteral("获取播放地址失败:%1").arg(err));
+                               QTimer::singleShot(0, this, [this] { next(); });
+                           });
+        emit songChanged(song, m_index);
+        return;
+    }
+
     m_player.setSource(QUrl::fromLocalFile(song.filePath));
     if (autoPlay)
         m_player.play();
     emit songChanged(song, m_index);
+}
+
+void PlayerService::maybeCacheCurrent(qint64 positionMs)
+{
+    if (m_cacheSaved || !m_source || !m_lib || m_currentUrl.isEmpty())
+        return;
+    const Song song = currentSong();
+    if (!song.isOnline())
+        return;
+    const qint64 dur = m_player.duration();
+    if (positionMs < 30000 && (dur <= 0 || positionMs < dur * 0.3))
+        return;
+    m_cacheSaved = true;
+    const QString path = m_lib->cacheFilePathFor(song);
+    const QUrl url(m_currentUrl);
+    const qint64 id = song.id;
+    m_source->downloadToFile(url, path, [this, id, path](bool ok) {
+        if (ok && m_lib)
+            m_lib->setSongCached(id, path, QFileInfo(path).size());
+    });
 }
 
 void PlayerService::buildShuffleOrder()

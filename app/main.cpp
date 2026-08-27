@@ -53,7 +53,7 @@ int main(int argc, char *argv[])
             QTimer::singleShot(150, &window, [&window, startPage] {
                 window.openPageForTesting(startPage);
             });
-        QTimer::singleShot(900, &window, [&window, path] {
+        QTimer::singleShot(1800, &window, [&window, path] {
             window.grab().save(path);
             QApplication::quit();
         });

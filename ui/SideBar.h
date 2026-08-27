@@ -12,7 +12,7 @@ class SideBar : public QWidget
 {
     Q_OBJECT
 public:
-    enum PageId { DiscoverPage = 0, LibraryPage = 1, PlayingPage = 3 };
+    enum PageId { DiscoverPage = 0, LibraryPage = 1, PlayingPage = 3, OnlinePageId = 5 };
 
     struct PlaylistItem
     {

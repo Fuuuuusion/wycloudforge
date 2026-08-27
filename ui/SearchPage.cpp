@@ -3,7 +3,10 @@
 #include "core/SearchService.h"
 #include "ui/SongListView.h"
 
+#include "core/LibraryService.h"
+
 #include <QButtonGroup>
+#include <QFileInfo>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -46,7 +49,7 @@ SearchPage::SearchPage(QWidget *parent)
     tabLayout->setSpacing(30);
     auto *group = new QButtonGroup(this);
     group->setExclusive(true);
-    const QStringList names = { QStringLiteral("单曲"), QStringLiteral("歌手"), QStringLiteral("专辑") };
+    const QStringList names = { QStringLiteral("单曲"), QStringLiteral("在线"), QStringLiteral("歌手"), QStringLiteral("专辑") };
     for (int i = 0; i < names.size(); ++i) {
         auto *btn = new QPushButton(names[i], tabRow);
         btn->setCheckable(true);
@@ -65,6 +68,18 @@ SearchPage::SearchPage(QWidget *parent)
     m_stack = new QStackedWidget(this);
     m_songList = new SongListView;
     m_stack->addWidget(m_songList);
+
+    auto *onlinePage = new QWidget;
+    auto *onlineLayout = new QVBoxLayout(onlinePage);
+    onlineLayout->setContentsMargins(0, 0, 0, 0);
+    onlineLayout->setSpacing(6);
+    m_onlineHeader = new QLabel(onlinePage);
+    m_onlineHeader->setStyleSheet(QStringLiteral("color:#6E6E7A;font-size:12px;"));
+    m_onlineHeader->hide();
+    m_onlineList = new SongListView;
+    onlineLayout->addWidget(m_onlineHeader);
+    onlineLayout->addWidget(m_onlineList, 1);
+    m_stack->addWidget(onlinePage);
 
     auto *artistPage = new QWidget;
     auto *artistOuter = new QVBoxLayout(artistPage);
@@ -104,6 +119,18 @@ SearchPage::SearchPage(QWidget *parent)
     connect(m_songList, &SongListView::addToPlaylistRequested, this, &SearchPage::addToPlaylistRequested);
     connect(m_songList, &SongListView::removeFromPlaylistRequested, this, &SearchPage::removeFromPlaylistRequested);
     connect(m_songList, &SongListView::deleteFromLibraryRequested, this, &SearchPage::deleteFromLibraryRequested);
+    connect(m_onlineList, &SongListView::playRequested, this, [this](int row) {
+        emit playRequested(m_onlineSongs, row);
+    });
+    connect(m_onlineList, &SongListView::heartRequested, this, &SearchPage::heartRequested);
+    connect(m_onlineList, &SongListView::addToPlaylistRequested, this, &SearchPage::addToPlaylistRequested);
+    connect(m_onlineList, &SongListView::deleteFromLibraryRequested, this, &SearchPage::deleteFromLibraryRequested);
+}
+
+void SearchPage::setSourceProvider(core::MusicSource *source, core::LibraryService *library)
+{
+    m_source = source;
+    m_lib = library;
 }
 
 void SearchPage::performSearch(const QList<core::Song> &allSongs, const QString &query)
@@ -116,6 +143,24 @@ void SearchPage::performSearch(const QList<core::Song> &allSongs, const QString 
     m_title->setText(QStringLiteral("搜索 \"%1\" · %2 个结果").arg(query).arg(m_results.size()));
     m_songList->setSongs(m_results);
     m_songList->setHighlightQuery(query);
+
+    // 在线结果
+    m_onlineSongs.clear();
+    if (m_source && m_lib && !query.isEmpty()) {
+        m_source->searchSongs(query, 30, [this](const QJsonArray &arr) {
+            m_onlineSongs.clear();
+            for (const QJsonValue &v : arr) {
+                core::Song s = m_source->songFromJson(v.toObject());
+                s.id = m_lib->upsertOnlineSong(s);
+                m_onlineSongs.append(s);
+            }
+            m_onlineList->setSongs(m_onlineSongs);
+            m_onlineHeader->setText(QStringLiteral("在线结果(%1)· %2 首").arg(m_source->sourceName()).arg(m_onlineSongs.size()));
+            m_onlineHeader->setVisible(!m_onlineSongs.isEmpty());
+            for (const core::Song &s : m_onlineSongs)
+                ensureCover(s);
+        });
+    }
 
     while (QLayoutItem *item = m_artistLayout->takeAt(0)) {
         delete item->widget();
@@ -148,6 +193,27 @@ void SearchPage::performSearch(const QList<core::Song> &allSongs, const QString 
         m_albumLayout->addWidget(row);
     }
     m_albumLayout->addStretch(1);
+}
+
+void SearchPage::ensureCover(const core::Song &song)
+{
+    if (!song.isOnline() || song.coverUrl.isEmpty() || song.id <= 0 || !m_source || !m_lib)
+        return;
+    const core::Song current = m_lib->songById(song.id);
+    if (!current.coverPath.isEmpty())
+        return;
+    const QString path = m_lib->coverCacheDir()
+        + QStringLiteral("/online_%1_%2.jpg").arg(song.source).arg(song.onlineId);
+    if (QFileInfo::exists(path)) {
+        m_lib->setSongCoverPath(song.id, path);
+        return;
+    }
+    const QUrl url(song.coverUrl);
+    const qint64 id = song.id;
+    m_source->downloadToFile(url, path, [this, id, path](bool ok) {
+        if (ok && m_lib)
+            m_lib->setSongCoverPath(id, path);
+    });
 }
 
 } // namespace ui

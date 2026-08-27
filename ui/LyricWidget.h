@@ -15,7 +15,7 @@ class LyricWidget : public QWidget
 public:
     explicit LyricWidget(QWidget *parent = nullptr);
 
-    void setLyrics(const QList<core::LyricLine> &lines);
+    void setLyrics(const QList<core::LyricLine> &lines, const QList<core::LyricLine> &secondary = {});
     void setPosition(qint64 ms);
     void setFontSize(int px);
     bool hasLyrics() const { return !m_lines.isEmpty(); }
@@ -33,6 +33,7 @@ private:
     void updateTarget();
 
     QList<core::LyricLine> m_lines;
+    QList<core::LyricLine> m_secondary;
     int m_current = -1;
     int m_fontSize = 18;
     qreal m_offset = 0;
@@ -41,4 +42,3 @@ private:
 };
 
 } // namespace ui
-

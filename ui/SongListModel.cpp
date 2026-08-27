@@ -26,6 +26,19 @@ QVariant SongListModel::data(const QModelIndex &index, int role) const
     case AlbumRole: return song.album;
     case DurationRole: return song.durationMs;
     case IsPlayingRole: return song.id == m_playingId;
+    case SourceRole: return song.source;
+    case CachedRole: return song.isCached();
+    case MissingRole: return song.missing;
+    case Qt::ToolTipRole: {
+        if (song.isOnline()) {
+            if (song.isCached())
+                return QStringLiteral("在线歌曲(已缓存,可离线播放)");
+            if (song.missing)
+                return QStringLiteral("在线歌曲(已失效)");
+            return QStringLiteral("在线歌曲(需网络)");
+        }
+        return song.missing ? QStringLiteral("本地歌曲(文件缺失)") : QStringLiteral("本地歌曲");
+    }
     case SongRole: return QVariant::fromValue(song);
     default: return {};
     }
@@ -55,4 +68,3 @@ void SongListModel::setPlayingId(qint64 playingId)
 }
 
 } // namespace ui
-

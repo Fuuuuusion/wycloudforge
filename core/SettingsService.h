@@ -32,6 +32,24 @@ public:
     static QByteArray windowGeometry();
     static void saveWindowGeometry(const QByteArray &geometry);
 
+    // 在线服务
+    static QString onlineApiBase(const QString &fallback = QStringLiteral("http://127.0.0.1:3000"));
+    static void setOnlineApiBase(const QString &url);
+    static bool onlineAutoStart(bool fallback = true);
+    static void setOnlineAutoStart(bool on);
+    static QString onlineApiDir();
+    static void setOnlineApiDir(const QString &dir);
+    static int onlineCacheMaxCount(int fallback = 200);
+    static void setOnlineCacheMaxCount(int count);
+    static int onlineCacheMaxMB(int fallback = 2048);
+    static void setOnlineCacheMaxMB(int mb);
+    static QString onlineCookie();
+    static void setOnlineCookie(const QString &cookie);
+    static qint64 onlineUid();
+    static void setOnlineUid(qint64 uid);
+    static QString onlineNickname();
+    static void setOnlineNickname(const QString &name);
+
 private:
     static QStringList s_foldersOverride;
     static QString s_lastSongPathOverride;

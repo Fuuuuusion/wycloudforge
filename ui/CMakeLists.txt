@@ -29,6 +29,12 @@ add_library(neteclone_ui STATIC
     PlayingPage.cpp
     SearchPage.h
     SearchPage.cpp
+    OnlinePage.h
+    OnlinePage.cpp
+    LoginDialog.h
+    LoginDialog.cpp
+    CommentsDialog.h
+    CommentsDialog.cpp
     SettingsDialog.h
     SettingsDialog.cpp
     LyricEditorDialog.h

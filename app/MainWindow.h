@@ -1,6 +1,8 @@
 #pragma once
 
+#include "core/ApiService.h"
 #include "core/LibraryService.h"
+#include "core/NeteaseApiClient.h"
 #include "core/PlayerService.h"
 #include "core/PlaylistController.h"
 #include "core/SettingsService.h"
@@ -11,6 +13,7 @@
 namespace ui {
 class DiscoverPage;
 class LibraryPage;
+class OnlinePage;
 class PlayerBar;
 class PlayingPage;
 class SearchPage;
@@ -38,6 +41,12 @@ private:
     void openPlaylist(int playlistId);
     void openArtist(const QString &artist);
     void openAlbum(const QString &album, const QString &artist);
+    void openOnlinePlaylist(qint64 id, const QString &name);
+    void openOnlineAlbum(qint64 id);
+    void openOnlineArtist(qint64 id);
+    void ensureOnlineCovers(const QList<core::Song> &songs);
+    void doLogin();
+    void doLogout();
     void playSongs(const QList<core::Song> &songs, int index);
     void refreshSidebar();
     void refreshLibraryViews();
@@ -47,6 +56,8 @@ private:
     bool focusIsEditable() const;
 
     core::LibraryService m_library{ this };
+    core::ApiService m_apiService{ this };
+    core::NeteaseApiClient m_apiClient{ this };
     core::PlaylistController m_playlists{ this };
     core::PlayerService m_player{ this };
 
@@ -58,6 +69,7 @@ private:
     ui::SongListPage *m_songListPage = nullptr;
     ui::PlayingPage *m_playing = nullptr;
     ui::SearchPage *m_search = nullptr;
+    ui::OnlinePage *m_online = nullptr;
     QStackedWidget *m_stack = nullptr;
 
     qint64 m_currentSongId = -1;

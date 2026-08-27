@@ -19,9 +19,10 @@ LyricWidget::LyricWidget(QWidget *parent)
     connect(m_anim, &QTimer::timeout, this, &LyricWidget::animateStep);
 }
 
-void LyricWidget::setLyrics(const QList<core::LyricLine> &lines)
+void LyricWidget::setLyrics(const QList<core::LyricLine> &lines, const QList<core::LyricLine> &secondary)
 {
     m_lines = lines;
+    m_secondary = secondary;
     m_current = -1;
     m_offset = 0;
     m_target = 0;
@@ -53,6 +54,7 @@ void LyricWidget::setFontSize(int px)
 void LyricWidget::clear()
 {
     m_lines.clear();
+    m_secondary.clear();
     m_current = -1;
     m_offset = 0;
     m_target = 0;
@@ -110,6 +112,18 @@ void LyricWidget::paintEvent(QPaintEvent *)
         p.setPen(active ? kActive : kIdle);
         const QRectF r(0, y, width(), lineHeight);
         p.drawText(r, Qt::AlignCenter, m_lines[i].text);
+        if (i == m_current && !m_secondary.isEmpty()) {
+            for (const core::LyricLine &sub : m_secondary) {
+                if (sub.timeMs == m_lines[i].timeMs) {
+                    QFont subFont(QStringLiteral("Microsoft YaHei UI"), m_fontSize - 4);
+                    p.setFont(subFont);
+                    p.setPen(QColor(0x9A, 0x9A, 0xA5));
+                    p.drawText(QRectF(0, y + lineHeight * 0.52, width(), lineHeight * 0.5),
+                               Qt::AlignCenter, sub.text);
+                    break;
+                }
+            }
+        }
     }
     Q_UNUSED(centerY);
 }

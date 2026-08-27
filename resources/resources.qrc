@@ -28,6 +28,7 @@
     <file alias="icons/icon-clock.svg">../design/prototype/assets/icon-clock.svg</file>
     <file alias="icons/icon-trash.svg">../design/prototype/assets/icon-trash.svg</file>
     <file alias="icons/icon-download.svg">../design/prototype/assets/icon-download.svg</file>
+    <file alias="icons/icon-cloud.svg">icons/icon-cloud.svg</file>
+    <file alias="icons/icon-check.svg">icons/icon-check.svg</file>
   </qresource>
 </RCC>
-

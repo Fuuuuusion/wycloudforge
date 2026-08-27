@@ -126,4 +126,100 @@ void SettingsService::saveWindowGeometry(const QByteArray &geometry)
     s.setValue(QStringLiteral("window/geometry"), geometry);
 }
 
+QString SettingsService::onlineApiBase(const QString &fallback)
+{
+    QSettings s;
+    return s.value(QStringLiteral("online/apiBase"), fallback).toString();
+}
+
+void SettingsService::setOnlineApiBase(const QString &url)
+{
+    QSettings s;
+    s.setValue(QStringLiteral("online/apiBase"), url);
+}
+
+bool SettingsService::onlineAutoStart(bool fallback)
+{
+    QSettings s;
+    return s.value(QStringLiteral("online/autoStart"), fallback).toBool();
+}
+
+void SettingsService::setOnlineAutoStart(bool on)
+{
+    QSettings s;
+    s.setValue(QStringLiteral("online/autoStart"), on);
+}
+
+QString SettingsService::onlineApiDir()
+{
+    QSettings s;
+    return s.value(QStringLiteral("online/apiDir")).toString();
+}
+
+void SettingsService::setOnlineApiDir(const QString &dir)
+{
+    QSettings s;
+    s.setValue(QStringLiteral("online/apiDir"), dir);
+}
+
+int SettingsService::onlineCacheMaxCount(int fallback)
+{
+    QSettings s;
+    return s.value(QStringLiteral("online/cacheMaxCount"), fallback).toInt();
+}
+
+void SettingsService::setOnlineCacheMaxCount(int count)
+{
+    QSettings s;
+    s.setValue(QStringLiteral("online/cacheMaxCount"), count);
+}
+
+int SettingsService::onlineCacheMaxMB(int fallback)
+{
+    QSettings s;
+    return s.value(QStringLiteral("online/cacheMaxMB"), fallback).toInt();
+}
+
+void SettingsService::setOnlineCacheMaxMB(int mb)
+{
+    QSettings s;
+    s.setValue(QStringLiteral("online/cacheMaxMB"), mb);
+}
+
+QString SettingsService::onlineCookie()
+{
+    QSettings s;
+    return s.value(QStringLiteral("online/cookie")).toString();
+}
+
+void SettingsService::setOnlineCookie(const QString &cookie)
+{
+    QSettings s;
+    s.setValue(QStringLiteral("online/cookie"), cookie);
+}
+
+qint64 SettingsService::onlineUid()
+{
+    QSettings s;
+    return s.value(QStringLiteral("online/uid"), 0).toLongLong();
+}
+
+void SettingsService::setOnlineUid(qint64 uid)
+{
+    QSettings s;
+    s.setValue(QStringLiteral("online/uid"), uid);
+}
+
+QString SettingsService::onlineNickname()
+{
+    QSettings s;
+    return s.value(QStringLiteral("online/nickname")).toString();
+}
+
+void SettingsService::setOnlineNickname(const QString &name)
+{
+    QSettings s;
+    s.setValue(QStringLiteral("online/nickname"), name);
+}
+
 } // namespace core

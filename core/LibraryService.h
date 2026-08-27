@@ -32,10 +32,25 @@ public:
     QList<Song> allSongs() const { return m_songs; }
     Song songById(qint64 id) const;
     Song songByPath(const QString &path) const;
+    Song songByOnlineId(int source, qint64 onlineId) const;
     int songCount() const { return m_songs.size(); }
 
     void markPlayed(qint64 songId);
     void removeSong(qint64 songId);
+
+    // 在线歌曲
+    qint64 upsertOnlineSong(const Song &song);
+    void setSongCoverPath(qint64 songId, const QString &path);
+
+    // 播放缓存
+    QString cacheDir() const;
+    QString coverCacheDir() const;
+    QString cacheFilePathFor(const Song &song) const;
+    QString cachePathFor(qint64 songId) const;
+    bool isSongCached(qint64 songId) const;
+    void setSongCached(qint64 songId, const QString &path, qint64 sizeBytes);
+    void clearCache();
+    void cacheUsage(qint64 *bytes, int *count) const;
 
     static void setDatabasePathOverride(const QString &path);
 
@@ -44,11 +59,13 @@ signals:
     void scanProgress(int scanned, int total);
     void scanFinished(int added, int removed);
     void libraryChanged();
+    void cacheChanged();
 
 private:
     void reloadSongs();
     void startWorker(const QStringList &folders);
     void onWatchChange(const QString &path);
+    void evictCacheIfNeeded();
 
     QString m_dbPath;
     QSqlDatabase m_db;

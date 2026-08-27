@@ -17,6 +17,9 @@ public:
         AlbumRole,
         DurationRole,
         IsPlayingRole,
+        SourceRole,
+        CachedRole,
+        MissingRole,
         SongRole
     };
 
@@ -36,4 +39,3 @@ private:
 };
 
 } // namespace ui
-

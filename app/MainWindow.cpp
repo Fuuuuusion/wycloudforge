@@ -6,6 +6,9 @@
 #include "ui/AuroraBackground.h"
 #include "ui/LibraryPage.h"
 #include "ui/LyricEditorDialog.h"
+#include "ui/OnlinePage.h"
+#include "ui/LoginDialog.h"
+#include "ui/CommentsDialog.h"
 #include "ui/PlayerBar.h"
 #include "ui/PlayingPage.h"
 #include "ui/SearchPage.h"
@@ -29,6 +32,7 @@
 #include <QShortcut>
 #include <QStackedWidget>
 #include <QTextEdit>
+#include <QUrl>
 #include <QVBoxLayout>
 
 #include <windows.h>
@@ -106,6 +110,14 @@ MainWindow::MainWindow(QWidget *parent)
     m_songListPage = new ui::SongListPage(this);
     m_playing = new ui::PlayingPage(this);
     m_search = new ui::SearchPage(this);
+    m_online = new ui::OnlinePage(this);
+
+    m_player.setSourceProvider(&m_apiClient);
+    m_player.setLibrary(&m_library);
+    m_search->setSourceProvider(&m_apiClient, &m_library);
+    m_online->setSourceProvider(&m_apiClient, &m_library);
+    m_playing->setSourceProvider(&m_apiClient);
+    m_apiClient.setCookie(core::SettingsService::onlineCookie());
 
     m_stack = new QStackedWidget(this);
     m_stack->setObjectName("contentStack");
@@ -114,6 +126,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_stack->addWidget(m_songListPage);
     m_stack->addWidget(m_playing);
     m_stack->addWidget(m_search);
+    m_stack->addWidget(m_online);
 
     auto *body = new QWidget(this);
     auto *bodyLayout = new QHBoxLayout(body);
@@ -149,12 +162,13 @@ MainWindow::MainWindow(QWidget *parent)
         showPage(4);
     });
     connect(m_titleBar, &ui::TitleBar::settingsClicked, this, [this] {
-        ui::SettingsDialog dlg(this);
+        ui::SettingsDialog dlg(&m_apiService, &m_apiClient, &m_library, this);
         connect(&dlg, &ui::SettingsDialog::rescanRequested, this, [&dlg, this] {
             core::SettingsService::setMusicFolders(dlg.folders());
             m_library.startScan();
         });
         if (dlg.exec() == QDialog::Accepted) {
+            m_apiClient.setBaseUrl(core::SettingsService::onlineApiBase());
             const QStringList folders = dlg.folders();
             if (folders != core::SettingsService::musicFolders())
                 m_library.setFolders(folders);
@@ -319,6 +333,21 @@ MainWindow::MainWindow(QWidget *parent)
         if (ui::LyricEditorDialog::editForSong(this, song))
             m_playing->setLyrics(core::LyricsLoader::load(song));
     });
+    connect(m_playing, &ui::PlayingPage::commentsRequested, this, [this] {
+        const core::Song song = m_playing->currentSong();
+        if (song.onlineId > 0) {
+            ui::CommentsDialog dlg(&m_apiClient, song.onlineId, song.title, this);
+            dlg.exec();
+        }
+    });
+
+    // ---------- 在线音乐页 ----------
+    connect(m_online, &ui::OnlinePage::playRequested, this, &MainWindow::playSongs);
+    connect(m_online, &ui::OnlinePage::openPlaylistRequested, this, &MainWindow::openOnlinePlaylist);
+    connect(m_online, &ui::OnlinePage::openAlbumRequested, this, &MainWindow::openOnlineAlbum);
+    connect(m_online, &ui::OnlinePage::openArtistRequested, this, &MainWindow::openOnlineArtist);
+    connect(m_online, &ui::OnlinePage::loginRequested, this, &MainWindow::doLogin);
+    connect(m_online, &ui::OnlinePage::logoutRequested, this, &MainWindow::doLogout);
 
     // ---------- 搜索页 ----------
     connect(m_search, &ui::SearchPage::playRequested, this, &MainWindow::playSongs);
@@ -385,7 +414,15 @@ MainWindow::MainWindow(QWidget *parent)
         playlistItems.append({ p.id, p.name });
     m_songListPage->setPlaylistMenuItems(playlistItems);
     m_sideBar->setActivePage(ui::SideBar::DiscoverPage);
+    m_online->setLoginInfo(core::SettingsService::onlineNickname());
     setupShortcuts();
+
+    m_apiService.ensureRunning(
+        [this] {
+            m_apiClient.setBaseUrl(m_apiService.apiBase());
+            m_online->refresh();
+        },
+        [](const QString &) {});
 }
 
 void MainWindow::showPage(int pageId)
@@ -442,6 +479,109 @@ void MainWindow::openAlbum(const QString &album, const QString &artist)
     showPage(2);
 }
 
+void MainWindow::openOnlinePlaylist(qint64 id, const QString &name)
+{
+    m_apiClient.playlistTracks(id, [this, name](const QJsonArray &arr) {
+        QList<core::Song> songs;
+        for (const QJsonValue &v : arr) {
+            core::Song s = m_apiClient.songFromJson(v.toObject());
+            s.id = m_library.upsertOnlineSong(s);
+            songs.append(s);
+        }
+        ensureOnlineCovers(songs);
+        int local = 0;
+        int online = 0;
+        for (const auto &s : songs)
+            s.isOnline() ? ++online : ++local;
+        const QString meta = QStringLiteral("本地 %1 首 · 在线 %2 首").arg(local).arg(online);
+        m_songListPage->showContent(songs, name, meta, m_currentSongId, false);
+        m_songListPage->setPlaylistContext(-1);
+        showPage(2);
+    }, [this](const QString &msg) {
+        QMessageBox::information(this, QStringLiteral("在线歌单"), QStringLiteral("加载失败:%1").arg(msg));
+    });
+}
+
+void MainWindow::openOnlineAlbum(qint64 id)
+{
+    m_apiClient.albumDetail(id, [this](const QJsonObject &obj) {
+        const QString name = obj.value(QStringLiteral("album")).toObject().value(QStringLiteral("name")).toString();
+        QList<core::Song> songs;
+        const QJsonArray arr = obj.value(QStringLiteral("songs")).toArray();
+        for (const QJsonValue &v : arr) {
+            core::Song s = m_apiClient.songFromJson(v.toObject());
+            s.id = m_library.upsertOnlineSong(s);
+            songs.append(s);
+        }
+        ensureOnlineCovers(songs);
+        m_songListPage->showContent(songs, name, QStringLiteral("专辑 · %1 首").arg(songs.size()),
+                                    m_currentSongId, false);
+        m_songListPage->setPlaylistContext(-1);
+        showPage(2);
+    }, [this](const QString &msg) {
+        QMessageBox::information(this, QStringLiteral("专辑"), QStringLiteral("加载失败:%1").arg(msg));
+    });
+}
+
+void MainWindow::openOnlineArtist(qint64 id)
+{
+    m_apiClient.artistSongs(id, [this](const QJsonArray &arr) {
+        QList<core::Song> songs;
+        for (const QJsonValue &v : arr) {
+            core::Song s = m_apiClient.songFromJson(v.toObject());
+            s.id = m_library.upsertOnlineSong(s);
+            songs.append(s);
+        }
+        ensureOnlineCovers(songs);
+        m_songListPage->showContent(songs, QStringLiteral("歌手歌曲"), QStringLiteral("热门 %1 首").arg(songs.size()),
+                                    m_currentSongId, false);
+        m_songListPage->setPlaylistContext(-1);
+        showPage(2);
+    }, [this](const QString &msg) {
+        QMessageBox::information(this, QStringLiteral("歌手"), QStringLiteral("加载失败:%1").arg(msg));
+    });
+}
+
+void MainWindow::ensureOnlineCovers(const QList<core::Song> &songs)
+{
+    for (const core::Song &s : songs) {
+        if (!s.isOnline() || s.coverUrl.isEmpty() || s.id <= 0)
+            continue;
+        const core::Song current = m_library.songById(s.id);
+        if (!current.coverPath.isEmpty())
+            continue;
+        const QString path = m_library.coverCacheDir()
+            + QStringLiteral("/online_%1_%2.jpg").arg(s.source).arg(s.onlineId);
+        if (QFileInfo::exists(path)) {
+            m_library.setSongCoverPath(s.id, path);
+            continue;
+        }
+        const QUrl url(s.coverUrl);
+        const qint64 id = s.id;
+        m_apiClient.downloadToFile(url, path, [this, id, path](bool ok) {
+            if (ok)
+                m_library.setSongCoverPath(id, path);
+        });
+    }
+}
+
+void MainWindow::doLogin()
+{
+    ui::LoginDialog dlg(&m_apiClient, this);
+    if (dlg.exec() == QDialog::Accepted)
+        m_online->setLoginInfo(dlg.nickname());
+}
+
+void MainWindow::doLogout()
+{
+    m_apiClient.logout([](const QJsonObject &) {}, [](const QString &) {});
+    core::SettingsService::setOnlineCookie(QString());
+    core::SettingsService::setOnlineUid(0);
+    core::SettingsService::setOnlineNickname(QString());
+    m_apiClient.setCookie(QString());
+    m_online->setLoginInfo(QString());
+}
+
 void MainWindow::playSongs(const QList<core::Song> &songs, int index)
 {
     if (songs.isEmpty())
@@ -489,7 +629,7 @@ void MainWindow::onCurrentSongChanged(const core::Song &song, int index)
     refreshLibraryViews();
     m_songListPage->setPlayingId(m_currentSongId);
     m_playing->setSong(song, QPixmap());
-    m_playing->setLyrics(core::LyricsLoader::load(song));
+    m_playing->loadLyricsFor(song);
     m_playing->setLyricFontSize(core::SettingsService::lyricFontSize());
     if (song.id > 0) {
         m_library.markPlayed(song.id);

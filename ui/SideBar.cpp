@@ -26,6 +26,7 @@ SideBar::SideBar(QWidget *parent)
     addNavButton(QStringLiteral("发现音乐"), QStringLiteral(":/icons/icon-music.svg"), DiscoverPage);
     addNavButton(QStringLiteral("音乐库"), QStringLiteral(":/icons/icon-library.svg"), LibraryPage);
     addNavButton(QStringLiteral("正在播放"), QStringLiteral(":/icons/icon-lyrics.svg"), PlayingPage);
+    addNavButton(QStringLiteral("在线音乐"), QStringLiteral(":/icons/icon-cloud.svg"), OnlinePageId);
 
     auto *sectionTitle = new QLabel(QStringLiteral("我的歌单"), this);
     sectionTitle->setProperty("class", "sectionTitle");

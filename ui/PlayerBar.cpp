@@ -61,11 +61,23 @@ PlayerBar::PlayerBar(QWidget *parent)
     m_artist = new QLabel(this);
     m_artist->setProperty("class", "nowSub");
 
+    m_sourceBadge = new QLabel(this);
+    m_sourceBadge->setStyleSheet(QStringLiteral(
+        "QLabel{color:#8F8F9C;background:rgba(255,255,255,0.06);"
+        "border-radius:8px;padding:1px 7px;font-size:11px;}"));
+
+    auto *titleRow = new QHBoxLayout;
+    titleRow->setContentsMargins(0, 0, 0, 0);
+    titleRow->setSpacing(6);
+    titleRow->addWidget(m_title);
+    titleRow->addWidget(m_sourceBadge);
+    titleRow->addStretch(1);
+
     auto *infoBox = new QWidget(this);
     auto *infoLayout = new QVBoxLayout(infoBox);
     infoLayout->setContentsMargins(0, 0, 0, 0);
     infoLayout->setSpacing(2);
-    infoLayout->addWidget(m_title);
+    infoLayout->addLayout(titleRow);
     infoLayout->addWidget(m_artist);
 
     m_heartBtn = new QPushButton(this);
@@ -264,6 +276,10 @@ void PlayerBar::setSong(const core::Song &song, bool favorite)
     m_favorite = favorite;
     m_title->setText(song.title.isEmpty() ? QFileInfo(song.filePath).completeBaseName() : song.title);
     m_artist->setText(song.artist.isEmpty() ? QStringLiteral("未知歌手") : song.artist);
+    if (song.isOnline())
+        m_sourceBadge->setText(song.isCached() ? QStringLiteral("☁ 已缓存") : QStringLiteral("☁ 在线"));
+    else
+        m_sourceBadge->setText(QStringLiteral("本地"));
     m_heartBtn->setIcon(QIcon(favorite ? QStringLiteral(":/icons/icon-heart-fill.svg")
                                        : QStringLiteral(":/icons/icon-heart.svg")));
     if (!song.coverPath.isEmpty()) {

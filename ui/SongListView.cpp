@@ -6,6 +6,7 @@
 
 #include <QContextMenuEvent>
 #include <QHeaderView>
+#include <QIcon>
 #include <QMenu>
 #include <QPainter>
 #include <QPainterPath>
@@ -111,10 +112,22 @@ public:
             const QRectF coverRect(rect.left() + 6, rect.center().y() - 18, 36, 36);
             const QPixmap cover = CoverProvider::coverFor(song, 36, 4);
             painter->drawPixmap(coverRect.toRect(), cover);
-            QRectF textRect(rect.left() + 50, rect.top(), rect.width() - 56, rect.height());
+            qreal textX = rect.left() + 50;
+            if (song.isOnline()) {
+                static const QIcon cloud(QStringLiteral(":/icons/icon-cloud.svg"));
+                const QRectF iconRect(rect.left() + 48, rect.center().y() - 7, 14, 14);
+                cloud.paint(painter, iconRect.toRect());
+                if (song.isCached()) {
+                    static const QIcon check(QStringLiteral(":/icons/icon-check.svg"));
+                    check.paint(painter, QRect(rect.left() + 57, rect.center().y() - 11, 9, 9));
+                }
+                textX = rect.left() + 68;
+            }
+            QRectF textRect(textX, rect.top(), rect.width() - (textX - rect.left()) - 6, rect.height());
             painter->save();
             painter->setFont(m_titleFont);
-            drawHighlightedText(*painter, textRect, song.title, query, playing ? kPrimary : kText, Qt::AlignLeft);
+            const QString titleText = song.missing ? song.title + QStringLiteral(" · 失效") : song.title;
+            drawHighlightedText(*painter, textRect, titleText, query, playing ? kPrimary : (song.missing ? kText3 : kText), Qt::AlignLeft);
             painter->restore();
         } else if (col == 2) {
             painter->save();

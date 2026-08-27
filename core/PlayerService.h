@@ -1,8 +1,10 @@
 #pragma once
 
+#include "core/MusicSource.h"
 #include "core/Song.h"
 
 #include <QAudioOutput>
+#include <QJsonArray>
 #include <QMediaPlayer>
 #include <QObject>
 #include <QVector>
@@ -17,6 +19,9 @@ public:
     Q_ENUM(PlayMode)
 
     explicit PlayerService(QObject *parent = nullptr);
+
+    void setSourceProvider(MusicSource *source) { m_source = source; }
+    void setLibrary(class LibraryService *library) { m_lib = library; }
 
     void setPlaylist(const QList<Song> &songs, int startIndex = -1);
     void playIndex(int index);
@@ -55,6 +60,7 @@ signals:
 private:
     void loadCurrent(bool autoPlay);
     void buildShuffleOrder();
+    void maybeCacheCurrent(qint64 positionMs);
 
     QMediaPlayer m_player;
     QAudioOutput m_audio;
@@ -64,7 +70,11 @@ private:
     QVector<int> m_shuffleOrder;
     int m_shufflePos = 0;
     QVector<int> m_history;
+    MusicSource *m_source = nullptr;
+    class LibraryService *m_lib = nullptr;
+    QString m_currentUrl;
+    bool m_cacheSaved = false;
+    int m_loadToken = 0;
 };
 
 } // namespace core
-

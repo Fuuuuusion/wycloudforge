@@ -16,10 +16,14 @@ add_library(neteclone_core STATIC
     PlaylistController.cpp
     SearchService.h
     SearchService.cpp
+    NeteaseApiClient.h
+    NeteaseApiClient.cpp
+    ApiService.h
+    ApiService.cpp
 )
 
 target_include_directories(neteclone_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)
-target_link_libraries(neteclone_core PUBLIC Qt6::Core Qt6::Sql Qt6::Multimedia)
+target_link_libraries(neteclone_core PUBLIC Qt6::Core Qt6::Sql Qt6::Multimedia Qt6::Network)
 
 if(NETECLONE_HAVE_TAGLIB)
     target_compile_definitions(neteclone_core PUBLIC NETECLONE_HAVE_TAGLIB)

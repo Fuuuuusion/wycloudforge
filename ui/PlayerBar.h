@@ -49,6 +49,7 @@ private:
     QLabel *m_cover = nullptr;
     QLabel *m_title = nullptr;
     QLabel *m_artist = nullptr;
+    QLabel *m_sourceBadge = nullptr;
     QLabel *m_timeCur = nullptr;
     QLabel *m_timeTotal = nullptr;
     QPushButton *m_heartBtn = nullptr;
