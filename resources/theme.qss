@@ -199,16 +199,18 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
 }
 QScrollBar:horizontal {
     background: transparent;
-    height: 8px;
+    height: 0px;
+    min-height: 0px;
+    max-height: 0px;
     margin: 0;
 }
 QScrollBar::handle:horizontal {
-    background: #33333F;
+    background: transparent;
     border-radius: 4px;
-    min-width: 30px;
+    min-width: 0px;
 }
 QScrollBar::handle:horizontal:hover {
-    background: #444450;
+    background: transparent;
 }
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
     width: 0;

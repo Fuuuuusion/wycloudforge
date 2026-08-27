@@ -87,6 +87,7 @@ LibraryPage::LibraryPage(QWidget *parent)
     auto *artistScroll = new QScrollArea(artistPage);
     artistScroll->setWidgetResizable(true);
     artistScroll->setFrameShape(QFrame::NoFrame);
+    artistScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     auto *artistContent = new QWidget;
     m_artistGrid = new QGridLayout(artistContent);
     m_artistGrid->setContentsMargins(0, 0, 0, 0);
@@ -101,6 +102,7 @@ LibraryPage::LibraryPage(QWidget *parent)
     auto *albumScroll = new QScrollArea(albumPage);
     albumScroll->setWidgetResizable(true);
     albumScroll->setFrameShape(QFrame::NoFrame);
+    albumScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     auto *albumContent = new QWidget;
     m_albumGrid = new QGridLayout(albumContent);
     m_albumGrid->setContentsMargins(0, 0, 0, 0);

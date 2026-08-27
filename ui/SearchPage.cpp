@@ -87,6 +87,7 @@ SearchPage::SearchPage(QWidget *parent)
     auto *artistScroll = new QScrollArea(artistPage);
     artistScroll->setWidgetResizable(true);
     artistScroll->setFrameShape(QFrame::NoFrame);
+    artistScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     auto *artistContent = new QWidget;
     m_artistLayout = new QVBoxLayout(artistContent);
     m_artistLayout->setContentsMargins(0, 0, 0, 0);
@@ -101,6 +102,7 @@ SearchPage::SearchPage(QWidget *parent)
     auto *albumScroll = new QScrollArea(albumPage);
     albumScroll->setWidgetResizable(true);
     albumScroll->setFrameShape(QFrame::NoFrame);
+    albumScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     auto *albumContent = new QWidget;
     m_albumLayout = new QVBoxLayout(albumContent);
     m_albumLayout->setContentsMargins(0, 0, 0, 0);

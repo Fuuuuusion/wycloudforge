@@ -143,6 +143,7 @@ void OnlinePage::buildRecommendTab()
     auto *scroll = new QScrollArea(page);
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     auto *content = new QWidget;
     auto *gridLayout = new QVBoxLayout(content);
     gridLayout->setContentsMargins(0, 0, 0, 0);
@@ -221,6 +222,7 @@ void OnlinePage::buildPlaylistSquareTab()
     auto *scroll = new QScrollArea(page);
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     auto *content = new QWidget;
     auto *v = new QVBoxLayout(content);
     v->setContentsMargins(0, 0, 0, 0);
@@ -246,6 +248,7 @@ void OnlinePage::buildMyPlaylistsTab()
     auto *scroll = new QScrollArea(page);
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     auto *content = new QWidget;
     auto *v = new QVBoxLayout(content);
     v->setContentsMargins(0, 0, 0, 0);
