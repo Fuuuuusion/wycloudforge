@@ -264,9 +264,9 @@ void PlayerBar::paintEvent(QPaintEvent *)
     const QRectF r = rect();
     const qreal radius = 40.0;
 
-    // 背底缓存:极光是缓慢动画,约 180ms 刷新一次即可,避免每帧高成本模糊
+    // 背底缓存:内容+极光是缓变内容,约 120ms 刷新一次即可,避免每帧高成本模糊
     const qint64 now = m_clock.isValid() ? m_clock.elapsed() : 0;
-    constexpr qint64 kBackdropInterval = 180;
+    constexpr qint64 kBackdropInterval = 120;
     if (!m_backdropValid || now - m_backdropMs > kBackdropInterval) {
         const int pad = 30; // 模糊缓冲,避免边缘裁切生硬
         const QSize areaSize(size() + QSize(pad * 2, pad * 2));
@@ -276,6 +276,16 @@ void PlayerBar::paintEvent(QPaintEvent *)
         ap.setRenderHint(QPainter::Antialiasing);
         const qreal t = m_clock.isValid() ? m_clock.elapsed() / 1000.0 : 0.0;
         AuroraBackground::renderScene(&ap, QRectF(QPointF(0, 0), QSizeF(area.size())), t);
+
+        // 抓取胶囊背后真实内容(内容区 body),叠加到极光之上,实现"内容透出"
+        if (m_backdropSource && m_backdropSource->isVisible()) {
+            const QPoint topLeft = m_backdropSource->mapFrom(this, QPoint(0, 0));
+            const QRect src(topLeft, size());
+            const QRect clip = src.adjusted(-pad, -pad, pad, pad);
+            const QPixmap grab = m_backdropSource->grab(clip);
+            if (!grab.isNull())
+                ap.drawPixmap(QRect(0, 0, clip.width(), clip.height()), grab);
+        }
         ap.end();
 
         QImage blurred = gaussianBlur(area, 16.0);
@@ -332,6 +342,12 @@ void PlayerBar::paintEvent(QPaintEvent *)
     p.setPen(Qt::NoPen);
     p.setBrush(QColor(255, 255, 255, 51));
     p.drawRoundedRect(QRectF(r.left() + 1, r.top() + 1, r.width() - 2, 4), 3, 3);
+}
+
+void PlayerBar::setBackdropSource(QWidget *widget)
+{
+    m_backdropSource = widget;
+    m_backdropValid = false; // 让下一帧重新取样
 }
 
 QPixmap PlayerBar::shadowPixmap()

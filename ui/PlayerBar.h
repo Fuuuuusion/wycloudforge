@@ -26,6 +26,8 @@ public:
     void setVolume(int volume);
     void setMuted(bool muted);
     void setMode(int mode);
+    // 设定"背后内容源"(通常为内容区 body),用于抓取真实像素做毛玻璃
+    void setBackdropSource(QWidget *widget);
 
 signals:
     void playPauseClicked();
@@ -78,6 +80,7 @@ private:
     QPixmap m_shadow;
     bool m_backdropValid = false;
     qint64 m_backdropMs = 0;
+    QWidget *m_backdropSource = nullptr;
 };
 
 } // namespace ui

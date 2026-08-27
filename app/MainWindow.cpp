@@ -141,13 +141,17 @@ MainWindow::MainWindow(QWidget *parent)
 
     auto *central = new ui::AuroraBackground(this);
     auto *layout = new QVBoxLayout(central);
-    layout->setContentsMargins(0, 0, 0, 14);
+    layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
     layout->addWidget(m_titleBar);
     layout->addWidget(body, 1);
-    layout->addWidget(m_playerBar, 0, Qt::AlignHCenter);
     setCentralWidget(central);
 
+    // 播放器胶囊悬浮于内容之上,内容区延伸到其背后,供毛玻璃取样
+    m_playerBar->setParent(central);
+    m_playerBar->setBackdropSource(body);
+    positionPlayerBar();
+    m_playerBar->raise();
     body->setStyleSheet(QStringLiteral("background: transparent;"));
 
     // ---------- 标题栏 ----------
@@ -720,4 +724,23 @@ void MainWindow::changeEvent(QEvent *event)
     if (event->type() == QEvent::WindowStateChange)
         m_titleBar->setMaximizedState(isMaximized());
     QMainWindow::changeEvent(event);
+}
+
+void MainWindow::resizeEvent(QResizeEvent *event)
+{
+    positionPlayerBar();
+    QMainWindow::resizeEvent(event);
+}
+
+void MainWindow::positionPlayerBar()
+{
+    if (!m_playerBar)
+        return;
+    QWidget *central = centralWidget();
+    if (!central)
+        return;
+    const int y = central->height() - m_playerBar->height() - 14;
+    const int x = (central->width() - m_playerBar->width()) / 2;
+    m_playerBar->move(x, y);
+    m_playerBar->raise();
 }
