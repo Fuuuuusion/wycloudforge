@@ -14,6 +14,7 @@
 #include "ui/SearchPage.h"
 #include "ui/SettingsDialog.h"
 #include "ui/SideBar.h"
+#include "ui/SvgIcon.h"
 #include "ui/SongListPage.h"
 #include "ui/TitleBar.h"
 

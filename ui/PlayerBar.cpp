@@ -2,6 +2,7 @@
 
 #include "ui/AuroraBackground.h"
 #include "ProgressSlider.h"
+#include "ui/SvgIcon.h"
 
 #include <QFileInfo>
 #include <QHBoxLayout>
@@ -82,14 +83,14 @@ PlayerBar::PlayerBar(QWidget *parent)
 
     m_heartBtn = new QPushButton(this);
     m_heartBtn->setProperty("class", "ctrlBtn");
-    m_heartBtn->setIcon(QIcon(QStringLiteral(":/icons/icon-heart.svg")));
+    m_heartBtn->setIcon(makeSvgIcon(QStringLiteral(":/icons/icon-heart.svg")));
     m_heartBtn->setIconSize(QSize(18, 18));
     m_heartBtn->setFixedSize(30, 30);
     m_heartBtn->setCursor(Qt::PointingHandCursor);
     m_heartBtn->setToolTip(QStringLiteral("喜欢"));
     connect(m_heartBtn, &QPushButton::clicked, this, [this] {
         m_favorite = !m_favorite;
-        m_heartBtn->setIcon(QIcon(m_favorite ? QStringLiteral(":/icons/icon-heart-fill.svg")
+    m_heartBtn->setIcon(makeSvgIcon(m_favorite ? QStringLiteral(":/icons/icon-heart-fill.svg")
                                              : QStringLiteral(":/icons/icon-heart.svg")));
         emit heartToggled(m_favorite);
     });
@@ -126,7 +127,7 @@ PlayerBar::PlayerBar(QWidget *parent)
     auto makeCtrlButton = [this](const QString &icon, const QString &tip) {
         auto *btn = new QPushButton(this);
         btn->setProperty("class", "ctrlBtn");
-        btn->setIcon(QIcon(icon));
+        btn->setIcon(makeSvgIcon(icon));
         btn->setIconSize(QSize(20, 20));
         btn->setFixedSize(30, 30);
         btn->setToolTip(tip);
@@ -138,7 +139,7 @@ PlayerBar::PlayerBar(QWidget *parent)
     m_prevBtn = makeCtrlButton(QStringLiteral(":/icons/icon-prev.svg"), QStringLiteral("上一首"));
     m_playBtn = new QPushButton(this);
     m_playBtn->setObjectName("playPauseBtn");
-    m_playBtn->setIcon(QIcon(QStringLiteral(":/icons/icon-play-white.svg")));
+    m_playBtn->setIcon(makeSvgIcon(QStringLiteral(":/icons/icon-play-white.svg")));
     m_playBtn->setIconSize(QSize(19, 19));
     m_playBtn->setFixedSize(40, 40);
     m_playBtn->setCursor(Qt::PointingHandCursor);
@@ -280,7 +281,7 @@ void PlayerBar::setSong(const core::Song &song, bool favorite)
         m_sourceBadge->setText(song.isCached() ? QStringLiteral("☁ 已缓存") : QStringLiteral("☁ 在线"));
     else
         m_sourceBadge->setText(QStringLiteral("本地"));
-    m_heartBtn->setIcon(QIcon(favorite ? QStringLiteral(":/icons/icon-heart-fill.svg")
+    m_heartBtn->setIcon(makeSvgIcon(favorite ? QStringLiteral(":/icons/icon-heart-fill.svg")
                                        : QStringLiteral(":/icons/icon-heart.svg")));
     if (!song.coverPath.isEmpty()) {
         QPixmap pm(song.coverPath);
@@ -334,14 +335,14 @@ void PlayerBar::setMode(int mode)
     static const char *icons[] = { ":/icons/icon-loop.svg", ":/icons/icon-single.svg", ":/icons/icon-shuffle.svg" };
     static const char *tips[] = { "列表循环", "单曲循环", "随机播放" };
     if (mode >= 0 && mode <= 2) {
-        m_modeBtn->setIcon(QIcon(QLatin1String(icons[mode])));
+        m_modeBtn->setIcon(makeSvgIcon(QLatin1String(icons[mode]), 20));
         m_modeBtn->setToolTip(QLatin1String(tips[mode]));
     }
 }
 
 void PlayerBar::updatePlayIcon()
 {
-    m_playBtn->setIcon(QIcon(m_playing ? QStringLiteral(":/icons/icon-pause-white.svg")
+    m_playBtn->setIcon(makeSvgIcon(m_playing ? QStringLiteral(":/icons/icon-pause-white.svg")
                                        : QStringLiteral(":/icons/icon-play-white.svg")));
     m_playBtn->setToolTip(m_playing ? QStringLiteral("暂停") : QStringLiteral("播放"));
 }
@@ -349,7 +350,7 @@ void PlayerBar::updatePlayIcon()
 void PlayerBar::updateVolumeIcon()
 {
     const bool muted = m_muted || m_volumeValue == 0;
-    m_muteBtn->setIcon(QIcon(muted ? QStringLiteral(":/icons/icon-volume-mute.svg")
+    m_muteBtn->setIcon(makeSvgIcon(muted ? QStringLiteral(":/icons/icon-volume-mute.svg")
                                    : QStringLiteral(":/icons/icon-volume.svg")));
 }
 

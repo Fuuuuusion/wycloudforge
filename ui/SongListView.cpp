@@ -3,6 +3,7 @@
 #include "core/SearchService.h"
 #include "ui/CoverProvider.h"
 #include "ui/SongListModel.h"
+#include "ui/SvgIcon.h"
 
 #include <QContextMenuEvent>
 #include <QHeaderView>
@@ -114,11 +115,11 @@ public:
             painter->drawPixmap(coverRect.toRect(), cover);
             qreal textX = rect.left() + 50;
             if (song.isOnline()) {
-                static const QIcon cloud(QStringLiteral(":/icons/icon-cloud.svg"));
+                static const QIcon cloud = makeSvgIcon(QStringLiteral(":/icons/icon-cloud.svg"), 14);
                 const QRectF iconRect(rect.left() + 48, rect.center().y() - 7, 14, 14);
                 cloud.paint(painter, iconRect.toRect());
                 if (song.isCached()) {
-                    static const QIcon check(QStringLiteral(":/icons/icon-check.svg"));
+                    static const QIcon check = makeSvgIcon(QStringLiteral(":/icons/icon-check.svg"), 9);
                     check.paint(painter, QRect(rect.left() + 57, rect.center().y() - 11, 9, 9));
                 }
                 textX = rect.left() + 68;

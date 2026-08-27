@@ -1,5 +1,7 @@
 #include "TitleBar.h"
 
+#include "ui/SvgIcon.h"
+
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -15,7 +17,7 @@ TitleBar::TitleBar(QWidget *parent)
 
     auto *brand = new QLabel(this);
     brand->setFixedSize(30, 30);
-    brand->setPixmap(QIcon(QStringLiteral(":/icons/logo.svg")).pixmap(30, 30));
+    brand->setPixmap(makeSvgIcon(QStringLiteral(":/icons/logo.svg")).pixmap(30, 30));
 
     auto *brandName = new QLabel(QStringLiteral("仿网易云播放器"), this);
     brandName->setObjectName("brandName");
@@ -25,7 +27,7 @@ TitleBar::TitleBar(QWidget *parent)
     m_searchEdit->setPlaceholderText(QStringLiteral("搜索音乐、歌手、专辑"));
     m_searchEdit->setFixedSize(340, 30);
     m_searchEdit->setClearButtonEnabled(true);
-    m_searchEdit->addAction(QIcon(QStringLiteral(":/icons/icon-search.svg")), QLineEdit::LeadingPosition);
+    m_searchEdit->addAction(makeSvgIcon(QStringLiteral(":/icons/icon-search.svg")), QLineEdit::LeadingPosition);
     connect(m_searchEdit, &QLineEdit::returnPressed, this, [this] {
         emit searchRequested(m_searchEdit->text().trimmed());
     });

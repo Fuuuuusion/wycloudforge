@@ -2,7 +2,7 @@ add_executable(NeteaseClone WIN32
     main.cpp
     MainWindow.h
     MainWindow.cpp
-    ../resources/resources.qrc
+    ${CMAKE_SOURCE_DIR}/resources/resources.qrc
 )
 
 target_link_libraries(NeteaseClone PRIVATE

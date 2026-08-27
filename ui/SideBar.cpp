@@ -1,5 +1,7 @@
 #include "SideBar.h"
 
+#include "ui/SvgIcon.h"
+
 #include <QButtonGroup>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -59,7 +61,7 @@ SideBar::SideBar(QWidget *parent)
 
     auto *createBtn = new QPushButton(QStringLiteral("创建歌单"), this);
     createBtn->setObjectName("createPlaylistBtn");
-    createBtn->setIcon(QIcon(QStringLiteral(":/icons/icon-plus.svg")));
+    createBtn->setIcon(makeSvgIcon(QStringLiteral(":/icons/icon-plus.svg")));
     createBtn->setStyleSheet(QStringLiteral(
         "QPushButton{border:none;background:rgba(255,255,255,0.05);color:#9A9AA5;"
         "padding:7px 10px;border-radius:6px;}"

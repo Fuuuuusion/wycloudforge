@@ -10,6 +10,11 @@ find_package(Qt6 REQUIRED COMPONENTS Widgets Multimedia MultimediaWidgets Svg Sq
 
 qt_standard_project_setup()
 
+# 确保 QRC 资源被编译(theme.qss / SVG 图标)
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTOUIC ON)
+set(CMAKE_AUTORCC ON)
+
 # 元数据解析:优先 TagLib(vcpkg 安装);找不到时回退内置最小解析器
 find_package(taglib CONFIG QUIET)
 set(NETECLONE_HAVE_TAGLIB FALSE)
@@ -28,4 +33,3 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/CMakeLists.txt)
     enable_testing()
     add_subdirectory(tests)
 endif()
-
