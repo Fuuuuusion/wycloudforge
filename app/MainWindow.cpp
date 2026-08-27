@@ -19,6 +19,7 @@
 #include "ui/TitleBar.h"
 
 #include <QApplication>
+#include <QAbstractScrollArea>
 #include <QCursor>
 #include <QCloseEvent>
 #include <QDir>
@@ -45,6 +46,14 @@
 
 namespace {
 constexpr int kResizeBorder = 5;
+
+// 统一禁用所有可滚动控件的横向滚动条,彻底避免"白色横条"
+void disableHorizontalScrollbars(QWidget *root)
+{
+    const QList<QAbstractScrollArea *> areas = root->findChildren<QAbstractScrollArea *>();
+    for (QAbstractScrollArea *a : areas)
+        a->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+}
 
 struct NcHitTestResult
 {
@@ -424,6 +433,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_sideBar->setActivePage(ui::SideBar::DiscoverPage);
     m_online->setLoginInfo(core::SettingsService::onlineNickname());
     setupShortcuts();
+    disableHorizontalScrollbars(this);
 
     m_apiService.ensureRunning(
         [this] {
