@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QElapsedTimer>
+#include <QPixmap>
 #include <QWidget>
 
 #include "core/Song.h"
@@ -42,6 +43,7 @@ protected:
     void paintEvent(QPaintEvent *event) override;
 
 private:
+    QPixmap shadowPixmap();
     void updatePlayIcon();
     void updateVolumeIcon();
     void updateTimeLabel();
@@ -72,6 +74,10 @@ private:
     qint64 m_positionMs = 0;
     qint64 m_durationMs = 0;
     QElapsedTimer m_clock;
+    QPixmap m_backdrop;
+    QPixmap m_shadow;
+    bool m_backdropValid = false;
+    qint64 m_backdropMs = 0;
 };
 
 } // namespace ui
