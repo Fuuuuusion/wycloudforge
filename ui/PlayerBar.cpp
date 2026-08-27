@@ -83,7 +83,7 @@ PlayerBar::PlayerBar(QWidget *parent)
 
     m_heartBtn = new QPushButton(this);
     m_heartBtn->setProperty("class", "ctrlBtn");
-    m_heartBtn->setIcon(makeSvgIcon(QStringLiteral(":/icons/icon-heart.svg")));
+    m_heartBtn->setIcon(makeSvgIcon(QStringLiteral(":/icons/icon-heart.svg"), 18));
     m_heartBtn->setIconSize(QSize(18, 18));
     m_heartBtn->setFixedSize(30, 30);
     m_heartBtn->setCursor(Qt::PointingHandCursor);
@@ -91,7 +91,7 @@ PlayerBar::PlayerBar(QWidget *parent)
     connect(m_heartBtn, &QPushButton::clicked, this, [this] {
         m_favorite = !m_favorite;
     m_heartBtn->setIcon(makeSvgIcon(m_favorite ? QStringLiteral(":/icons/icon-heart-fill.svg")
-                                             : QStringLiteral(":/icons/icon-heart.svg")));
+                                             : QStringLiteral(":/icons/icon-heart.svg"), 18));
         emit heartToggled(m_favorite);
     });
 
@@ -127,7 +127,7 @@ PlayerBar::PlayerBar(QWidget *parent)
     auto makeCtrlButton = [this](const QString &icon, const QString &tip) {
         auto *btn = new QPushButton(this);
         btn->setProperty("class", "ctrlBtn");
-        btn->setIcon(makeSvgIcon(icon));
+        btn->setIcon(makeSvgIcon(icon, 20));
         btn->setIconSize(QSize(20, 20));
         btn->setFixedSize(30, 30);
         btn->setToolTip(tip);
@@ -139,7 +139,7 @@ PlayerBar::PlayerBar(QWidget *parent)
     m_prevBtn = makeCtrlButton(QStringLiteral(":/icons/icon-prev.svg"), QStringLiteral("上一首"));
     m_playBtn = new QPushButton(this);
     m_playBtn->setObjectName("playPauseBtn");
-    m_playBtn->setIcon(makeSvgIcon(QStringLiteral(":/icons/icon-play-white.svg")));
+    m_playBtn->setIcon(makeSvgIcon(QStringLiteral(":/icons/icon-play-white.svg"), 17));
     m_playBtn->setIconSize(QSize(17, 17));
     m_playBtn->setFixedSize(36, 36);
     m_playBtn->setCursor(Qt::PointingHandCursor);
@@ -282,7 +282,7 @@ void PlayerBar::setSong(const core::Song &song, bool favorite)
     else
         m_sourceBadge->setText(QStringLiteral("本地"));
     m_heartBtn->setIcon(makeSvgIcon(favorite ? QStringLiteral(":/icons/icon-heart-fill.svg")
-                                       : QStringLiteral(":/icons/icon-heart.svg")));
+                                       : QStringLiteral(":/icons/icon-heart.svg"), 18));
     if (!song.coverPath.isEmpty()) {
         QPixmap pm(song.coverPath);
         if (!pm.isNull())
@@ -343,7 +343,7 @@ void PlayerBar::setMode(int mode)
 void PlayerBar::updatePlayIcon()
 {
     m_playBtn->setIcon(makeSvgIcon(m_playing ? QStringLiteral(":/icons/icon-pause-white.svg")
-                                       : QStringLiteral(":/icons/icon-play-white.svg")));
+                                       : QStringLiteral(":/icons/icon-play-white.svg"), 17));
     m_playBtn->setToolTip(m_playing ? QStringLiteral("暂停") : QStringLiteral("播放"));
 }
 
@@ -351,7 +351,7 @@ void PlayerBar::updateVolumeIcon()
 {
     const bool muted = m_muted || m_volumeValue == 0;
     m_muteBtn->setIcon(makeSvgIcon(muted ? QStringLiteral(":/icons/icon-volume-mute.svg")
-                                   : QStringLiteral(":/icons/icon-volume.svg")));
+                                   : QStringLiteral(":/icons/icon-volume.svg"), 20));
 }
 
 void PlayerBar::updateTimeLabel()

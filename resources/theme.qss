@@ -52,6 +52,12 @@ QPushButton[class="winBtn"]:hover {
 QPushButton[class="winBtn"]:pressed {
     background: rgba(255, 255, 255, 0.12);
 }
+QPushButton[class="winClose"] {
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    padding: 0;
+}
 QPushButton[class="winClose"]:hover {
     background: #EC4141;
 }
