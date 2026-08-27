@@ -2,11 +2,11 @@
 
 #include "core/Song.h"
 
-#include <QAbstractListModel>
+#include <QAbstractTableModel>
 
 namespace ui {
 
-class SongListModel : public QAbstractListModel
+class SongListModel : public QAbstractTableModel
 {
     Q_OBJECT
 public:
@@ -26,6 +26,7 @@ public:
     explicit SongListModel(QObject *parent = nullptr);
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
+    int columnCount(const QModelIndex &parent = QModelIndex()) const override;
     QVariant data(const QModelIndex &index, int role) const override;
 
     void setSongs(const QList<core::Song> &songs, qint64 playingId = -1);

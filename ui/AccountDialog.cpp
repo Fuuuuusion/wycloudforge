@@ -10,6 +10,7 @@
 #include <QLabel>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPointer>
 #include <QPushButton>
 #include <QStandardPaths>
 #include <QUrl>
@@ -124,20 +125,31 @@ void AccountDialog::loginNetease()
     ui::LoginDialog dlg(m_netease, this);
     if (dlg.exec() != QDialog::Accepted)
         return;
-    // LoginDialog 已写入 uid/nickname/cookie;这里仅补充头像下载
-    m_netease->loginStatus([this](const QJsonObject &obj) {
+    // LoginDialog 已写入 cookie;/login/qr/check 往往不带 profile,故从 /login/status 补齐 uid/昵称/头像
+    QPointer<AccountDialog> self(this);
+    m_netease->loginStatus([self](const QJsonObject &obj) {
+        if (!self)
+            return;
         const QJsonObject data = obj.value(QStringLiteral("data")).toObject();
         const QJsonObject profile = data.value(QStringLiteral("profile")).toObject();
+        const qint64 userId = profile.value(QStringLiteral("userId")).toVariant().toLongLong();
+        const QString nickname = profile.value(QStringLiteral("nickname")).toString();
         const QString avatar = profile.value(QStringLiteral("avatarUrl")).toString();
-        auto finish = [this] {
-            emit accountStateChanged();
-            accept();
+        if (userId > 0) {
+            core::SettingsService::setOnlineUid(userId);
+            core::SettingsService::setOnlineNickname(nickname);
+        }
+        auto finish = [self] {
+            if (self) {
+                emit self->accountStateChanged();
+                self->accept();
+            }
         };
-        if (!avatar.isEmpty() && m_netease) {
+        if (!avatar.isEmpty() && self->m_netease) {
             const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
             QDir().mkpath(dir);
             const QString path = dir + QStringLiteral("/netease_avatar.png");
-            m_netease->downloadToFile(QUrl(avatar), path, [this, path, finish](bool ok) {
+            self->m_netease->downloadToFile(QUrl(avatar), path, [self, path, finish](bool ok) {
                 if (ok)
                     core::SettingsService::setOnlineAvatarUrl(path);
                 finish();
@@ -145,7 +157,7 @@ void AccountDialog::loginNetease()
         } else {
             finish();
         }
-    }, [this](const QString &) { accept(); });
+    }, [self](const QString &) { if (self) self->accept(); });
 }
 
 void AccountDialog::logoutNetease()

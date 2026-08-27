@@ -5,13 +5,18 @@
 namespace ui {
 
 SongListModel::SongListModel(QObject *parent)
-    : QAbstractListModel(parent)
+    : QAbstractTableModel(parent)
 {
 }
 
 int SongListModel::rowCount(const QModelIndex &parent) const
 {
     return parent.isValid() ? 0 : m_songs.size();
+}
+
+int SongListModel::columnCount(const QModelIndex &parent) const
+{
+    return parent.isValid() ? 0 : 5; // 序号 / 歌名 / 歌手 / 专辑 / 时长
 }
 
 QVariant SongListModel::data(const QModelIndex &index, int role) const
@@ -64,7 +69,7 @@ void SongListModel::setPlayingId(qint64 playingId)
     if (m_playingId == playingId)
         return;
     m_playingId = playingId;
-    emit dataChanged(index(0), index(m_songs.size() - 1));
+    emit dataChanged(index(0, 0), index(qMax(0, m_songs.size() - 1), 4));
 }
 
 } // namespace ui
