@@ -94,4 +94,11 @@ QRect TitleBar::windowButtonRect(int index) const
     return QRect(btn->mapTo(this, QPoint(0, 0)), btn->size());
 }
 
+QRect TitleBar::searchRect() const
+{
+    if (!m_searchEdit)
+        return {};
+    return QRect(m_searchEdit->mapTo(this, QPoint(0, 0)), m_searchEdit->size());
+}
+
 } // namespace ui

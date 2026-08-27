@@ -124,19 +124,11 @@ void AccountDialog::loginNetease()
     ui::LoginDialog dlg(m_netease, this);
     if (dlg.exec() != QDialog::Accepted)
         return;
+    // LoginDialog 已写入 uid/nickname/cookie;这里仅补充头像下载
     m_netease->loginStatus([this](const QJsonObject &obj) {
         const QJsonObject data = obj.value(QStringLiteral("data")).toObject();
         const QJsonObject profile = data.value(QStringLiteral("profile")).toObject();
-        const qint64 uid = profile.value(QStringLiteral("userId")).toVariant().toLongLong();
-        const QString name = profile.value(QStringLiteral("nickname")).toString();
         const QString avatar = profile.value(QStringLiteral("avatarUrl")).toString();
-        core::SettingsService::setOnlineUid(uid);
-        core::SettingsService::setOnlineNickname(name);
-        const QString cookie = obj.value(QStringLiteral("cookie")).toString();
-        if (!cookie.isEmpty()) {
-            core::SettingsService::setOnlineCookie(cookie);
-            m_netease->setCookie(cookie);
-        }
         auto finish = [this] {
             emit accountStateChanged();
             accept();

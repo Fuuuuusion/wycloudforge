@@ -52,11 +52,9 @@ SideBar::SideBar(QWidget *parent)
     // 自建歌单区头部:标题 + 右侧"＋"
     auto *sectionHead = new QWidget(this);
     auto *headLayout = new QHBoxLayout(sectionHead);
-    headLayout->setContentsMargins(20, 10, 12, 4);
+    headLayout->setContentsMargins(12, 10, 12, 4);
     headLayout->setSpacing(4);
-    auto *sectionTitle = new QLabel(QStringLiteral("自建歌单"), sectionHead);
-    sectionTitle->setProperty("class", "sectionTitle");
-    headLayout->addWidget(sectionTitle, 1);
+    headLayout->addStretch(1);
     auto *plusBtn = new QPushButton(sectionHead);
     plusBtn->setObjectName("createPlaylistPlus");
     plusBtn->setIcon(makeSvgIcon(QStringLiteral(":/icons/icon-plus.svg"), 18));

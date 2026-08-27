@@ -98,6 +98,9 @@ NcHitTestResult computeHitTest(QWidget *window, const QPoint &cursorGlobal, cons
                 }
             }
         }
+        const QRect sR = titleBar->searchRect();
+        if (sR.isValid() && sR.translated(titleBar->pos()).contains(pos))
+            return { true, HTCLIENT };
         return { true, HTCAPTION };
     }
     return { false, HTCLIENT };

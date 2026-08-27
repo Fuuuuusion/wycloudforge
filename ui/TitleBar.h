@@ -19,6 +19,7 @@ public:
 
     void setMaximizedState(bool maximized);
     QRect windowButtonRect(int index) const;
+    QRect searchRect() const;
 
 signals:
     void searchRequested(const QString &text);

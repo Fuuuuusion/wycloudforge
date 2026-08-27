@@ -92,7 +92,7 @@ void LoginDialog::poll()
             self->m_statusLabel->setText(QStringLiteral("等待扫码…"));
         } else if (code == 801) {
             self->m_statusLabel->setText(QStringLiteral("已扫码,请在手机上确认"));
-        } else if (code == 802) {
+        } else if (code == 802 || code == 803) {
             self->m_timer->stop();
             const QString cookie = obj.value(QStringLiteral("cookie")).toString();
             const QJsonObject profile = obj.value(QStringLiteral("profile")).toObject();
