@@ -79,9 +79,9 @@ NcHitTestResult computeHitTest(QWidget *window, const QPoint &cursorGlobal, cons
             const QRect r = titleBar->windowButtonRect(i);
             if (r.translated(titleBar->pos()).contains(pos)) {
                 switch (i) {
-                case ui::TitleBar::CloseBtn: return { true, HTCLOSE };
-                case ui::TitleBar::MaximizeBtn: return { true, HTMAXBUTTON };
-                case ui::TitleBar::MinimizeBtn: return { true, HTMINBUTTON };
+                case ui::TitleBar::CloseBtn: return { true, HTCLIENT };
+                case ui::TitleBar::MaximizeBtn: return { true, HTCLIENT };
+                case ui::TitleBar::MinimizeBtn: return { true, HTCLIENT };
                 case ui::TitleBar::SettingsBtn: return { true, HTCLIENT };
                 default: break;
                 }

@@ -140,8 +140,8 @@ PlayerBar::PlayerBar(QWidget *parent)
     m_playBtn = new QPushButton(this);
     m_playBtn->setObjectName("playPauseBtn");
     m_playBtn->setIcon(makeSvgIcon(QStringLiteral(":/icons/icon-play-white.svg")));
-    m_playBtn->setIconSize(QSize(19, 19));
-    m_playBtn->setFixedSize(40, 40);
+    m_playBtn->setIconSize(QSize(17, 17));
+    m_playBtn->setFixedSize(36, 36);
     m_playBtn->setCursor(Qt::PointingHandCursor);
     m_playBtn->setToolTip(QStringLiteral("播放"));
     m_nextBtn = makeCtrlButton(QStringLiteral(":/icons/icon-next.svg"), QStringLiteral("下一首"));

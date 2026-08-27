@@ -160,8 +160,8 @@ QPushButton[class="ctrlBtn"]:hover {
 }
 QPushButton#playPauseBtn {
     border: none;
-    border-radius: 20px;
-    background: #EC4141;
+    border-radius: 18px;
+    background: rgba(236, 65, 65, 0.92);
     padding: 0;
 }
 QPushButton#playPauseBtn:hover {
