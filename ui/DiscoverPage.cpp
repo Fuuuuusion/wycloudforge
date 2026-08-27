@@ -5,6 +5,7 @@
 #include "ui/CoverProvider.h"
 
 #include <QFrame>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
@@ -36,15 +37,14 @@ DiscoverPage::DiscoverPage(QWidget *parent)
     m_contentLayout->setContentsMargins(28, 24, 28, 40);
     m_contentLayout->setSpacing(0);
 
-    auto *bannerRow = new QWidget(content);
-    auto *bannerLayout = new QHBoxLayout(bannerRow);
-    bannerLayout->setContentsMargins(0, 0, 0, 0);
-    bannerLayout->setSpacing(16);
+auto *bannerRow = new QWidget(content);
 
     auto makeBanner = [this](const QString &title, const QString &sub, const QString &btnText,
                              const QString &gradient, QPushButton *&btn) {
         auto *banner = new QFrame(this);
         banner->setFixedHeight(150);
+        banner->setMinimumWidth(0);
+        banner->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         banner->setStyleSheet(QStringLiteral(
             "QFrame{border:none;border-radius:10px;background:%1;}"
             "QLabel{color:white;background:transparent;border:none;}"
@@ -55,8 +55,10 @@ DiscoverPage::DiscoverPage(QWidget *parent)
         l->setContentsMargins(26, 24, 26, 24);
         l->setSpacing(4);
         auto *t = new QLabel(title, banner);
+        t->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         t->setStyleSheet(QStringLiteral("font-size:20px;font-weight:700;"));
         auto *s = new QLabel(sub, banner);
+        s->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         s->setStyleSheet(QStringLiteral("font-size:12px;opacity:0.85;"));
         btn = new QPushButton(btnText, banner);
         btn->setCursor(Qt::PointingHandCursor);
@@ -69,14 +71,21 @@ DiscoverPage::DiscoverPage(QWidget *parent)
 
     QPushButton *playRandomBtn = nullptr;
     QPushButton *importBtn = nullptr;
-    bannerLayout->addWidget(makeBanner(QStringLiteral("发现属于你的音乐"), QStringLiteral("随机播放,不期而遇"),
-                                       QStringLiteral("▶ 立即播放"),
-                                       QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #EC4141,stop:1 #FF8A6B)"),
-                                       playRandomBtn), 1);
-    bannerLayout->addWidget(makeBanner(QStringLiteral("本地音乐库"), QStringLiteral("导入文件夹,自动整理歌手与专辑"),
-                                       QStringLiteral("＋ 导入音乐"),
-                                       QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #1B1B2A,stop:1 #3A3A5A)"),
-                                       importBtn), 1);
+    auto *b1 = makeBanner(QStringLiteral("发现属于你的音乐"), QStringLiteral("随机播放,不期而遇"),
+                          QStringLiteral("▶ 立即播放"),
+                          QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #EC4141,stop:1 #FF8A6B)"),
+                          playRandomBtn);
+    auto *b2 = makeBanner(QStringLiteral("本地音乐库"), QStringLiteral("导入文件夹,自动整理歌手与专辑"),
+                          QStringLiteral("＋ 导入音乐"),
+                          QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #1B1B2A,stop:1 #3A3A5A)"),
+                          importBtn);
+    auto *bannerGrid = new QGridLayout(bannerRow);
+    bannerGrid->setContentsMargins(0, 0, 0, 0);
+    bannerGrid->setHorizontalSpacing(16);
+    bannerGrid->addWidget(b1, 0, 0);
+    bannerGrid->addWidget(b2, 0, 1);
+    bannerGrid->setColumnStretch(0, 1);
+    bannerGrid->setColumnStretch(1, 1);
     connect(playRandomBtn, &QPushButton::clicked, this, [this] {
         if (!m_songs.isEmpty())
             emit playRequested(m_songs, QRandomGenerator::global()->bounded(m_songs.size()));
@@ -93,6 +102,7 @@ DiscoverPage::DiscoverPage(QWidget *parent)
     recentScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     recentScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     auto *recentBox = new QWidget;
+    recentBox->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     m_recentLayout = new QHBoxLayout(recentBox);
     m_recentLayout->setContentsMargins(0, 0, 0, 0);
     m_recentLayout->setSpacing(14);
@@ -115,6 +125,7 @@ DiscoverPage::DiscoverPage(QWidget *parent)
     artistScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     artistScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     auto *artistBox = new QWidget;
+    artistBox->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     m_artistLayout = new QHBoxLayout(artistBox);
     m_artistLayout->setContentsMargins(0, 0, 0, 0);
     m_artistLayout->setSpacing(22);

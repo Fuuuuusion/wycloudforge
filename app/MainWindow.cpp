@@ -23,12 +23,15 @@
 #include <QDir>
 #include <QEvent>
 #include <QFileDialog>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPlainTextEdit>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QShortcut>
 #include <QStackedWidget>
 #include <QTextEdit>
@@ -423,6 +426,7 @@ MainWindow::MainWindow(QWidget *parent)
             m_online->refresh();
         },
         [](const QString &) {});
+
 }
 
 void MainWindow::showPage(int pageId)
