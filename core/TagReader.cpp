@@ -227,6 +227,14 @@ TagInfo readFlac(const QByteArray &bytes)
 TagInfo TagReader::read(const QString &filePath)
 {
     TagInfo info;
+
+    // 网易云加密容器(.mgg/.mflac)不是 TagLib 可解析的音频,直接按文件名兜底,避免解析崩溃
+    const QString suffix = QFileInfo(filePath).suffix().toLower();
+    if (suffix == QLatin1String("mgg") || suffix == QLatin1String("mflac")) {
+        info.title = fallbackTitle(filePath);
+        return info;
+    }
+
 #ifdef NETECLONE_HAVE_TAGLIB
     const std::string fileName = filePath.toUtf8().toStdString();
     TagLib::FileRef ref(fileName.c_str(), true, TagLib::AudioProperties::Fast);
@@ -290,4 +298,3 @@ TagInfo TagReader::read(const QString &filePath)
 }
 
 } // namespace core
-
