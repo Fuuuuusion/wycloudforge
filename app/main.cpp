@@ -6,10 +6,14 @@
 #include <QApplication>
 #include <QFile>
 #include <QPalette>
+#include <QtCore/qtenvironmentvariables.h>
 #include <QTimer>
 
 int main(int argc, char *argv[])
 {
+    // 固定使用 FFmpeg 多媒体后端:WMF 后端不支持 ogg/vorbis,而 FFmpeg 兼容 mp3/flac/wav/m4a/aac/ogg
+    qputenv("QT_MEDIA_BACKEND", QByteArrayLiteral("ffmpeg"));
+
     QApplication app(argc, argv);
     QApplication::setOrganizationName(QStringLiteral("NeteaseClone"));
     QApplication::setApplicationName(QStringLiteral("NeteaseClone"));

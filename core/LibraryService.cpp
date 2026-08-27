@@ -23,7 +23,8 @@ namespace {
 
 const QStringList kSupportedSuffixes = { QStringLiteral("mp3"), QStringLiteral("flac"),
                                          QStringLiteral("wav"), QStringLiteral("m4a"),
-                                         QStringLiteral("aac"), QStringLiteral("mgg") };
+                                         QStringLiteral("aac"), QStringLiteral("ogg"),
+                                         QStringLiteral("mgg") };
 
 bool isSupportedFile(const QString &path)
 {
