@@ -10,9 +10,11 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QRandomGenerator>
+#include <QScrollBar>
 #include <QScrollArea>
 #include <QStyle>
 #include <QVBoxLayout>
+#include <QWheelEvent>
 
 namespace ui {
 namespace {
@@ -23,6 +25,31 @@ QLabel *makeRowTitle(const QString &text, QWidget *parent)
     label->setProperty("class", "rowTitle");
     return label;
 }
+
+// 让横向卡片行在隐藏滚动条的前提下,仍能用鼠标滚轮左右滑动
+class WheelScrollFilter : public QObject
+{
+public:
+    explicit WheelScrollFilter(QScrollArea *sa)
+        : QObject(sa), m_sa(sa) {}
+
+protected:
+    bool eventFilter(QObject *obj, QEvent *ev) override
+    {
+        if (obj == m_sa->viewport() && ev->type() == QEvent::Wheel) {
+            auto *we = static_cast<QWheelEvent *>(ev);
+            auto *h = m_sa->horizontalScrollBar();
+            if (h && h->maximum() > 0) {
+                h->setValue(h->value() - we->angleDelta().y());
+                return true;
+            }
+        }
+        return QObject::eventFilter(obj, ev);
+    }
+
+private:
+    QScrollArea *m_sa;
+};
 
 } // namespace
 
@@ -99,8 +126,9 @@ auto *bannerRow = new QWidget(content);
     recentScroll->setWidgetResizable(true);
     recentScroll->setFrameShape(QFrame::NoFrame);
     recentScroll->setFixedHeight(178);
-    recentScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    recentScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     recentScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    new WheelScrollFilter(recentScroll);
     auto *recentBox = new QWidget;
     recentBox->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     m_recentLayout = new QHBoxLayout(recentBox);
@@ -122,8 +150,9 @@ auto *bannerRow = new QWidget(content);
     artistScroll->setWidgetResizable(true);
     artistScroll->setFrameShape(QFrame::NoFrame);
     artistScroll->setFixedHeight(152);
-    artistScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    artistScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     artistScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    new WheelScrollFilter(artistScroll);
     auto *artistBox = new QWidget;
     artistBox->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     m_artistLayout = new QHBoxLayout(artistBox);

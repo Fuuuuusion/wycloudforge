@@ -45,7 +45,6 @@ protected:
     void paintEvent(QPaintEvent *event) override;
 
 private:
-    QPixmap shadowPixmap();
     void updatePlayIcon();
     void updateVolumeIcon();
     void updateTimeLabel();
@@ -77,7 +76,6 @@ private:
     qint64 m_durationMs = 0;
     QElapsedTimer m_clock;
     QPixmap m_backdrop;
-    QPixmap m_shadow;
     bool m_backdropValid = false;
     qint64 m_backdropMs = 0;
     QWidget *m_backdropSource = nullptr;

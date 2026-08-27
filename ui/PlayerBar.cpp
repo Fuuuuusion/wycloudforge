@@ -299,13 +299,6 @@ void PlayerBar::paintEvent(QPaintEvent *)
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
 
-    // 柔和投影:0 10px 40px rgba(0,0,0,.5)
-    const QPixmap shadow = shadowPixmap();
-    const int spad = 28;
-    p.setOpacity(0.5);
-    p.drawPixmap(-spad, -spad + 10, shadow);
-    p.setOpacity(1.0);
-
     // 玻璃主体(裁剪圆角):模糊+饱和+亮度背底
     QPainterPath clip;
     clip.addRoundedRect(r, radius, radius);
@@ -348,25 +341,6 @@ void PlayerBar::setBackdropSource(QWidget *widget)
 {
     m_backdropSource = widget;
     m_backdropValid = false; // 让下一帧重新取样
-}
-
-QPixmap PlayerBar::shadowPixmap()
-{
-    if (!m_shadow.isNull())
-        return m_shadow;
-    const int w = width();
-    const int h = height();
-    const int pad = 28;
-    QImage mask(w + pad * 2, h + pad * 2, QImage::Format_ARGB32_Premultiplied);
-    mask.fill(Qt::transparent);
-    QPainter mp(&mask);
-    mp.setRenderHint(QPainter::Antialiasing);
-    mp.setPen(Qt::NoPen);
-    mp.setBrush(QColor(0, 0, 0, 255));
-    mp.drawRoundedRect(QRectF(pad, pad, w, h), 40, 40);
-    mp.end();
-    m_shadow = QPixmap::fromImage(gaussianBlur(mask, 18.0));
-    return m_shadow;
 }
 
 void PlayerBar::setSong(const core::Song &song, bool favorite)
