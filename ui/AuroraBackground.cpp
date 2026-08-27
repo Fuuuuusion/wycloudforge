@@ -2,6 +2,7 @@
 
 #include <QPainter>
 #include <QtMath>
+#include <cmath>
 
 namespace ui {
 namespace {
@@ -21,10 +22,13 @@ struct Blob
 };
 
 const Blob kBlobs[] = {
-    { QColor(46, 64, 128), 0.18, 0.10, 0.62, 26.0, 0.0, 0.10, 0.09 },
-    { QColor(88, 44, 128), 0.86, 0.18, 0.55, 32.0, 2.1, -0.09, 0.11 },
-    { QColor(24, 90, 110), 0.42, 0.92, 0.48, 38.0, 4.2, 0.07, -0.10 }
+    { QColor(46, 64, 128), 0.18, 0.10, 0.66, 26.0, 0.0, 0.18, 0.16 },
+    { QColor(88, 44, 128), 0.88, 0.18, 0.60, 32.0, 2.1, -0.16, 0.20 },
+    { QColor(24, 90, 110), 0.40, 0.94, 0.52, 38.0, 4.2, 0.14, -0.18 }
 };
+
+constexpr qreal kSweepPeriod = 14.0;
+constexpr qreal kBreathPeriod = 9.0;
 
 } // namespace
 
@@ -44,6 +48,7 @@ void AuroraBackground::paintEvent(QPaintEvent *)
     const qreal w = qMax<qreal>(1.0, width());
     const qreal h = qMax<qreal>(1.0, height());
     const qreal t = m_clock.isValid() ? m_clock.elapsed() / 1000.0 : 0.0;
+    const qreal breath = 0.82 + 0.18 * qSin(2 * kPi * t / kBreathPeriod);
 
     for (const Blob &b : kBlobs) {
         const qreal cx = w * (b.baseX + b.ampX * qSin(2 * kPi * t / b.speed + b.phase));
@@ -51,9 +56,9 @@ void AuroraBackground::paintEvent(QPaintEvent *)
         const qreal radius = w * b.size / 2.0;
         QRadialGradient g(cx, cy, radius);
         QColor c0 = b.color;
-        c0.setAlpha(110);
+        c0.setAlpha(qRound(150 * breath));
         QColor c1 = b.color;
-        c1.setAlpha(36);
+        c1.setAlpha(qRound(55 * breath));
         g.setColorAt(0.0, c0);
         g.setColorAt(0.6, c1);
         g.setColorAt(1.0, Qt::transparent);
@@ -61,6 +66,23 @@ void AuroraBackground::paintEvent(QPaintEvent *)
         p.setBrush(g);
         p.drawEllipse(QPointF(cx, cy), radius, radius);
     }
+
+    // 扫光:一道斜向光带缓慢扫过
+    const qreal bandW = w * 0.34;
+    const qreal cycle = std::fmod(t, kSweepPeriod) / kSweepPeriod;
+    const qreal bandX = cycle * (w + bandW * 2.0) - bandW;
+    p.save();
+    p.translate(bandX, h / 2.0);
+    p.rotate(16.0);
+    QLinearGradient lg(-bandW / 2.0, 0, bandW / 2.0, 0);
+    lg.setColorAt(0.0, QColor(180, 200, 255, 0));
+    lg.setColorAt(0.45, QColor(200, 215, 255, 24));
+    lg.setColorAt(0.55, QColor(220, 230, 255, 30));
+    lg.setColorAt(1.0, QColor(180, 200, 255, 0));
+    p.setPen(Qt::NoPen);
+    p.setBrush(lg);
+    p.drawRect(QRectF(-bandW / 2.0, -h * 0.8, bandW, h * 1.6));
+    p.restore();
 }
 
 void AuroraBackground::showEvent(QShowEvent *event)

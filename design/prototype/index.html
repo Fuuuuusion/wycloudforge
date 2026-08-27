@@ -8,7 +8,12 @@
 </head>
 <body>
   <!-- 极光背景 -->
-  <div id="aurora"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div></div>
+  <div id="aurora">
+    <div class="blob b1"></div>
+    <div class="blob b2"></div>
+    <div class="blob b3"></div>
+    <div class="light"></div>
+  </div>
 
   <!-- 图标库(sprite) -->
   <svg style="display:none" xmlns="http://www.w3.org/2000/svg">
@@ -43,7 +48,7 @@
   <div id="app">
     <header id="titlebar">
       <div class="brand">
-        <span class="logo"><svg><use href="#i-play"/></svg></span>
+        <span class="logo"><svg class="ic"><use href="#i-play"/></svg></span>
         <span class="name">仿网易云播放器</span>
       </div>
       <div class="searchbox">
@@ -172,9 +177,6 @@
     </div>
 
     <footer id="playerbar">
-      <div class="progress-track" id="playerProgress">
-        <div class="progress-fill" id="playerProgressFill"></div>
-      </div>
       <div class="left">
         <div class="now-cover g4" id="nowCover"></div>
         <div class="now-info">

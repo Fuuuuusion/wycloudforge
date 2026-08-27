@@ -302,7 +302,6 @@
     var pct = dur ? (state.pos / dur) * 100 : 0;
     $("timeCur").textContent = fmt(state.pos / 1000);
     $("timeFill").style.width = pct + "%";
-    $("playerProgressFill").style.width = pct + "%";
     // 歌词高亮
     var idx = Math.min(LYRICS.length - 1, Math.floor(state.pos / 4000));
     if (idx !== lastLyricIdx) {
@@ -339,11 +338,6 @@
     $("modeBtn").title = MODES[state.mode].tip;
   });
   $("timeSlider").addEventListener("click", function (e) {
-    var r = this.getBoundingClientRect();
-    state.pos = ((e.clientX - r.left) / r.width) * state.currentList[state.cur].d * 1000;
-    updateProgress();
-  });
-  $("playerProgress").addEventListener("click", function (e) {
     var r = this.getBoundingClientRect();
     state.pos = ((e.clientX - r.left) / r.width) * state.currentList[state.cur].d * 1000;
     updateProgress();

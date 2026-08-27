@@ -17,7 +17,7 @@ QDialog QLabel {
 
 /* ---------- 标题栏(悬浮玻璃) ---------- */
 QWidget#titleBar {
-    background: rgba(12, 12, 18, 0.55);
+    background: transparent;
 }
 QLabel#brandName {
     font-size: 14px;
@@ -54,7 +54,7 @@ QPushButton[class="winClose"]:hover {
 
 /* ---------- 侧栏(悬浮玻璃) ---------- */
 QWidget#sidebar {
-    background: rgba(12, 12, 18, 0.5);
+    background: transparent;
 }
 QLabel[class="sectionTitle"] {
     color: #6E6E7A;
@@ -277,4 +277,3 @@ QSlider::handle:horizontal {
     border-radius: 6px;
     background: #EC4141;
 }
-
