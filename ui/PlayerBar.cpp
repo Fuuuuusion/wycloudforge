@@ -140,7 +140,7 @@ PlayerBar::PlayerBar(QWidget *parent)
     });
 
     auto *leftBox = new QWidget(this);
-    leftBox->setFixedWidth(200);
+    leftBox->setFixedWidth(240);
     auto *leftLayout = new QHBoxLayout(leftBox);
     leftLayout->setContentsMargins(0, 0, 0, 0);
     leftLayout->setSpacing(10);
@@ -199,13 +199,9 @@ PlayerBar::PlayerBar(QWidget *parent)
     auto *controls = new QHBoxLayout;
     controls->setContentsMargins(0, 0, 0, 0);
     controls->setSpacing(20);
-    controls->addWidget(m_modeBtn);
     controls->addWidget(m_prevBtn);
     controls->addWidget(m_playBtn);
     controls->addWidget(m_nextBtn);
-    controls->addSpacing(6);
-    controls->addWidget(m_muteBtn);
-    controls->addWidget(m_volume);
 
     auto *centerBox = new QWidget(this);
     auto *centerLayout = new QVBoxLayout(centerBox);
@@ -219,14 +215,16 @@ PlayerBar::PlayerBar(QWidget *parent)
     m_queueBtn = makeCtrlButton(QStringLiteral(":/icons/icon-queue.svg"), QStringLiteral("播放列表"));
 
     auto *rightBox = new QWidget(this);
-    rightBox->setFixedWidth(200);
+    rightBox->setFixedWidth(240);
     auto *rightLayout = new QHBoxLayout(rightBox);
     rightLayout->setContentsMargins(0, 0, 0, 0);
-    rightLayout->setSpacing(2);
+    rightLayout->setSpacing(6);
     rightLayout->addStretch(1);
+    rightLayout->addWidget(m_modeBtn);
+    rightLayout->addWidget(m_muteBtn);
+    rightLayout->addWidget(m_volume);
     rightLayout->addWidget(m_lyricsBtn);
     rightLayout->addWidget(m_queueBtn);
-    rightLayout->addStretch(1);
 
     auto *layout = new QHBoxLayout(this);
     layout->setContentsMargins(44, 0, 44, 0);
