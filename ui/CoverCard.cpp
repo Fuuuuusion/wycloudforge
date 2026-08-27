@@ -54,7 +54,7 @@ void CoverCard::paintEvent(QPaintEvent *)
     QPainterPath glass;
     glass.addRoundedRect(QRectF(0, 0, m_cardWidth, m_coverSize + 44), 10, 10);
     p.setPen(Qt::NoPen);
-    p.setBrush(m_hover ? QColor(255, 255, 255, 22) : QColor(255, 255, 255, 14));
+    p.setBrush(m_hover ? QColor(255, 255, 255, 30) : QColor(255, 255, 255, 20));
     p.drawPath(glass);
 
     QRectF coverRect(0, 0, m_coverSize, m_coverSize);

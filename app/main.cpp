@@ -5,6 +5,7 @@
 
 #include <QApplication>
 #include <QFile>
+#include <QPalette>
 #include <QTimer>
 
 int main(int argc, char *argv[])
@@ -13,6 +14,24 @@ int main(int argc, char *argv[])
     QApplication::setOrganizationName(QStringLiteral("NeteaseClone"));
     QApplication::setApplicationName(QStringLiteral("NeteaseClone"));
     QApplication::setApplicationDisplayName(QStringLiteral("仿网易云播放器"));
+
+    // Fusion 样式:与 QSS 完全兼容,避免 Windows 原生样式导致的"灰框"回退
+    app.setStyle(QStringLiteral("Fusion"));
+    QPalette pal;
+    pal.setColor(QPalette::Window, QColor(0x0E, 0x0E, 0x14));
+    pal.setColor(QPalette::WindowText, QColor(0xE8, 0xE8, 0xE8));
+    pal.setColor(QPalette::Base, QColor(0x16, 0x16, 0x1E));
+    pal.setColor(QPalette::AlternateBase, QColor(0x1B, 0x1B, 0x24));
+    pal.setColor(QPalette::Text, QColor(0xE8, 0xE8, 0xE8));
+    pal.setColor(QPalette::Button, QColor(0x1B, 0x1B, 0x24));
+    pal.setColor(QPalette::ButtonText, QColor(0xE8, 0xE8, 0xE8));
+    pal.setColor(QPalette::Highlight, QColor(0xEC, 0x41, 0x41));
+    pal.setColor(QPalette::HighlightedText, QColor(0xFF, 0xFF, 0xFF));
+    pal.setColor(QPalette::ToolTipBase, QColor(0x1B, 0x1B, 0x24));
+    pal.setColor(QPalette::ToolTipText, QColor(0xE8, 0xE8, 0xE8));
+    pal.setColor(QPalette::PlaceholderText, QColor(0x6E, 0x6E, 0x7A));
+    pal.setColor(QPalette::Disabled, QPalette::Text, QColor(0x55, 0x55, 0x5F));
+    app.setPalette(pal);
 
     QFont font(QStringLiteral("Microsoft YaHei UI"), 9);
     app.setFont(font);
