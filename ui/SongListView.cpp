@@ -152,7 +152,7 @@ public:
 
     QSize sizeHint(const QStyleOptionViewItem &, const QModelIndex &) const override
     {
-        return { 0, 48 };
+        return { 0, 64 };
     }
 
     void setQuery(const QString &query)
@@ -186,6 +186,7 @@ SongListView::SongListView(QWidget *parent)
     setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     viewport()->setCursor(Qt::PointingHandCursor);
     verticalHeader()->setVisible(false);
+    verticalHeader()->setDefaultSectionSize(64);
     horizontalHeader()->setVisible(false);
     horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
     horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);

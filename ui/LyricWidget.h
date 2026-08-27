@@ -27,10 +27,12 @@ signals:
 protected:
     void paintEvent(QPaintEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
+    void wheelEvent(QWheelEvent *event) override;
 
 private:
     void animateStep();
     void updateTarget();
+    qreal lineHeight() const;
 
     QList<core::LyricLine> m_lines;
     QList<core::LyricLine> m_secondary;
@@ -38,6 +40,7 @@ private:
     int m_fontSize = 18;
     qreal m_offset = 0;
     qreal m_target = 0;
+    qreal m_preview = 0; // 滚轮预览偏移(正值显示下方歌词)
     QTimer *m_anim = nullptr;
 };
 
