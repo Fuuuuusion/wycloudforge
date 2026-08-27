@@ -1,0 +1,33 @@
+<RCC>
+  <qresource prefix="/">
+    <file alias="theme.qss">theme.qss</file>
+    <file alias="icons/logo.svg">icons/logo.svg</file>
+    <file alias="icons/icon-play-white.svg">icons/icon-play-white.svg</file>
+    <file alias="icons/icon-pause-white.svg">icons/icon-pause-white.svg</file>
+    <file alias="icons/icon-restore.svg">icons/icon-restore.svg</file>
+    <file alias="icons/icon-search.svg">../design/prototype/assets/icon-search.svg</file>
+    <file alias="icons/icon-settings.svg">../design/prototype/assets/icon-settings.svg</file>
+    <file alias="icons/icon-min.svg">../design/prototype/assets/icon-min.svg</file>
+    <file alias="icons/icon-max.svg">../design/prototype/assets/icon-max.svg</file>
+    <file alias="icons/icon-close.svg">../design/prototype/assets/icon-close.svg</file>
+    <file alias="icons/icon-music.svg">../design/prototype/assets/icon-music.svg</file>
+    <file alias="icons/icon-library.svg">../design/prototype/assets/icon-library.svg</file>
+    <file alias="icons/icon-heart.svg">../design/prototype/assets/icon-heart.svg</file>
+    <file alias="icons/icon-heart-fill.svg">../design/prototype/assets/icon-heart-fill.svg</file>
+    <file alias="icons/icon-plus.svg">../design/prototype/assets/icon-plus.svg</file>
+    <file alias="icons/icon-lyrics.svg">../design/prototype/assets/icon-lyrics.svg</file>
+    <file alias="icons/icon-loop.svg">../design/prototype/assets/icon-loop.svg</file>
+    <file alias="icons/icon-single.svg">../design/prototype/assets/icon-single.svg</file>
+    <file alias="icons/icon-shuffle.svg">../design/prototype/assets/icon-shuffle.svg</file>
+    <file alias="icons/icon-prev.svg">../design/prototype/assets/icon-prev.svg</file>
+    <file alias="icons/icon-next.svg">../design/prototype/assets/icon-next.svg</file>
+    <file alias="icons/icon-volume.svg">../design/prototype/assets/icon-volume.svg</file>
+    <file alias="icons/icon-volume-mute.svg">../design/prototype/assets/icon-volume-mute.svg</file>
+    <file alias="icons/icon-folder.svg">../design/prototype/assets/icon-folder.svg</file>
+    <file alias="icons/icon-queue.svg">../design/prototype/assets/icon-queue.svg</file>
+    <file alias="icons/icon-clock.svg">../design/prototype/assets/icon-clock.svg</file>
+    <file alias="icons/icon-trash.svg">../design/prototype/assets/icon-trash.svg</file>
+    <file alias="icons/icon-download.svg">../design/prototype/assets/icon-download.svg</file>
+  </qresource>
+</RCC>
+

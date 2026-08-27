@@ -1,0 +1,70 @@
+#pragma once
+
+#include "core/Song.h"
+
+#include <QAudioOutput>
+#include <QMediaPlayer>
+#include <QObject>
+#include <QVector>
+
+namespace core {
+
+class PlayerService : public QObject
+{
+    Q_OBJECT
+public:
+    enum PlayMode { Order = 0, RepeatOne = 1, Shuffle = 2 };
+    Q_ENUM(PlayMode)
+
+    explicit PlayerService(QObject *parent = nullptr);
+
+    void setPlaylist(const QList<Song> &songs, int startIndex = -1);
+    void playIndex(int index);
+    void playPause();
+    void play();
+    void pause();
+    void next();
+    void prev();
+    void seek(qint64 ms);
+
+    void setVolume(int volume);
+    int volume() const;
+    void setMuted(bool muted);
+    bool muted() const;
+
+    void setMode(PlayMode mode);
+    PlayMode mode() const { return m_mode; }
+
+    QList<Song> playlist() const { return m_playlist; }
+    Song currentSong() const;
+    int currentIndex() const { return m_index; }
+    bool isPlaying() const;
+    qint64 position() const;
+    qint64 duration() const;
+
+signals:
+    void songChanged(const Song &song, int index);
+    void playingChanged(bool playing);
+    void positionChanged(qint64 ms);
+    void durationChanged(qint64 ms);
+    void modeChanged(PlayMode mode);
+    void volumeChanged(int volume);
+    void mutedChanged(bool muted);
+    void errorOccurred(const QString &message);
+
+private:
+    void loadCurrent(bool autoPlay);
+    void buildShuffleOrder();
+
+    QMediaPlayer m_player;
+    QAudioOutput m_audio;
+    QList<Song> m_playlist;
+    int m_index = -1;
+    PlayMode m_mode = Order;
+    QVector<int> m_shuffleOrder;
+    int m_shufflePos = 0;
+    QVector<int> m_history;
+};
+
+} // namespace core
+

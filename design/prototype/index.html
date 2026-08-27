@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>仿网易云播放器 · UI 原型</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- 极光背景 -->
+  <div id="aurora"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div></div>
+
+  <!-- 图标库(sprite) -->
+  <svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="i-play" viewBox="0 0 24 24"><path fill="currentColor" d="M8 5v14l11-7z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path fill="currentColor" d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/></symbol>
+    <symbol id="i-prev" viewBox="0 0 24 24"><path fill="currentColor" d="M7 6v12H4.5V6H7zM20 6l-9 6 9 6z"/></symbol>
+    <symbol id="i-next" viewBox="0 0 24 24"><path fill="currentColor" d="M17 6v12h2.5V6H17zM4 6l9 6-9 6z"/></symbol>
+    <symbol id="i-loop" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M4 9V7a2 2 0 0 1 2-2h11M17 5l-2.5 2.5M20 15v2a2 2 0 0 1-2 2H7M7 19l2.5-2.5"/></symbol>
+    <symbol id="i-single" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M4 9V7a2 2 0 0 1 2-2h11M17 5l-2.5 2.5M20 15v2a2 2 0 0 1-2 2H7M7 19l2.5-2.5"/><path fill="currentColor" d="M12 13.2c1 0 1.8.8 1.8 1.8s-.8 1.8-1.8 1.8-1.8-.8-1.8-1.8.8-1.8 1.8-1.8z"/></symbol>
+    <symbol id="i-shuffle" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M4 7h3.2c4.2 0 6 10 10.3 10H21M18.5 13.5 21 17l-2.5 3.5M4 17h3.2c1.4 0 2.5-.6 3.4-1.5M21 7l-2.5-3.5L16 7"/></symbol>
+    <symbol id="i-volume" viewBox="0 0 24 24"><path fill="currentColor" d="M4 9v6h4l5 4V5L8 9H4z"/><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M16 9c1.4 1.2 1.4 4.8 0 6M18.5 6.5c3 2.6 3 8.4 0 11"/></symbol>
+    <symbol id="i-volume-mute" viewBox="0 0 24 24"><path fill="currentColor" d="M4 9v6h4l5 4V5L8 9H4z"/><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M16 9l5 6M21 9l-5 6"/></symbol>
+    <symbol id="i-lyrics" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path fill="currentColor" d="M8 10.5h8v1.6H8zM8 14h5v1.6H8z"/></symbol>
+    <symbol id="i-queue" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M4 6h16M4 12h10M4 18h7"/><circle cx="18" cy="16.5" r="2.5" fill="currentColor"/></symbol>
+    <symbol id="i-heart" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M12 20.5C7 16.3 3.5 12.8 3.5 8.8A4.3 4.3 0 0 1 12 6.2a4.3 4.3 0 0 1 8.5 2.6c0 4-3.5 7.5-8.5 11.7z"/></symbol>
+    <symbol id="i-heart-fill" viewBox="0 0 24 24"><path fill="currentColor" d="M12 20.5C7 16.3 3.5 12.8 3.5 8.8A4.3 4.3 0 0 1 12 6.2a4.3 4.3 0 0 1 8.5 2.6c0 4-3.5 7.5-8.5 11.7z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M16.5 16.5 21 21"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2.2" fill="currentColor"/><circle cx="15" cy="12" r="2.2" fill="currentColor"/><circle cx="8" cy="17" r="2.2" fill="currentColor"/></symbol>
+    <symbol id="i-min" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M5 12h14"/></symbol>
+    <symbol id="i-max" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-music" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M9 18.5V6l11-2v12.5"/><circle cx="7" cy="18.5" r="2.5" fill="currentColor"/><circle cx="18" cy="16.5" r="2.5" fill="currentColor"/></symbol>
+    <symbol id="i-library" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.6" d="M4 6h5v5H4zM10 6h5v5h-5zM16 6h5v5h-5zM4 12h5v6H4zM10 12h5v6h-5zM16 12h5v6h-5z"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" d="M3.5 7a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.7" fill="currentColor"/><circle cx="12" cy="12" r="1.7" fill="currentColor"/><circle cx="19" cy="12" r="1.7" fill="currentColor"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13M10 11v5M14 11v5"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" d="M12 7.5V12l3 2.5"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M12 3v12M7 10l5 5 5-5M4 20h16"/></symbol>
+  </svg>
+
+  <div id="app">
+    <header id="titlebar">
+      <div class="brand">
+        <span class="logo"><svg><use href="#i-play"/></svg></span>
+        <span class="name">仿网易云播放器</span>
+      </div>
+      <div class="searchbox">
+        <svg class="ic"><use href="#i-search"/></svg>
+        <input id="searchInput" type="text" placeholder="搜索音乐、歌手、专辑">
+      </div>
+      <div class="window-controls">
+        <button class="wc-btn" title="设置"><svg class="ic"><use href="#i-settings"/></svg></button>
+        <button class="wc-btn" title="最小化"><svg class="ic"><use href="#i-min"/></svg></button>
+        <button class="wc-btn" title="最大化"><svg class="ic"><use href="#i-max"/></svg></button>
+        <button class="wc-btn wc-close" title="关闭"><svg class="ic"><use href="#i-close"/></svg></button>
+      </div>
+    </header>
+
+    <div id="body">
+      <aside id="sidebar">
+        <div class="nav-section">
+          <div class="nav-item active" data-page="discover"><svg class="ic"><use href="#i-music"/></svg>发现音乐</div>
+          <div class="nav-item" data-page="library"><svg class="ic"><use href="#i-library"/></svg>音乐库</div>
+          <div class="nav-item" data-page="playing"><svg class="ic"><use href="#i-lyrics"/></svg>正在播放</div>
+        </div>
+        <div class="nav-section">
+          <div class="nav-section-title">我的歌单</div>
+          <div class="playlist-item active" data-playlist="我喜欢的音乐"><svg class="ic ic-heart"><use href="#i-heart-fill"/></svg>我喜欢的音乐</div>
+          <div class="playlist-item" data-playlist="华语经典"><svg class="ic"><use href="#i-music"/></svg>华语经典</div>
+          <div class="playlist-item" data-playlist="深夜电台"><svg class="ic"><use href="#i-music"/></svg>深夜电台</div>
+          <div class="playlist-item" data-playlist="跑步歌单"><svg class="ic"><use href="#i-music"/></svg>跑步歌单</div>
+        </div>
+        <button id="createPlaylist"><svg class="ic"><use href="#i-plus"/></svg>创建歌单</button>
+      </aside>
+
+      <main id="content">
+        <!-- 首页 -->
+        <section id="page-discover" class="page active">
+          <div class="banner-row">
+            <div class="banner b1">
+              <div class="banner-text">
+                <div class="banner-title">发现属于你的音乐</div>
+                <div class="banner-sub">听你想听的,生活要有音乐</div>
+                <button class="btn-primary btn-banner" id="bannerPlayBtn"><svg class="ic"><use href="#i-play"/></svg>立即播放</button>
+              </div>
+            </div>
+            <div class="banner b2">
+              <div class="banner-text">
+                <div class="banner-title">本地音乐库</div>
+                <div class="banner-sub">导入文件夹,自动整理歌手与专辑</div>
+                <button class="btn-primary btn-banner" id="bannerImportBtn"><svg class="ic"><use href="#i-folder"/></svg>导入音乐</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="discover-row-title">最近播放</div>
+          <div class="h-scroll" id="recentRow"></div>
+
+          <div class="discover-row-title">我的歌单</div>
+          <div class="card-grid" id="playlistGrid"></div>
+
+          <div class="discover-row-title">推荐歌单</div>
+          <div class="card-grid" id="recommendGrid"></div>
+
+          <div class="discover-row-title">推荐歌手</div>
+          <div class="artist-row" id="artistRow"></div>
+        </section>
+
+        <!-- 音乐库 -->
+        <section id="page-library" class="page">
+          <div class="page-title-row">
+            <h1 class="page-title">音乐库</h1>
+            <button class="btn-ghost" id="addSongsBtn"><svg class="ic"><use href="#i-plus"/></svg>添加歌曲</button>
+          </div>
+          <div class="seg-tabs" id="libTabs">
+            <div class="seg-tab active" data-tab="songs">歌曲</div>
+            <div class="seg-tab" data-tab="artists">歌手</div>
+            <div class="seg-tab" data-tab="albums">专辑</div>
+          </div>
+          <div class="tab-panel active" id="tab-songs">
+            <div class="song-table-head">
+              <span class="c-idx">#</span><span class="c-title">歌曲</span><span class="c-artist">歌手</span><span class="c-album">专辑</span><span class="c-dur">时长</span>
+            </div>
+            <div class="song-list" id="libSongList"></div>
+          </div>
+          <div class="tab-panel" id="tab-artists"><div class="card-grid" id="artistGrid"></div></div>
+          <div class="tab-panel" id="tab-albums"><div class="card-grid" id="albumGrid"></div></div>
+        </section>
+
+        <!-- 歌单详情 -->
+        <section id="page-playlist" class="page">
+          <div class="pl-header">
+            <div class="pl-cover g4"><svg class="ic ic-cover"><use href="#i-music"/></svg></div>
+            <div class="pl-info">
+              <div class="pl-name" id="plName">我喜欢的音乐</div>
+              <div class="pl-meta" id="plMeta">12 首 · 共 45 分钟</div>
+              <div class="pl-actions">
+                <button class="btn-primary" id="playAllBtn"><svg class="ic"><use href="#i-play"/></svg>播放全部</button>
+                <button class="btn-ghost" id="likePlBtn"><svg class="ic"><use href="#i-heart"/></svg>收藏</button>
+              </div>
+            </div>
+          </div>
+          <div class="song-list" id="plSongList"></div>
+        </section>
+
+        <!-- 正在播放 / 歌词页 -->
+        <section id="page-playing" class="page">
+          <div class="playing-bg" id="playingBg"></div>
+          <div class="playing-content">
+            <div class="big-cover g4" id="bigCover"><svg class="ic ic-cover"><use href="#i-music"/></svg></div>
+            <div class="lyrics-box">
+              <div class="lyrics-title" id="lyricsTitle">晴天 - 周杰伦</div>
+              <div class="lyrics" id="lyrics"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 搜索 -->
+        <section id="page-search" class="page">
+          <h1 class="page-title" id="searchTitle">搜索</h1>
+          <div class="seg-tabs" id="searchTabs">
+            <div class="seg-tab active" data-tab="songs">单曲</div>
+            <div class="seg-tab" data-tab="artists">歌手</div>
+            <div class="seg-tab" data-tab="albums">专辑</div>
+          </div>
+          <div class="song-list" id="searchSongList"></div>
+          <div class="empty" id="searchEmpty">没有找到相关结果</div>
+        </section>
+      </main>
+    </div>
+
+    <footer id="playerbar">
+      <div class="progress-track" id="playerProgress">
+        <div class="progress-fill" id="playerProgressFill"></div>
+      </div>
+      <div class="left">
+        <div class="now-cover g4" id="nowCover"></div>
+        <div class="now-info">
+          <div class="now-title" id="nowTitle">晴天</div>
+          <div class="now-artist" id="nowArtist">周杰伦</div>
+        </div>
+        <button class="heart-btn" id="heartBtn" title="喜欢"><svg class="ic"><use href="#i-heart"/></svg></button>
+      </div>
+      <div class="center">
+        <div class="time-row">
+          <span class="time" id="timeCur">00:00</span>
+          <div class="time-slider" id="timeSlider"><div class="fill" id="timeFill"></div></div>
+          <span class="time" id="timeTotal">04:29</span>
+        </div>
+        <div class="controls">
+          <button class="ctrl-btn" id="modeBtn" title="列表循环">
+            <svg class="ic"><use href="#i-loop"/></svg>
+            <svg class="ic hidden"><use href="#i-single"/></svg>
+            <svg class="ic hidden"><use href="#i-shuffle"/></svg>
+          </button>
+          <button class="ctrl-btn" id="prevBtn" title="上一首"><svg class="ic"><use href="#i-prev"/></svg></button>
+          <button class="play-btn" id="playBtn" title="播放">
+            <svg class="ic ic-white"><use href="#i-play"/></svg>
+            <svg class="ic ic-white hidden"><use href="#i-pause"/></svg>
+          </button>
+          <button class="ctrl-btn" id="nextBtn" title="下一首"><svg class="ic"><use href="#i-next"/></svg></button>
+          <div class="volume" id="volumeBox" title="音量">
+            <button class="ctrl-btn" id="muteBtn">
+              <svg class="ic"><use href="#i-volume"/></svg>
+              <svg class="ic hidden"><use href="#i-volume-mute"/></svg>
+            </button>
+            <div class="vol-slider" id="volSlider"><div class="fill" id="volFill"></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="right">
+        <button class="ctrl-btn" id="lyricsPageBtn" title="歌词"><svg class="ic"><use href="#i-lyrics"/></svg></button>
+        <button class="ctrl-btn" title="播放列表"><svg class="ic"><use href="#i-queue"/></svg></button>
+      </div>
+    </footer>
+  </div>
+  <input type="file" id="fileInput" accept="audio/*,.mp3,.flac,.wav,.m4a,.aac,.ogg,.opus" multiple style="display:none">
+  <div id="settingsPanel" class="hidden">
+    <div class="settings-title">设置</div>
+    <div class="settings-label">音乐文件夹</div>
+    <div class="folder-list">
+      <div class="folder-item">D:\我的音乐</div>
+      <div class="folder-item">%TEMP%\netease_samples</div>
+    </div>
+    <div class="settings-label">歌词字号</div>
+    <div class="lyric-size-row">
+      <input type="range" id="lyricSizeRange" min="14" max="26" value="18">
+      <span class="lyric-size-value" id="lyricSizeValue">18</span>
+    </div>
+    <div class="settings-actions">
+      <button class="btn-primary" id="rescanBtn">重新扫描</button>
+      <button class="btn-ghost" id="closeSettingsBtn">关闭</button>
+    </div>
+  </div>
+  <div id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>

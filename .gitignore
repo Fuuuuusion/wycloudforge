@@ -1,0 +1,17 @@
+# Build output
+/build/
+/dist/
+
+# Qt Creator
+*.user
+CMakeLists.txt.user*
+
+# Editor / OS
+.vs/
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# 本地实验目录(含 node_modules,不入库)
+/本地部署/
