@@ -5,6 +5,10 @@
     outline: none;
 }
 
+QPushButton, QToolButton, QListWidget, QTableView, QSlider {
+    cursor: pointer;
+}
+
 QMainWindow {
     background: #0E0E14;
 }

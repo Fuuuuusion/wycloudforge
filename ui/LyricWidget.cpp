@@ -13,6 +13,7 @@ const QColor kActive(0xEC, 0x41, 0x41);
 LyricWidget::LyricWidget(QWidget *parent)
     : QWidget(parent)
 {
+    setCursor(Qt::PointingHandCursor);
     m_anim = new QTimer(this);
     m_anim->setInterval(30);
     connect(m_anim, &QTimer::timeout, this, &LyricWidget::animateStep);

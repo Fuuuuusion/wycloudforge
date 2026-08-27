@@ -32,27 +32,19 @@ constexpr qreal kBreathPeriod = 9.0;
 
 } // namespace
 
-AuroraBackground::AuroraBackground(QWidget *parent)
-    : QWidget(parent)
+void AuroraBackground::renderScene(QPainter *p, const QRectF &rect, qreal seconds)
 {
-    m_timer.setInterval(30);
-    connect(&m_timer, &QTimer::timeout, this, [this] { update(); });
-}
+    p->fillRect(rect, QColor(0x0E, 0x0E, 0x14));
+    p->setRenderHint(QPainter::Antialiasing);
 
-void AuroraBackground::paintEvent(QPaintEvent *)
-{
-    QPainter p(this);
-    p.fillRect(rect(), QColor(0x0E, 0x0E, 0x14));
-    p.setRenderHint(QPainter::Antialiasing);
-
-    const qreal w = qMax<qreal>(1.0, width());
-    const qreal h = qMax<qreal>(1.0, height());
-    const qreal t = m_clock.isValid() ? m_clock.elapsed() / 1000.0 : 0.0;
+    const qreal w = qMax<qreal>(1.0, rect.width());
+    const qreal h = qMax<qreal>(1.0, rect.height());
+    const qreal t = seconds;
     const qreal breath = 0.82 + 0.18 * qSin(2 * kPi * t / kBreathPeriod);
 
     for (const Blob &b : kBlobs) {
-        const qreal cx = w * (b.baseX + b.ampX * qSin(2 * kPi * t / b.speed + b.phase));
-        const qreal cy = h * (b.baseY + b.ampY * qCos(2 * kPi * t / b.speed * 0.8 + b.phase));
+        const qreal cx = rect.left() + w * (b.baseX + b.ampX * qSin(2 * kPi * t / b.speed + b.phase));
+        const qreal cy = rect.top() + h * (b.baseY + b.ampY * qCos(2 * kPi * t / b.speed * 0.8 + b.phase));
         const qreal radius = w * b.size / 2.0;
         QRadialGradient g(cx, cy, radius);
         QColor c0 = b.color;
@@ -62,27 +54,41 @@ void AuroraBackground::paintEvent(QPaintEvent *)
         g.setColorAt(0.0, c0);
         g.setColorAt(0.6, c1);
         g.setColorAt(1.0, Qt::transparent);
-        p.setPen(Qt::NoPen);
-        p.setBrush(g);
-        p.drawEllipse(QPointF(cx, cy), radius, radius);
+        p->setPen(Qt::NoPen);
+        p->setBrush(g);
+        p->drawEllipse(QPointF(cx, cy), radius, radius);
     }
 
-    // 扫光:一道斜向光带缓慢扫过
     const qreal bandW = w * 0.34;
     const qreal cycle = std::fmod(t, kSweepPeriod) / kSweepPeriod;
-    const qreal bandX = cycle * (w + bandW * 2.0) - bandW;
-    p.save();
-    p.translate(bandX, h / 2.0);
-    p.rotate(16.0);
+    const qreal bandX = rect.left() + cycle * (w + bandW * 2.0) - bandW;
+    p->save();
+    p->translate(bandX, rect.top() + h / 2.0);
+    p->rotate(16.0);
     QLinearGradient lg(-bandW / 2.0, 0, bandW / 2.0, 0);
     lg.setColorAt(0.0, QColor(180, 200, 255, 0));
     lg.setColorAt(0.45, QColor(200, 215, 255, 24));
     lg.setColorAt(0.55, QColor(220, 230, 255, 30));
     lg.setColorAt(1.0, QColor(180, 200, 255, 0));
-    p.setPen(Qt::NoPen);
-    p.setBrush(lg);
-    p.drawRect(QRectF(-bandW / 2.0, -h * 0.8, bandW, h * 1.6));
-    p.restore();
+    p->setPen(Qt::NoPen);
+    p->setBrush(lg);
+    p->drawRect(QRectF(-bandW / 2.0, -h * 0.8, bandW, h * 1.6));
+    p->restore();
+}
+
+AuroraBackground::AuroraBackground(QWidget *parent)
+    : QWidget(parent)
+{
+    m_timer.setInterval(30);
+    connect(&m_timer, &QTimer::timeout, this, [this] { update(); });
+    m_clock.start();
+}
+
+void AuroraBackground::paintEvent(QPaintEvent *)
+{
+    const qreal t = m_clock.isValid() ? m_clock.elapsed() / 1000.0 : 0.0;
+    QPainter p(this);
+    renderScene(&p, rect(), t);
 }
 
 void AuroraBackground::showEvent(QShowEvent *event)

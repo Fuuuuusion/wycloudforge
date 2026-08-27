@@ -1,11 +1,13 @@
 #include "PlayerBar.h"
 
+#include "ui/AuroraBackground.h"
 #include "ProgressSlider.h"
 
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPushButton>
 #include <QVBoxLayout>
 
@@ -46,8 +48,9 @@ PlayerBar::PlayerBar(QWidget *parent)
     : QWidget(parent)
 {
     setObjectName("playerBar");
-    setFixedSize(720, 80);
+    setFixedSize(860, 80);
     setAttribute(Qt::WA_TranslucentBackground);
+    m_clock.start();
 
     m_cover = new QLabel(this);
     m_cover->setFixedSize(60, 60);
@@ -168,7 +171,7 @@ PlayerBar::PlayerBar(QWidget *parent)
     rightLayout->addWidget(m_queueBtn);
 
     auto *layout = new QHBoxLayout(this);
-    layout->setContentsMargins(18, 0, 18, 0);
+    layout->setContentsMargins(44, 0, 44, 0);
     layout->setSpacing(16);
     layout->addWidget(leftBox);
     layout->addWidget(centerBox, 1);
@@ -202,19 +205,57 @@ PlayerBar::PlayerBar(QWidget *parent)
 
 void PlayerBar::paintEvent(QPaintEvent *)
 {
+    const QRectF r = rect();
+
+    // 玻璃背底:取当前极光场景,快速降采样模糊得到雾透质感
+    QPixmap back(size());
+    back.fill(Qt::transparent);
+    QPainter bp(&back);
+    const qreal t = m_clock.isValid() ? m_clock.elapsed() / 1000.0 : 0.0;
+    AuroraBackground::renderScene(&bp, r, t);
+    bp.end();
+    const QPixmap frosted =
+        back.scaled(qMax(1, width() / 10), qMax(1, height() / 10), Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+            .scaled(size(), Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
-    const QRectF r = rect();
-    p.setPen(Qt::NoPen);
+
     // 投影
+    p.setPen(Qt::NoPen);
     p.setBrush(QColor(0, 0, 0, 70));
-    p.drawRoundedRect(r.translated(0, 6), 40, 40);
-    // 胶囊主体
-    p.setBrush(QColor(22, 22, 30, 200));
-    p.drawRoundedRect(r, 40, 40);
-    // 顶部微光
-    p.setBrush(QColor(255, 255, 255, 14));
-    p.drawRoundedRect(QRectF(r.left() + 1, r.top() + 1, r.width() - 2, r.height() * 0.45), 40, 40);
+    p.drawRoundedRect(r.translated(0, 8), 40, 40);
+
+    // 玻璃主体(裁剪圆角):模糊背底 + 玻璃渐变
+    QPainterPath clip;
+    clip.addRoundedRect(r, 40, 40);
+    p.save();
+    p.setClipPath(clip);
+    p.drawPixmap(r.toRect(), frosted);
+    QLinearGradient glass(r.topLeft(), r.bottomLeft());
+    glass.setColorAt(0.0, QColor(255, 255, 255, 26));
+    glass.setColorAt(0.45, QColor(255, 255, 255, 8));
+    glass.setColorAt(1.0, QColor(255, 255, 255, 20));
+    p.fillRect(r, glass);
+    // 斜向反光折射
+    p.save();
+    p.translate(r.center());
+    p.rotate(18.0);
+    QLinearGradient sheen(QPointF(-r.width() * 0.6, 0), QPointF(r.width() * 0.6, 0));
+    sheen.setColorAt(0.0, QColor(255, 255, 255, 0));
+    sheen.setColorAt(0.5, QColor(255, 255, 255, 28));
+    sheen.setColorAt(1.0, QColor(255, 255, 255, 0));
+    p.fillRect(QRectF(-r.width() * 0.7, -r.height(), r.width() * 1.4, r.height() * 2.0), sheen);
+    p.restore();
+    p.restore();
+
+    // 边缘反光:1px 高光描边 + 顶部内高光
+    p.setBrush(Qt::NoBrush);
+    p.setPen(QPen(QColor(255, 255, 255, 36), 1));
+    p.drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), 40, 40);
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(255, 255, 255, 22));
+    p.drawRoundedRect(QRectF(r.left() + 6, r.top() + 2, r.width() - 12, r.height() * 0.42), 36, 36);
 }
 
 void PlayerBar::setSong(const core::Song &song, bool favorite)

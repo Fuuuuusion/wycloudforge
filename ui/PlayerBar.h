@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QElapsedTimer>
 #include <QWidget>
 
 #include "core/Song.h"
@@ -69,6 +70,7 @@ private:
     int m_volumeValue = 70;
     qint64 m_positionMs = 0;
     qint64 m_durationMs = 0;
+    QElapsedTimer m_clock;
 };
 
 } // namespace ui

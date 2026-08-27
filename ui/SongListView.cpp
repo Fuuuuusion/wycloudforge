@@ -170,6 +170,7 @@ SongListView::SongListView(QWidget *parent)
     setMouseTracking(true);
     setFocusPolicy(Qt::NoFocus);
     setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    viewport()->setCursor(Qt::PointingHandCursor);
     verticalHeader()->setVisible(false);
     horizontalHeader()->setVisible(false);
     horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
