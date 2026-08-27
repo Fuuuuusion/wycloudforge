@@ -86,11 +86,18 @@ DiscoverPage::DiscoverPage(QWidget *parent)
 
     m_contentLayout->addSpacing(8);
     m_contentLayout->addWidget(makeRowTitle(QStringLiteral("最近播放"), content));
-    auto *recentBox = new QWidget(content);
+    auto *recentScroll = new QScrollArea(content);
+    recentScroll->setWidgetResizable(true);
+    recentScroll->setFrameShape(QFrame::NoFrame);
+    recentScroll->setFixedHeight(178);
+    recentScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    recentScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    auto *recentBox = new QWidget;
     m_recentLayout = new QHBoxLayout(recentBox);
     m_recentLayout->setContentsMargins(0, 0, 0, 0);
     m_recentLayout->setSpacing(14);
-    m_contentLayout->addWidget(recentBox);
+    recentScroll->setWidget(recentBox);
+    m_contentLayout->addWidget(recentScroll);
 
     m_contentLayout->addWidget(makeRowTitle(QStringLiteral("我的歌单"), content));
     auto *gridBox = new QWidget(content);
@@ -101,11 +108,18 @@ DiscoverPage::DiscoverPage(QWidget *parent)
     m_contentLayout->addWidget(gridBox);
 
     m_contentLayout->addWidget(makeRowTitle(QStringLiteral("推荐歌手"), content));
-    auto *artistBox = new QWidget(content);
+    auto *artistScroll = new QScrollArea(content);
+    artistScroll->setWidgetResizable(true);
+    artistScroll->setFrameShape(QFrame::NoFrame);
+    artistScroll->setFixedHeight(152);
+    artistScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    artistScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    auto *artistBox = new QWidget;
     m_artistLayout = new QHBoxLayout(artistBox);
     m_artistLayout->setContentsMargins(0, 0, 0, 0);
     m_artistLayout->setSpacing(22);
-    m_contentLayout->addWidget(artistBox);
+    artistScroll->setWidget(artistBox);
+    m_contentLayout->addWidget(artistScroll);
 
     m_contentLayout->addStretch(1);
 

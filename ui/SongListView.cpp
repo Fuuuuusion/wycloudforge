@@ -195,7 +195,7 @@ SongListView::SongListView(QWidget *parent)
     setColumnWidth(2, 200);
     setColumnWidth(3, 180);
     setColumnWidth(4, 70);
-    setStyleSheet(QStringLiteral("QTableView{background:transparent;border:none;}"));
+    setStyleSheet(QStringLiteral("QTableView{background:rgba(255,255,255,0.05);border:none;border-radius:10px;}"));
 
     connect(this, &QTableView::doubleClicked, this, [this](const QModelIndex &idx) {
         if (idx.isValid())

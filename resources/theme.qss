@@ -116,6 +116,10 @@ QStackedWidget#contentStack {
     background: transparent;
     border: none;
 }
+QScrollArea, QScrollArea > QWidget > QWidget {
+    background: transparent;
+    border: none;
+}
 QLabel[class="pageTitle"] {
     font-size: 20px;
     font-weight: 700;

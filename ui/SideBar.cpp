@@ -7,12 +7,29 @@
 #include <QVBoxLayout>
 
 namespace ui {
+namespace {
+
+const char kNavStyle[] =
+    "QPushButton{text-align:left;border:none;background:transparent;color:#9A9AA5;"
+    "padding:8px 10px;border-radius:6px;}"
+    "QPushButton:hover{background:rgba(255,255,255,0.08);color:#E8E8E8;}"
+    "QPushButton:checked{background:rgba(236,65,65,0.16);color:#EC4141;font-weight:600;}";
+
+const char kPlaylistStyle[] =
+    "QPushButton{text-align:left;border:none;background:transparent;color:#9A9AA5;"
+    "padding:7px 10px;border-radius:6px;}"
+    "QPushButton:hover{background:rgba(255,255,255,0.08);color:#E8E8E8;}"
+    "QPushButton:checked{background:rgba(236,65,65,0.16);color:#EC4141;font-weight:600;}";
+
+} // namespace
 
 SideBar::SideBar(QWidget *parent)
     : QWidget(parent)
 {
     setObjectName("sidebar");
     setFixedWidth(200);
+    setAttribute(Qt::WA_StyledBackground, true);
+    setStyleSheet(QStringLiteral("QWidget#sidebar{background:transparent;border:none;}"));
 
     m_navGroup = new QButtonGroup(this);
     m_navGroup->setExclusive(true);
@@ -43,6 +60,10 @@ SideBar::SideBar(QWidget *parent)
     auto *createBtn = new QPushButton(QStringLiteral("创建歌单"), this);
     createBtn->setObjectName("createPlaylistBtn");
     createBtn->setIcon(QIcon(QStringLiteral(":/icons/icon-plus.svg")));
+    createBtn->setStyleSheet(QStringLiteral(
+        "QPushButton{border:none;background:rgba(255,255,255,0.05);color:#9A9AA5;"
+        "padding:7px 10px;border-radius:6px;}"
+        "QPushButton:hover{background:rgba(236,65,65,0.16);color:#EC4141;}"));
     createBtn->setCursor(Qt::PointingHandCursor);
     connect(createBtn, &QPushButton::clicked, this, &SideBar::createPlaylistRequested);
     layout->addWidget(createBtn, 0, Qt::AlignHCenter);
@@ -51,7 +72,8 @@ SideBar::SideBar(QWidget *parent)
 void SideBar::addNavButton(const QString &text, const QString &icon, int pageId)
 {
     auto *btn = new QPushButton(text, this);
-    btn->setProperty("nav", true);
+    btn->setProperty("class", "navBtn");
+    btn->setStyleSheet(QLatin1String(kNavStyle));
     btn->setIcon(QIcon(icon));
     btn->setIconSize(QSize(18, 18));
     btn->setCheckable(true);
@@ -75,6 +97,7 @@ void SideBar::rebuildPlaylistButtons(const QList<PlaylistItem> &items, int activ
     for (const PlaylistItem &item : items) {
         auto *btn = new QPushButton(m_playlistSection);
         btn->setProperty("class", "playlistBtn");
+        btn->setStyleSheet(QLatin1String(kPlaylistStyle));
         btn->setIcon(QIcon(item.favorite ? QStringLiteral(":/icons/icon-heart-fill.svg")
                                          : QStringLiteral(":/icons/icon-music.svg")));
         btn->setIconSize(QSize(16, 16));
