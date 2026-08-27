@@ -34,7 +34,6 @@ public:
 signals:
     void seekRequested(qint64 ms);
     void editLyricsRequested();
-    void commentsRequested();
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
@@ -49,7 +48,6 @@ private:
     QLabel *m_artist = nullptr;
     LyricWidget *m_lyric = nullptr;
     QPushButton *m_editBtn = nullptr;
-    QPushButton *m_commentsBtn = nullptr;
     QButtonGroup *m_modeGroup = nullptr;
     core::MusicSource *m_source = nullptr;
     QList<core::LyricLine> m_lrc;

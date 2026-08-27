@@ -49,6 +49,25 @@ public:
     static void setOnlineUid(qint64 uid);
     static QString onlineNickname();
     static void setOnlineNickname(const QString &name);
+    static QString onlineAvatarUrl();
+    static void setOnlineAvatarUrl(const QString &url);
+
+    // QQ音乐(预留)
+    static QString qqCookie();
+    static void setQqCookie(const QString &cookie);
+    static qint64 qqUid();
+    static void setQqUid(qint64 uid);
+    static QString qqNickname();
+    static void setQqNickname(const QString &name);
+
+    // 头像来源:0 网易云 / 1 QQ音乐 / 2 本地上传
+    static int avatarSource(int fallback = 0);
+    static void setAvatarSource(int source);
+    static QString avatarUploadPath();
+    static void setAvatarUploadPath(const QString &path);
+
+    // 推荐缓存文件
+    static QString recommendCachePath();
 
 private:
     static QStringList s_foldersOverride;

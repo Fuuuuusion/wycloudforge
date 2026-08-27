@@ -107,6 +107,11 @@ void SongListPage::setPlaylistContext(int playlistId)
     delete m_moreBtn->menu();
     auto *menu = new QMenu(m_moreBtn);
     if (playlistId > 0) {
+        if (playlistId != 1) {
+            menu->addAction(QStringLiteral("编辑歌单"), this, [this] {
+                emit editPlaylistRequested(m_playlistContext);
+            });
+        }
         menu->addAction(QStringLiteral("重命名歌单"), this, [this] {
             emit renamePlaylistRequested(m_playlistContext);
         });

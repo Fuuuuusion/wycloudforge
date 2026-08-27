@@ -47,12 +47,10 @@ TitleBar::TitleBar(QWidget *parent)
         return btn;
     };
 
-    m_settingsBtn = makeButton(QStringLiteral(":/icons/icon-settings.svg"), QStringLiteral("设置"), "winBtn");
     m_minBtn = makeButton(QStringLiteral(":/icons/icon-min.svg"), QStringLiteral("最小化"), "winBtn");
     m_maxBtn = makeButton(QStringLiteral(":/icons/icon-max.svg"), QStringLiteral("最大化"), "winBtn");
     m_closeBtn = makeButton(QStringLiteral(":/icons/icon-close.svg"), QStringLiteral("关闭"), "winClose");
 
-    connect(m_settingsBtn, &QPushButton::clicked, this, &TitleBar::settingsClicked);
     connect(m_minBtn, &QPushButton::clicked, this, &TitleBar::minimizeClicked);
     connect(m_maxBtn, &QPushButton::clicked, this, &TitleBar::maximizeClicked);
     connect(m_closeBtn, &QPushButton::clicked, this, &TitleBar::closeClicked);
@@ -70,7 +68,6 @@ TitleBar::TitleBar(QWidget *parent)
     layout->addStretch(1);
     layout->addWidget(searchBox, 0, Qt::AlignCenter);
     layout->addStretch(1);
-    layout->addWidget(m_settingsBtn);
     layout->addWidget(m_minBtn);
     layout->addWidget(m_maxBtn);
     layout->addWidget(m_closeBtn);
@@ -87,7 +84,6 @@ QRect TitleBar::windowButtonRect(int index) const
 {
     QPushButton *btn = nullptr;
     switch (index) {
-    case SettingsBtn: btn = m_settingsBtn; break;
     case MinimizeBtn: btn = m_minBtn; break;
     case MaximizeBtn: btn = m_maxBtn; break;
     case CloseBtn: btn = m_closeBtn; break;

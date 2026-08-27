@@ -42,13 +42,6 @@ PlayingPage::PlayingPage(QWidget *parent)
         "QPushButton:hover{background:rgba(236,65,65,0.16);color:#FF5A5A;}"));
     connect(m_editBtn, &QPushButton::clicked, this, &PlayingPage::editLyricsRequested);
 
-    m_commentsBtn = new QPushButton(QStringLiteral("评论"), this);
-    m_commentsBtn->setCursor(Qt::PointingHandCursor);
-    m_commentsBtn->setStyleSheet(QStringLiteral(
-        "QPushButton{border:none;border-radius:15px;background:rgba(255,255,255,0.08);color:#C8C8D0;padding:5px 16px;}"
-        "QPushButton:hover{background:rgba(236,65,65,0.16);color:#FF5A5A;}"));
-    connect(m_commentsBtn, &QPushButton::clicked, this, &PlayingPage::commentsRequested);
-
     m_modeGroup = new QButtonGroup(this);
     m_modeGroup->setExclusive(true);
     auto *modeRow = new QHBoxLayout;
@@ -68,7 +61,6 @@ PlayingPage::PlayingPage(QWidget *parent)
         modeRow->addWidget(btn);
     }
     modeRow->addStretch(1);
-    modeRow->addWidget(m_commentsBtn);
     connect(m_modeGroup, &QButtonGroup::idClicked, this, [this](int id) {
         m_lyricMode = id;
         applyLyricMode();

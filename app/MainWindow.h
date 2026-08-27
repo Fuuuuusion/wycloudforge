@@ -7,16 +7,20 @@
 #include "core/PlaylistController.h"
 #include "core/SettingsService.h"
 
+#include "ui/SideBar.h"
+
 #include <QMainWindow>
 #include <QStackedWidget>
 
 namespace ui {
-class DiscoverPage;
+class AccountPanel;
+class FavoritesPage;
 class LibraryPage;
-class OnlinePage;
 class PlayerBar;
 class PlayingPage;
+class RecommendPage;
 class SearchPage;
+class SelfPlaylistsPage;
 class SideBar;
 class SongListPage;
 class TitleBar;
@@ -44,17 +48,19 @@ private:
     void openArtist(const QString &artist);
     void openAlbum(const QString &album, const QString &artist);
     void openOnlinePlaylist(qint64 id, const QString &name);
-    void openOnlineAlbum(qint64 id);
-    void openOnlineArtist(qint64 id);
     void ensureOnlineCovers(const QList<core::Song> &songs);
-    void doLogin();
-    void doLogout();
+    void openAccount();
+    void openSettings();
+    void openPlaylistEditor(int playlistId);
     void playSongs(const QList<core::Song> &songs, int index);
+    QList<ui::SideBar::PlaylistItem> selfPlaylistInfos() const;
     void refreshSidebar();
     void refreshLibraryViews();
+    void refreshAllPages();
     void onCurrentSongChanged(const core::Song &song, int index);
     void setupShortcuts();
     void addMusicFolder();
+    void addMusicFiles();
     bool focusIsEditable() const;
 
     core::LibraryService m_library{ this };
@@ -66,12 +72,14 @@ private:
     ui::TitleBar *m_titleBar = nullptr;
     ui::SideBar *m_sideBar = nullptr;
     ui::PlayerBar *m_playerBar = nullptr;
-    ui::DiscoverPage *m_discover = nullptr;
+    ui::AccountPanel *m_accountPanel = nullptr;
+    ui::RecommendPage *m_recommend = nullptr;
+    ui::FavoritesPage *m_favorites = nullptr;
     ui::LibraryPage *m_libraryPage = nullptr;
+    ui::SelfPlaylistsPage *m_selfPlaylists = nullptr;
     ui::SongListPage *m_songListPage = nullptr;
     ui::PlayingPage *m_playing = nullptr;
     ui::SearchPage *m_search = nullptr;
-    ui::OnlinePage *m_online = nullptr;
     QStackedWidget *m_stack = nullptr;
 
     qint64 m_currentSongId = -1;

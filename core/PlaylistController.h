@@ -15,6 +15,8 @@ public:
     {
         int id = -1;
         QString name;
+        QString coverPath;
+        QString description;
         int songCount = 0;
     };
 
@@ -32,6 +34,8 @@ public:
 
     int createPlaylist(const QString &name);
     bool renamePlaylist(int id, const QString &name);
+    bool setPlaylistCover(int id, const QString &coverPath);
+    bool setPlaylistDescription(int id, const QString &text);
     bool deletePlaylist(int id);
 
     bool addSong(int playlistId, qint64 songId);
@@ -56,4 +60,3 @@ private:
 };
 
 } // namespace core
-

@@ -2,19 +2,20 @@
 
 #include "core/LyricsLoader.h"
 #include "core/SettingsService.h"
-#include "ui/DiscoverPage.h"
+#include "ui/AccountDialog.h"
+#include "ui/AccountPanel.h"
 #include "ui/AuroraBackground.h"
+#include "ui/FavoritesPage.h"
 #include "ui/LibraryPage.h"
 #include "ui/LyricEditorDialog.h"
-#include "ui/OnlinePage.h"
-#include "ui/LoginDialog.h"
-#include "ui/CommentsDialog.h"
 #include "ui/PlayerBar.h"
+#include "ui/PlaylistEditDialog.h"
 #include "ui/PlayingPage.h"
+#include "ui/RecommendPage.h"
 #include "ui/SearchPage.h"
-#include "ui/SettingsDialog.h"
+#include "ui/SelfPlaylistsPage.h"
 #include "ui/SideBar.h"
-#include "ui/SvgIcon.h"
+#include "ui/SettingsDialog.h"
 #include "ui/SongListPage.h"
 #include "ui/TitleBar.h"
 
@@ -25,19 +26,20 @@
 #include <QDir>
 #include <QEvent>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QInputDialog>
+#include <QJsonArray>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPlainTextEdit>
-#include <QScrollArea>
-#include <QScrollBar>
 #include <QShortcut>
 #include <QStackedWidget>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QTextEdit>
-#include <QUrl>
 #include <QVBoxLayout>
 
 #include <windows.h>
@@ -47,7 +49,6 @@
 namespace {
 constexpr int kResizeBorder = 5;
 
-// 统一禁用所有可滚动控件的横向滚动条,彻底避免"白色横条"
 void disableHorizontalScrollbars(QWidget *root)
 {
     const QList<QAbstractScrollArea *> areas = root->findChildren<QAbstractScrollArea *>();
@@ -88,11 +89,12 @@ NcHitTestResult computeHitTest(QWidget *window, const QPoint &cursorGlobal, cons
             const QRect r = titleBar->windowButtonRect(i);
             if (r.translated(titleBar->pos()).contains(pos)) {
                 switch (i) {
-                case ui::TitleBar::CloseBtn: return { true, HTCLIENT };
-                case ui::TitleBar::MaximizeBtn: return { true, HTCLIENT };
-                case ui::TitleBar::MinimizeBtn: return { true, HTCLIENT };
-                case ui::TitleBar::SettingsBtn: return { true, HTCLIENT };
-                default: break;
+                case ui::TitleBar::CloseBtn:
+                case ui::TitleBar::MaximizeBtn:
+                case ui::TitleBar::MinimizeBtn:
+                    return { true, HTCLIENT };
+                default:
+                    break;
                 }
             }
         }
@@ -117,35 +119,43 @@ MainWindow::MainWindow(QWidget *parent)
     m_titleBar = new ui::TitleBar(this);
     m_sideBar = new ui::SideBar(this);
     m_playerBar = new ui::PlayerBar(this);
+    m_accountPanel = new ui::AccountPanel(this);
 
-    m_discover = new ui::DiscoverPage(this);
+    m_recommend = new ui::RecommendPage(this);
+    m_favorites = new ui::FavoritesPage(this);
     m_libraryPage = new ui::LibraryPage(this);
+    m_selfPlaylists = new ui::SelfPlaylistsPage(this);
     m_songListPage = new ui::SongListPage(this);
     m_playing = new ui::PlayingPage(this);
     m_search = new ui::SearchPage(this);
-    m_online = new ui::OnlinePage(this);
 
     m_player.setSourceProvider(&m_apiClient);
     m_player.setLibrary(&m_library);
     m_search->setSourceProvider(&m_apiClient, &m_library);
-    m_online->setSourceProvider(&m_apiClient, &m_library);
     m_playing->setSourceProvider(&m_apiClient);
+    m_recommend->setSourceProvider(&m_apiClient, &m_library);
     m_apiClient.setCookie(core::SettingsService::onlineCookie());
 
     m_stack = new QStackedWidget(this);
     m_stack->setObjectName("contentStack");
-    m_stack->addWidget(m_discover);
+    m_stack->addWidget(m_recommend);
+    m_stack->addWidget(m_favorites);
     m_stack->addWidget(m_libraryPage);
+    m_stack->addWidget(m_selfPlaylists);
     m_stack->addWidget(m_songListPage);
     m_stack->addWidget(m_playing);
     m_stack->addWidget(m_search);
-    m_stack->addWidget(m_online);
 
     auto *body = new QWidget(this);
     auto *bodyLayout = new QHBoxLayout(body);
     bodyLayout->setContentsMargins(0, 0, 0, 0);
     bodyLayout->setSpacing(0);
-    bodyLayout->addWidget(m_sideBar);
+    auto *sideCol = new QVBoxLayout;
+    sideCol->setContentsMargins(0, 0, 0, 0);
+    sideCol->setSpacing(0);
+    sideCol->addWidget(m_sideBar, 1);
+    sideCol->addWidget(m_accountPanel);
+    bodyLayout->addLayout(sideCol);
     bodyLayout->addWidget(m_stack, 1);
 
     auto *central = new ui::AuroraBackground(this);
@@ -156,7 +166,6 @@ MainWindow::MainWindow(QWidget *parent)
     layout->addWidget(body, 1);
     setCentralWidget(central);
 
-    // 播放器胶囊悬浮于内容之上,内容区延伸到其背后,供毛玻璃取样
     m_playerBar->setParent(central);
     m_playerBar->setBackdropSource(body);
     positionPlayerBar();
@@ -176,25 +185,10 @@ MainWindow::MainWindow(QWidget *parent)
             return;
         }
         m_search->performSearch(m_library.allSongs(), text);
-        showPage(4);
-    });
-    connect(m_titleBar, &ui::TitleBar::settingsClicked, this, [this] {
-        ui::SettingsDialog dlg(&m_apiService, &m_apiClient, &m_library, this);
-        connect(&dlg, &ui::SettingsDialog::rescanRequested, this, [&dlg, this] {
-            core::SettingsService::setMusicFolders(dlg.folders());
-            m_library.startScan();
-        });
-        if (dlg.exec() == QDialog::Accepted) {
-            m_apiClient.setBaseUrl(core::SettingsService::onlineApiBase());
-            const QStringList folders = dlg.folders();
-            if (folders != core::SettingsService::musicFolders())
-                m_library.setFolders(folders);
-            core::SettingsService::setLyricFontSize(dlg.lyricFontSize());
-            m_playing->setLyricFontSize(dlg.lyricFontSize());
-        }
+        showPage(6);
     });
 
-    // ---------- 侧栏 ----------
+    // ---------- 侧边栏 ----------
     connect(m_sideBar, &ui::SideBar::pageRequested, this, &MainWindow::showPage);
     connect(m_sideBar, &ui::SideBar::playlistSelected, this, &MainWindow::openPlaylist);
     connect(m_sideBar, &ui::SideBar::createPlaylistRequested, this, [this] {
@@ -205,10 +199,15 @@ MainWindow::MainWindow(QWidget *parent)
             const int id = m_playlists.createPlaylist(name);
             if (id > 0) {
                 refreshSidebar();
+                refreshAllPages();
                 openPlaylist(id);
             }
         }
     });
+
+    // ---------- 账号区 / 设置 ----------
+    connect(m_accountPanel, &ui::AccountPanel::accountClicked, this, &MainWindow::openAccount);
+    connect(m_accountPanel, &ui::AccountPanel::settingsClicked, this, &MainWindow::openSettings);
 
     // ---------- 播放栏 ----------
     connect(m_playerBar, &ui::PlayerBar::playPauseClicked, this, [this] {
@@ -240,8 +239,8 @@ MainWindow::MainWindow(QWidget *parent)
         if (m_currentSongId > 0)
             m_playlists.setFavorite(m_currentSongId, fav);
     });
-    connect(m_playerBar, &ui::PlayerBar::lyricsClicked, this, [this] { showPage(3); });
-    connect(m_playerBar, &ui::PlayerBar::playlistClicked, this, [this] { openPlaylist(1); });
+    connect(m_playerBar, &ui::PlayerBar::lyricsClicked, this, [this] { showPage(5); });
+    connect(m_playerBar, &ui::PlayerBar::playlistClicked, this, [this] { showPage(3); });
 
     // ---------- 播放器信号 → UI ----------
     connect(&m_player, &core::PlayerService::songChanged, this, &MainWindow::onCurrentSongChanged);
@@ -253,15 +252,37 @@ MainWindow::MainWindow(QWidget *parent)
     connect(&m_player, &core::PlayerService::volumeChanged, m_playerBar, &ui::PlayerBar::setVolume);
     connect(&m_player, &core::PlayerService::mutedChanged, m_playerBar, &ui::PlayerBar::setMuted);
     connect(&m_player, &core::PlayerService::errorOccurred, this, [this](const QString &) {
-        m_playerBar->setSong(m_player.currentSong(), m_playlists.isFavorite(m_player.currentSong().id));
+        const core::Song s = m_player.currentSong();
+        m_playerBar->setSong(s, m_playlists.isFavorite(s.id));
     });
 
-    // ---------- 发现页 ----------
-    connect(m_discover, &ui::DiscoverPage::playRequested, this, &MainWindow::playSongs);
-    connect(m_discover, &ui::DiscoverPage::playlistClicked, this, &MainWindow::openPlaylist);
-    connect(m_discover, &ui::DiscoverPage::importRequested, this, &MainWindow::addMusicFolder);
+    // ---------- 推荐页 ----------
+    connect(m_recommend, &ui::RecommendPage::playRequested, this, &MainWindow::playSongs);
+    connect(m_recommend, &ui::RecommendPage::openPlaylistRequested, this, &MainWindow::openOnlinePlaylist);
+    connect(m_recommend, &ui::RecommendPage::loginRequested, this, &MainWindow::openAccount);
 
-    // ---------- 音乐库页 ----------
+    // ---------- 收藏页 ----------
+    connect(m_favorites, &ui::FavoritesPage::playRequested, this, &MainWindow::playSongs);
+    connect(m_favorites, &ui::FavoritesPage::heartRequested, this, [this](int row) {
+        const auto songs = m_playlists.songsOf(m_playlists.favoritePlaylistId());
+        const core::Song s = songs.value(row);
+        if (s.id > 0)
+            m_playlists.setFavorite(s.id, false);
+    });
+    connect(m_favorites, &ui::FavoritesPage::addToPlaylistRequested, this, [this](int row, int plId) {
+        const auto songs = m_playlists.songsOf(m_playlists.favoritePlaylistId());
+        const core::Song s = songs.value(row);
+        if (s.id > 0)
+            m_playlists.addSong(plId, s.id);
+    });
+    connect(m_favorites, &ui::FavoritesPage::removeFromPlaylistRequested, this, [this](int row) {
+        const auto songs = m_playlists.songsOf(m_playlists.favoritePlaylistId());
+        const core::Song s = songs.value(row);
+        if (s.id > 0)
+            m_playlists.setFavorite(s.id, false);
+    });
+
+    // ---------- 本地歌单页 ----------
     connect(m_libraryPage, &ui::LibraryPage::playRequested, this, &MainWindow::playSongs);
     connect(m_libraryPage, &ui::LibraryPage::artistClicked, this, &MainWindow::openArtist);
     connect(m_libraryPage, &ui::LibraryPage::albumClicked, this, &MainWindow::openAlbum);
@@ -275,15 +296,28 @@ MainWindow::MainWindow(QWidget *parent)
         if (s.id > 0)
             m_playlists.addSong(plId, s.id);
     });
-    connect(m_libraryPage, &ui::LibraryPage::removeFromPlaylistRequested, this, [this](int row) {
-        const core::Song s = m_libraryPage->currentSongs().value(row);
-        if (s.id > 0 && m_playlistContext > 0)
-            m_playlists.removeSong(m_playlistContext, s.id);
-    });
     connect(m_libraryPage, &ui::LibraryPage::deleteFromLibraryRequested, this, [this](int row) {
         const core::Song s = m_libraryPage->currentSongs().value(row);
         if (s.id > 0)
             m_library.removeSong(s.id);
+    });
+    connect(m_libraryPage, &ui::LibraryPage::importRequested, this, &MainWindow::addMusicFolder);
+    connect(m_libraryPage, &ui::LibraryPage::importFilesRequested, this, &MainWindow::addMusicFiles);
+
+    // ---------- 自建歌单页 ----------
+    connect(m_selfPlaylists, &ui::SelfPlaylistsPage::openPlaylistRequested, this, &MainWindow::openPlaylist);
+    connect(m_selfPlaylists, &ui::SelfPlaylistsPage::createPlaylistRequested, this, [this] {
+        bool ok = false;
+        const QString name = QInputDialog::getText(this, QStringLiteral("创建歌单"),
+                                                   QStringLiteral("歌单名称:"), QLineEdit::Normal, QString(), &ok);
+        if (ok && !name.trimmed().isEmpty()) {
+            const int id = m_playlists.createPlaylist(name);
+            if (id > 0) {
+                refreshSidebar();
+                refreshAllPages();
+                openPlaylist(id);
+            }
+        }
     });
 
     // ---------- 歌单/详情页 ----------
@@ -319,6 +353,7 @@ MainWindow::MainWindow(QWidget *parent)
                 openPlaylist(m_playlistContext);
         }
     });
+    connect(m_songListPage, &ui::SongListPage::editPlaylistRequested, this, &MainWindow::openPlaylistEditor);
     connect(m_songListPage, &ui::SongListPage::renamePlaylistRequested, this, [this](int id) {
         QString oldName;
         for (const auto &p : m_playlists.playlists())
@@ -337,7 +372,7 @@ MainWindow::MainWindow(QWidget *parent)
             == QMessageBox::Yes) {
             m_playlists.deletePlaylist(id);
             refreshSidebar();
-            showPage(0);
+            showPage(3);
         }
     });
 
@@ -350,21 +385,6 @@ MainWindow::MainWindow(QWidget *parent)
         if (ui::LyricEditorDialog::editForSong(this, song))
             m_playing->setLyrics(core::LyricsLoader::load(song));
     });
-    connect(m_playing, &ui::PlayingPage::commentsRequested, this, [this] {
-        const core::Song song = m_playing->currentSong();
-        if (song.onlineId > 0) {
-            ui::CommentsDialog dlg(&m_apiClient, song.onlineId, song.title, this);
-            dlg.exec();
-        }
-    });
-
-    // ---------- 在线音乐页 ----------
-    connect(m_online, &ui::OnlinePage::playRequested, this, &MainWindow::playSongs);
-    connect(m_online, &ui::OnlinePage::openPlaylistRequested, this, &MainWindow::openOnlinePlaylist);
-    connect(m_online, &ui::OnlinePage::openAlbumRequested, this, &MainWindow::openOnlineAlbum);
-    connect(m_online, &ui::OnlinePage::openArtistRequested, this, &MainWindow::openOnlineArtist);
-    connect(m_online, &ui::OnlinePage::loginRequested, this, &MainWindow::doLogin);
-    connect(m_online, &ui::OnlinePage::logoutRequested, this, &MainWindow::doLogout);
 
     // ---------- 搜索页 ----------
     connect(m_search, &ui::SearchPage::playRequested, this, &MainWindow::playSongs);
@@ -407,7 +427,10 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     // ---------- 播放列表信号 ----------
-    connect(&m_playlists, &core::PlaylistController::playlistsChanged, this, &MainWindow::refreshSidebar);
+    connect(&m_playlists, &core::PlaylistController::playlistsChanged, this, [this] {
+        refreshSidebar();
+        refreshAllPages();
+    });
     connect(&m_playlists, &core::PlaylistController::playlistSongsChanged, this, [this](int) {
         refreshSidebar();
         if (m_playlistContext > 0)
@@ -419,37 +442,37 @@ MainWindow::MainWindow(QWidget *parent)
         m_playlists.setDatabase(m_library.database());
         refreshSidebar();
         refreshLibraryViews();
+        refreshAllPages();
         m_library.startScan();
     }
     m_player.setVolume(core::SettingsService::volume());
     m_player.setMuted(core::SettingsService::muted());
     m_player.setMode(core::PlayerService::PlayMode(core::SettingsService::playMode()));
     m_playing->setLyricFontSize(core::SettingsService::lyricFontSize());
-
-    QList<QPair<int, QString>> playlistItems;
-    for (const auto &p : m_playlists.playlists())
-        playlistItems.append({ p.id, p.name });
-    m_songListPage->setPlaylistMenuItems(playlistItems);
-    m_sideBar->setActivePage(ui::SideBar::DiscoverPage);
-    m_online->setLoginInfo(core::SettingsService::onlineNickname());
+    m_sideBar->setActivePage(ui::SideBar::RecommendPage);
     setupShortcuts();
     disableHorizontalScrollbars(this);
 
     m_apiService.ensureRunning(
         [this] {
             m_apiClient.setBaseUrl(m_apiService.apiBase());
-            m_online->refresh();
+            m_recommend->refresh();
         },
-        [](const QString &) {});
-
+        [this](const QString &) {
+            m_recommend->refresh();
+        });
 }
 
 void MainWindow::showPage(int pageId)
 {
-    if (pageId == 3)
+    if (pageId == 5)
         m_lastPage = m_stack->currentIndex();
     if (pageId >= 0 && pageId < m_stack->count())
         m_stack->setCurrentIndex(pageId);
+    if (pageId == 1)
+        m_favorites->setSongs(m_playlists.songsOf(m_playlists.favoritePlaylistId()), m_currentSongId);
+    if (pageId == 3)
+        refreshAllPages();
     m_sideBar->setActivePage(pageId);
 }
 
@@ -459,19 +482,18 @@ void MainWindow::openPlaylist(int playlistId)
     refreshSidebar();
     const auto songs = m_playlists.songsOf(playlistId);
     QString name = QStringLiteral("歌单");
+    QString desc;
     for (const auto &p : m_playlists.playlists())
-        if (p.id == playlistId) { name = p.name; break; }
+        if (p.id == playlistId) { name = p.name; desc = p.description; break; }
     qint64 totalSec = 0;
     for (const auto &s : songs)
         totalSec += s.durationMs / 1000;
-    const QString meta = QStringLiteral("%1 首 · 共 %2:%3")
-                             .arg(songs.size())
-                             .arg(totalSec / 60)
-                             .arg(totalSec % 60, 2, 10, QLatin1Char('0'));
+    const QString meta = desc.isEmpty()
+        ? QStringLiteral("%1 首 · 共 %2:%3").arg(songs.size()).arg(totalSec / 60).arg(totalSec % 60, 2, 10, QLatin1Char('0'))
+        : QStringLiteral("%1 首 · %2").arg(songs.size()).arg(desc);
     m_songListPage->showContent(songs, name, meta, m_currentSongId, playlistId > 0);
     m_songListPage->setPlaylistContext(playlistId);
-    refreshSidebar();
-    showPage(2);
+    showPage(4);
 }
 
 void MainWindow::openArtist(const QString &artist)
@@ -480,10 +502,9 @@ void MainWindow::openArtist(const QString &artist)
     for (const auto &s : m_library.allSongs())
         if (s.artist == artist)
             songs.append(s);
-    m_songListPage->showContent(songs, artist, QStringLiteral("歌手 · %1 首").arg(songs.size()),
-                                m_currentSongId, false);
+    m_songListPage->showContent(songs, artist, QStringLiteral("歌手 · %1 首").arg(songs.size()), m_currentSongId, false);
     m_songListPage->setPlaylistContext(-1);
-    showPage(2);
+    showPage(4);
 }
 
 void MainWindow::openAlbum(const QString &album, const QString &artist)
@@ -492,10 +513,9 @@ void MainWindow::openAlbum(const QString &album, const QString &artist)
     for (const auto &s : m_library.allSongs())
         if (s.album == album && (artist.isEmpty() || s.artist == artist))
             songs.append(s);
-    m_songListPage->showContent(songs, album, QStringLiteral("专辑 · %1 首").arg(songs.size()),
-                                m_currentSongId, false);
+    m_songListPage->showContent(songs, album, QStringLiteral("专辑 · %1 首").arg(songs.size()), m_currentSongId, false);
     m_songListPage->setPlaylistContext(-1);
-    showPage(2);
+    showPage(4);
 }
 
 void MainWindow::openOnlinePlaylist(qint64 id, const QString &name)
@@ -508,56 +528,15 @@ void MainWindow::openOnlinePlaylist(qint64 id, const QString &name)
             songs.append(s);
         }
         ensureOnlineCovers(songs);
-        int local = 0;
-        int online = 0;
+        int local = 0, online = 0;
         for (const auto &s : songs)
             s.isOnline() ? ++online : ++local;
         const QString meta = QStringLiteral("本地 %1 首 · 在线 %2 首").arg(local).arg(online);
         m_songListPage->showContent(songs, name, meta, m_currentSongId, false);
         m_songListPage->setPlaylistContext(-1);
-        showPage(2);
+        showPage(4);
     }, [this](const QString &msg) {
         QMessageBox::information(this, QStringLiteral("在线歌单"), QStringLiteral("加载失败:%1").arg(msg));
-    });
-}
-
-void MainWindow::openOnlineAlbum(qint64 id)
-{
-    m_apiClient.albumDetail(id, [this](const QJsonObject &obj) {
-        const QString name = obj.value(QStringLiteral("album")).toObject().value(QStringLiteral("name")).toString();
-        QList<core::Song> songs;
-        const QJsonArray arr = obj.value(QStringLiteral("songs")).toArray();
-        for (const QJsonValue &v : arr) {
-            core::Song s = m_apiClient.songFromJson(v.toObject());
-            s.id = m_library.upsertOnlineSong(s);
-            songs.append(s);
-        }
-        ensureOnlineCovers(songs);
-        m_songListPage->showContent(songs, name, QStringLiteral("专辑 · %1 首").arg(songs.size()),
-                                    m_currentSongId, false);
-        m_songListPage->setPlaylistContext(-1);
-        showPage(2);
-    }, [this](const QString &msg) {
-        QMessageBox::information(this, QStringLiteral("专辑"), QStringLiteral("加载失败:%1").arg(msg));
-    });
-}
-
-void MainWindow::openOnlineArtist(qint64 id)
-{
-    m_apiClient.artistSongs(id, [this](const QJsonArray &arr) {
-        QList<core::Song> songs;
-        for (const QJsonValue &v : arr) {
-            core::Song s = m_apiClient.songFromJson(v.toObject());
-            s.id = m_library.upsertOnlineSong(s);
-            songs.append(s);
-        }
-        ensureOnlineCovers(songs);
-        m_songListPage->showContent(songs, QStringLiteral("歌手歌曲"), QStringLiteral("热门 %1 首").arg(songs.size()),
-                                    m_currentSongId, false);
-        m_songListPage->setPlaylistContext(-1);
-        showPage(2);
-    }, [this](const QString &msg) {
-        QMessageBox::information(this, QStringLiteral("歌手"), QStringLiteral("加载失败:%1").arg(msg));
     });
 }
 
@@ -584,21 +563,44 @@ void MainWindow::ensureOnlineCovers(const QList<core::Song> &songs)
     }
 }
 
-void MainWindow::doLogin()
+void MainWindow::openAccount()
 {
-    ui::LoginDialog dlg(&m_apiClient, this);
-    if (dlg.exec() == QDialog::Accepted)
-        m_online->setLoginInfo(dlg.nickname());
+    ui::AccountDialog dlg(&m_apiClient, this);
+    connect(&dlg, &ui::AccountDialog::accountStateChanged, this, [this] {
+        m_accountPanel->refresh();
+        m_recommend->refresh();
+    });
+    dlg.exec();
 }
 
-void MainWindow::doLogout()
+void MainWindow::openSettings()
 {
-    m_apiClient.logout([](const QJsonObject &) {}, [](const QString &) {});
-    core::SettingsService::setOnlineCookie(QString());
-    core::SettingsService::setOnlineUid(0);
-    core::SettingsService::setOnlineNickname(QString());
-    m_apiClient.setCookie(QString());
-    m_online->setLoginInfo(QString());
+    ui::SettingsDialog dlg(&m_apiService, &m_apiClient, &m_library, this);
+    connect(&dlg, &ui::SettingsDialog::rescanRequested, this, [&dlg, this] {
+        core::SettingsService::setMusicFolders(dlg.folders());
+        m_library.startScan();
+    });
+    if (dlg.exec() == QDialog::Accepted) {
+        m_apiClient.setBaseUrl(core::SettingsService::onlineApiBase());
+        const QStringList folders = dlg.folders();
+        if (folders != core::SettingsService::musicFolders())
+            m_library.setFolders(folders);
+        core::SettingsService::setLyricFontSize(dlg.lyricFontSize());
+        m_playing->setLyricFontSize(dlg.lyricFontSize());
+    }
+}
+
+void MainWindow::openPlaylistEditor(int playlistId)
+{
+    QString name, desc, cover;
+    for (const auto &p : m_playlists.playlists())
+        if (p.id == playlistId) { name = p.name; desc = p.description; cover = p.coverPath; break; }
+    ui::PlaylistEditDialog dlg(&m_playlists, playlistId, name, desc, cover, this);
+    if (dlg.exec() == QDialog::Accepted) {
+        refreshSidebar();
+        refreshAllPages();
+        openPlaylist(playlistId);
+    }
 }
 
 void MainWindow::playSongs(const QList<core::Song> &songs, int index)
@@ -609,20 +611,26 @@ void MainWindow::playSongs(const QList<core::Song> &songs, int index)
     m_player.play();
 }
 
-void MainWindow::refreshSidebar()
+QList<ui::SideBar::PlaylistItem> MainWindow::selfPlaylistInfos() const
 {
     QList<ui::SideBar::PlaylistItem> items;
-    int active = -1;
     for (const auto &p : m_playlists.playlists()) {
+        if (p.id == m_playlists.favoritePlaylistId())
+            continue;
         ui::SideBar::PlaylistItem item;
         item.id = p.id;
         item.name = p.name;
-        item.favorite = (p.id == m_playlists.favoritePlaylistId());
+        item.coverPath = p.coverPath;
+        item.description = p.description;
         items.append(item);
-        if (m_playlistContext == p.id)
-            active = p.id;
     }
-    m_sideBar->setPlaylists(items, active);
+    return items;
+}
+
+void MainWindow::refreshSidebar()
+{
+    QList<ui::SideBar::PlaylistItem> items = selfPlaylistInfos();
+    m_sideBar->setPlaylists(items, m_playlistContext);
     QList<QPair<int, QString>> menuItems;
     for (const auto &p : m_playlists.playlists())
         menuItems.append({ p.id, p.name });
@@ -632,12 +640,16 @@ void MainWindow::refreshSidebar()
 void MainWindow::refreshLibraryViews()
 {
     const auto all = m_library.allSongs();
-    m_discover->setLibrary(all, m_currentSongId);
-    m_discover->setPlaylists(m_playlists.playlists());
-    m_discover->setRecent(m_playlists.recentSongs(8));
     m_libraryPage->setSongs(all, m_currentSongId);
     if (!m_searchQuery.isEmpty())
         m_search->performSearch(all, m_searchQuery);
+}
+
+void MainWindow::refreshAllPages()
+{
+    m_favorites->setSongs(m_playlists.songsOf(m_playlists.favoritePlaylistId()), m_currentSongId);
+    m_selfPlaylists->setPlaylists(m_playlists.playlists());
+    m_songListPage->setPlayingId(m_currentSongId);
 }
 
 void MainWindow::onCurrentSongChanged(const core::Song &song, int index)
@@ -666,9 +678,7 @@ void MainWindow::setupShortcuts()
                 fn();
         });
     };
-    add(QKeySequence(Qt::Key_Space), [this] {
-        emit m_playerBar->playPauseClicked();
-    });
+    add(QKeySequence(Qt::Key_Space), [this] { emit m_playerBar->playPauseClicked(); });
     add(QKeySequence(QStringLiteral("Ctrl+Left")), [this] { m_player.prev(); });
     add(QKeySequence(QStringLiteral("Ctrl+Right")), [this] { m_player.next(); });
     add(QKeySequence(QStringLiteral("Ctrl+Up")), [this] {
@@ -679,7 +689,7 @@ void MainWindow::setupShortcuts()
         m_player.setVolume(qMax(0, m_player.volume() - 5));
         core::SettingsService::setVolume(m_player.volume());
     });
-    add(QKeySequence(Qt::Key_L), [this] { showPage(3); });
+    add(QKeySequence(Qt::Key_L), [this] { showPage(5); });
     add(QKeySequence(QStringLiteral("Ctrl+O")), [this] { addMusicFolder(); });
     add(QKeySequence(Qt::Key_F5), [this] { m_library.startScan(); });
 }
@@ -694,6 +704,26 @@ void MainWindow::addMusicFolder()
         folders.append(dir);
         m_library.setFolders(folders);
     }
+}
+
+void MainWindow::addMusicFiles()
+{
+    const QStringList files = QFileDialog::getOpenFileNames(
+        this, QStringLiteral("导入歌曲"), QString(),
+        QStringLiteral("音频 (*.mp3 *.flac *.wav *.m4a *.aac *.ogg)"));
+    if (files.isEmpty())
+        return;
+    QStringList folders = core::SettingsService::musicFolders();
+    bool changed = false;
+    for (const QString &f : files) {
+        const QString dir = QFileInfo(f).absolutePath();
+        if (!folders.contains(dir)) {
+            folders.append(dir);
+            changed = true;
+        }
+    }
+    if (changed)
+        m_library.setFolders(folders);
 }
 
 bool MainWindow::focusIsEditable() const

@@ -230,6 +230,23 @@ bool LibraryService::openDatabase()
     if (!cols.contains(QStringLiteral("cover_url"))) addCol(QStringLiteral("cover_url"), QStringLiteral("TEXT DEFAULT ''"));
     if (!cols.contains(QStringLiteral("cache_path"))) addCol(QStringLiteral("cache_path"), QStringLiteral("TEXT DEFAULT ''"));
     if (!cols.contains(QStringLiteral("album_id"))) addCol(QStringLiteral("album_id"), QStringLiteral("INTEGER DEFAULT 0"));
+
+    // 歌单表:老库补充封面/简介列
+    {
+        QStringList pcols;
+        QSqlQuery pinfo(m_db);
+        pinfo.exec(QStringLiteral("PRAGMA table_info(playlists)"));
+        while (pinfo.next())
+            pcols << pinfo.value(1).toString();
+        if (!pcols.contains(QStringLiteral("cover_path"))) {
+            QSqlQuery a(m_db);
+            a.exec(QStringLiteral("ALTER TABLE playlists ADD COLUMN cover_path TEXT DEFAULT ''"));
+        }
+        if (!pcols.contains(QStringLiteral("description"))) {
+            QSqlQuery a(m_db);
+            a.exec(QStringLiteral("ALTER TABLE playlists ADD COLUMN description TEXT DEFAULT ''"));
+        }
+    }
     q.exec(QStringLiteral(
         "CREATE TABLE IF NOT EXISTS song_cache("
         "song_id INTEGER PRIMARY KEY,"
@@ -243,6 +260,8 @@ bool LibraryService::openDatabase()
         "CREATE TABLE IF NOT EXISTS playlists("
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
         "name TEXT NOT NULL UNIQUE,"
+        "cover_path TEXT DEFAULT '',"
+        "description TEXT DEFAULT '',"
         "created_ms INTEGER DEFAULT 0)"));
     q.exec(QStringLiteral(
         "CREATE TABLE IF NOT EXISTS playlist_songs("

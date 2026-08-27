@@ -39,6 +39,18 @@ add_library(neteclone_ui STATIC
     SettingsDialog.cpp
     LyricEditorDialog.h
     LyricEditorDialog.cpp
+    RecommendPage.h
+    RecommendPage.cpp
+    FavoritesPage.h
+    FavoritesPage.cpp
+    SelfPlaylistsPage.h
+    SelfPlaylistsPage.cpp
+    AccountPanel.h
+    AccountPanel.cpp
+    AccountDialog.h
+    AccountDialog.cpp
+    PlaylistEditDialog.h
+    PlaylistEditDialog.cpp
 )
 
 target_include_directories(neteclone_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)

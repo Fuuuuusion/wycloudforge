@@ -32,6 +32,7 @@ signals:
     void addToPlaylistRequested(int row, int playlistId);
     void removeFromPlaylistRequested(int row);
     void deleteFromLibraryRequested(int row);
+    void editPlaylistRequested(int playlistId);
     void renamePlaylistRequested(int playlistId);
     void deletePlaylistRequested(int playlistId);
 
@@ -46,4 +47,3 @@ private:
 };
 
 } // namespace ui
-

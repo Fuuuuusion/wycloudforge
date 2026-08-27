@@ -219,6 +219,38 @@ QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
     background: transparent;
 }
 
+/* ---------- 账号区 / 账号对话框 / 歌单编辑 ---------- */
+QWidget#accountPanel {
+    background: transparent;
+}
+QLabel[class="accountName"] {
+    color: #E8E8E8;
+    font-size: 13px;
+}
+QLabel[class="accountSub"] {
+    color: #6E6E7A;
+    font-size: 11px;
+}
+QLabel[class="pageSub"] {
+    color: #9A9AA5;
+    font-size: 13px;
+}
+QDialog#playlistEditDialog, QDialog#accountDialog {
+    background: #16161E;
+}
+QDialog#playlistEditDialog QLineEdit, QDialog#playlistEditDialog QPlainTextEdit,
+QDialog#accountDialog QPushButton {
+    background: rgba(255, 255, 255, 0.06);
+    border: none;
+    border-radius: 8px;
+    color: #E8E8E8;
+    padding: 6px 10px;
+    selection-background-color: #EC4141;
+}
+QDialog#playlistEditDialog QLineEdit:focus, QDialog#playlistEditDialog QPlainTextEdit:focus {
+    border: 1px solid rgba(236, 65, 65, 0.5);
+}
+
 /* ---------- 菜单 / 提示 / 对话框 ---------- */
 QToolTip {
     background: #1B1B24;

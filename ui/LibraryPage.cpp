@@ -23,9 +23,20 @@ LibraryPage::LibraryPage(QWidget *parent)
     layout->setContentsMargins(28, 24, 28, 24);
     layout->setSpacing(12);
 
-    auto *title = new QLabel(QStringLiteral("音乐库"), this);
+    auto *titleRow = new QWidget(this);
+    auto *titleLayout = new QHBoxLayout(titleRow);
+    titleLayout->setContentsMargins(0, 0, 0, 0);
+    titleLayout->setSpacing(8);
+    auto *title = new QLabel(QStringLiteral("本地歌单"), titleRow);
     title->setProperty("class", "pageTitle");
-    layout->addWidget(title);
+    titleLayout->addWidget(title, 1);
+    auto *importBtn = addTopButton(QStringLiteral("导入文件夹"), QStringLiteral(":/icons/icon-folder.svg"));
+    connect(importBtn, &QPushButton::clicked, this, &LibraryPage::importRequested);
+    auto *importFileBtn = addTopButton(QStringLiteral("导入歌曲"), QStringLiteral(":/icons/icon-plus.svg"));
+    connect(importFileBtn, &QPushButton::clicked, this, &LibraryPage::importFilesRequested);
+    titleLayout->addWidget(importBtn);
+    titleLayout->addWidget(importFileBtn);
+    layout->addWidget(titleRow);
 
     auto *tabRow = new QWidget(this);
     auto *tabLayout = new QHBoxLayout(tabRow);
@@ -121,6 +132,19 @@ LibraryPage::LibraryPage(QWidget *parent)
     connect(m_songList, &SongListView::addToPlaylistRequested, this, &LibraryPage::addToPlaylistRequested);
     connect(m_songList, &SongListView::removeFromPlaylistRequested, this, &LibraryPage::removeFromPlaylistRequested);
     connect(m_songList, &SongListView::deleteFromLibraryRequested, this, &LibraryPage::deleteFromLibraryRequested);
+}
+
+QPushButton *LibraryPage::addTopButton(const QString &text, const QString &icon)
+{
+    auto *btn = new QPushButton(text, this);
+    btn->setIcon(QIcon(icon));
+    btn->setIconSize(QSize(16, 16));
+    btn->setCursor(Qt::PointingHandCursor);
+    btn->setStyleSheet(QStringLiteral(
+        "QPushButton{border:none;background:rgba(255,255,255,0.06);color:#9A9AA5;"
+        "padding:5px 14px;border-radius:999px;font-size:12px;}"
+        "QPushButton:hover{background:rgba(236,65,65,0.16);color:#EC4141;}"));
+    return btn;
 }
 
 void LibraryPage::setSongs(const QList<core::Song> &songs, qint64 playingId)

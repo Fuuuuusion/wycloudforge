@@ -1,5 +1,6 @@
 #include "SettingsService.h"
 
+#include <QStandardPaths>
 #include <QSettings>
 
 namespace core {
@@ -220,6 +221,84 @@ void SettingsService::setOnlineNickname(const QString &name)
 {
     QSettings s;
     s.setValue(QStringLiteral("online/nickname"), name);
+}
+
+QString SettingsService::onlineAvatarUrl()
+{
+    QSettings s;
+    return s.value(QStringLiteral("online/avatarUrl")).toString();
+}
+
+void SettingsService::setOnlineAvatarUrl(const QString &url)
+{
+    QSettings s;
+    s.setValue(QStringLiteral("online/avatarUrl"), url);
+}
+
+QString SettingsService::qqCookie()
+{
+    QSettings s;
+    return s.value(QStringLiteral("qq/cookie")).toString();
+}
+
+void SettingsService::setQqCookie(const QString &cookie)
+{
+    QSettings s;
+    s.setValue(QStringLiteral("qq/cookie"), cookie);
+}
+
+qint64 SettingsService::qqUid()
+{
+    QSettings s;
+    return s.value(QStringLiteral("qq/uid"), 0).toLongLong();
+}
+
+void SettingsService::setQqUid(qint64 uid)
+{
+    QSettings s;
+    s.setValue(QStringLiteral("qq/uid"), uid);
+}
+
+QString SettingsService::qqNickname()
+{
+    QSettings s;
+    return s.value(QStringLiteral("qq/nickname")).toString();
+}
+
+void SettingsService::setQqNickname(const QString &name)
+{
+    QSettings s;
+    s.setValue(QStringLiteral("qq/nickname"), name);
+}
+
+int SettingsService::avatarSource(int fallback)
+{
+    QSettings s;
+    return s.value(QStringLiteral("account/avatarSource"), fallback).toInt();
+}
+
+void SettingsService::setAvatarSource(int source)
+{
+    QSettings s;
+    s.setValue(QStringLiteral("account/avatarSource"), source);
+}
+
+QString SettingsService::avatarUploadPath()
+{
+    QSettings s;
+    return s.value(QStringLiteral("account/avatarUpload")).toString();
+}
+
+void SettingsService::setAvatarUploadPath(const QString &path)
+{
+    QSettings s;
+    s.setValue(QStringLiteral("account/avatarUpload"), path);
+}
+
+QString SettingsService::recommendCachePath()
+{
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+        + QStringLiteral("/recommend.json");
 }
 
 } // namespace core

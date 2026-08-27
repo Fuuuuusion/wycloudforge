@@ -6,6 +6,7 @@
 
 class QGridLayout;
 class QButtonGroup;
+class QPushButton;
 class QStackedWidget;
 class QVBoxLayout;
 
@@ -30,8 +31,11 @@ signals:
     void addToPlaylistRequested(int row, int playlistId);
     void removeFromPlaylistRequested(int row);
     void deleteFromLibraryRequested(int row);
+    void importRequested();
+    void importFilesRequested();
 
 private:
+    QPushButton *addTopButton(const QString &text, const QString &icon);
     void rebuildArtists();
     void rebuildAlbums();
     void applyFilter();

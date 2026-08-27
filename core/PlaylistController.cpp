@@ -30,14 +30,16 @@ void PlaylistController::reloadPlaylists()
         return;
     QSqlQuery q(m_db);
     q.exec(QStringLiteral(
-        "SELECT p.id,p.name,COUNT(ps.song_id) FROM playlists p "
+        "SELECT p.id,p.name,p.cover_path,p.description,COUNT(ps.song_id) FROM playlists p "
         "LEFT JOIN playlist_songs ps ON ps.playlist_id=p.id "
         "GROUP BY p.id ORDER BY p.id"));
     while (q.next()) {
         PlaylistInfo info;
         info.id = q.value(0).toInt();
         info.name = q.value(1).toString();
-        info.songCount = q.value(2).toInt();
+        info.coverPath = q.value(2).toString();
+        info.description = q.value(3).toString();
+        info.songCount = q.value(4).toInt();
         m_playlists.append(info);
     }
 }
@@ -114,6 +116,36 @@ bool PlaylistController::renamePlaylist(int id, const QString &name)
     if (!q.exec())
         return false;
     reload();
+    return true;
+}
+
+bool PlaylistController::setPlaylistCover(int id, const QString &coverPath)
+{
+    if (!m_db.isOpen() || id == favoritePlaylistId())
+        return false;
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("UPDATE playlists SET cover_path=? WHERE id=?"));
+    q.addBindValue(coverPath);
+    q.addBindValue(id);
+    if (!q.exec())
+        return false;
+    reload();
+    emit playlistsChanged();
+    return true;
+}
+
+bool PlaylistController::setPlaylistDescription(int id, const QString &text)
+{
+    if (!m_db.isOpen())
+        return false;
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("UPDATE playlists SET description=? WHERE id=?"));
+    q.addBindValue(text.trimmed());
+    q.addBindValue(id);
+    if (!q.exec())
+        return false;
+    reload();
+    emit playlistsChanged();
     return true;
 }
 
@@ -254,4 +286,3 @@ void PlaylistController::recordPlay(qint64 songId)
 }
 
 } // namespace core
-

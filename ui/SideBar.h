@@ -12,12 +12,14 @@ class SideBar : public QWidget
 {
     Q_OBJECT
 public:
-    enum PageId { DiscoverPage = 0, LibraryPage = 1, PlayingPage = 3, OnlinePageId = 5 };
+    enum PageId { RecommendPage = 0, FavoritesPage = 1, LocalLibraryPage = 2, SelfPlaylistsPage = 3 };
 
     struct PlaylistItem
     {
         int id = -1;
         QString name;
+        QString coverPath;
+        QString description;
         bool favorite = false;
     };
 
