@@ -2,6 +2,7 @@
 
 #include <QFile>
 #include <QFileInfo>
+#include <string>
 
 #ifdef NETECLONE_HAVE_TAGLIB
 #include <taglib/attachedpictureframe.h>
@@ -236,8 +237,16 @@ TagInfo TagReader::read(const QString &filePath)
     }
 
 #ifdef NETECLONE_HAVE_TAGLIB
-    const std::string fileName = filePath.toUtf8().toStdString();
-    TagLib::FileRef ref(fileName.c_str(), true, TagLib::AudioProperties::Fast);
+#ifdef _WIN32
+    // TagLib 在 Windows 上用 Unicode(wchar_t)路径才能打开含中文/非ASCII的文件名，
+    // 否则窄字符 fopen 无法解析中文路径，导致 FileRef 为空、元数据读不出来。
+    const std::wstring widePath = filePath.toStdWString();
+    const TagLib::FileName fileName(widePath.c_str());
+#else
+    const std::string narrowPath = filePath.toUtf8().toStdString();
+    const TagLib::FileName fileName(narrowPath.c_str());
+#endif
+    TagLib::FileRef ref(fileName, true, TagLib::AudioProperties::Fast);
     if (!ref.isNull()) {
         if (auto *tag = ref.tag()) {
             info.title = fromTagLibString(tag->title());
