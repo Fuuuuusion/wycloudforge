@@ -466,6 +466,7 @@ MainWindow::MainWindow(QWidget *parent)
             m_apiClient.setBaseUrl(m_apiService.apiBase());
             m_recommend->refresh();
             enrichLocalMetadata(m_library.allSongs());
+            hydrateOnlineCovers(m_library.allSongs());
         },
         [this](const QString &) {
             m_apiReady = false;
@@ -493,15 +494,21 @@ void MainWindow::openPlaylist(int playlistId)
     const auto songs = m_playlists.songsOf(playlistId);
     QString name = QStringLiteral("歌单");
     QString desc;
+    QString cover;
     for (const auto &p : m_playlists.playlists())
-        if (p.id == playlistId) { name = p.name; desc = p.description; break; }
+        if (p.id == playlistId) {
+            name = p.name;
+            desc = p.description;
+            cover = p.coverPath;
+            break;
+        }
     qint64 totalSec = 0;
     for (const auto &s : songs)
         totalSec += s.durationMs / 1000;
     const QString meta = desc.isEmpty()
         ? QStringLiteral("%1 首 · 共 %2:%3").arg(songs.size()).arg(totalSec / 60).arg(totalSec % 60, 2, 10, QLatin1Char('0'))
         : QStringLiteral("%1 首 · %2").arg(songs.size()).arg(desc);
-    m_songListPage->showContent(songs, name, meta, m_currentSongId, playlistId > 0);
+    m_songListPage->showContent(songs, name, meta, m_currentSongId, playlistId > 0, cover);
     m_songListPage->setPlaylistContext(playlistId);
     showPage(4);
 }
@@ -530,42 +537,66 @@ void MainWindow::openAlbum(const QString &album, const QString &artist)
 
 void MainWindow::openOnlinePlaylist(qint64 id, const QString &name)
 {
-    m_apiClient.playlistTracks(id, [this, name](const QJsonArray &arr) {
-        QList<core::Song> songs;
-        for (const QJsonValue &v : arr) {
-            core::Song s = m_apiClient.songFromJson(v.toObject());
-            s.id = m_library.upsertOnlineSong(s);
-            if (s.id > 0) {
-                const core::Song stored = m_library.songById(s.id);
-                s.coverPath = stored.coverPath;
-                s.cachePath = stored.cachePath;
-                s.lyricPath = stored.lyricPath;
+    auto showTracks = [this, id, name](const QString &coverPath) {
+        m_apiClient.playlistTracks(id, [this, name, coverPath](const QJsonArray &arr) {
+            QList<core::Song> songs;
+            for (const QJsonValue &v : arr) {
+                core::Song s = m_apiClient.songFromJson(v.toObject());
+                s.id = m_library.upsertOnlineSong(s);
+                if (s.id > 0) {
+                    const core::Song stored = m_library.songById(s.id);
+                    s.coverPath = stored.coverPath;
+                    s.cachePath = stored.cachePath;
+                    s.lyricPath = stored.lyricPath;
+                }
+                songs.append(s);
             }
-            songs.append(s);
+            ensureOnlineCovers(songs);
+            int local = 0, online = 0;
+            for (const auto &s : songs)
+                s.isOnline() ? ++online : ++local;
+            const QString meta = QStringLiteral("本地 %1 首 · 在线 %2 首").arg(local).arg(online);
+            m_songListPage->showContent(songs, name, meta, m_currentSongId, false, coverPath);
+            m_songListPage->setPlaylistContext(-1);
+            showPage(4);
+        }, [this](const QString &msg) {
+            QMessageBox::information(this, QStringLiteral("在线歌单"), QStringLiteral("加载失败:%1").arg(msg));
+        });
+    };
+
+    m_apiClient.playlistDetail(id, [this, id, showTracks](const QJsonObject &playlist) {
+        QString coverUrl = playlist.value(QStringLiteral("coverImgUrl")).toString();
+        if (coverUrl.isEmpty())
+            coverUrl = playlist.value(QStringLiteral("picUrl")).toString();
+        const QString coverPath = m_library.playlistCoverCachePath(id);
+        if (QFileInfo::exists(coverPath) && QFileInfo(coverPath).size() > 0) {
+            showTracks(coverPath);
+            return;
         }
-        ensureOnlineCovers(songs);
-        int local = 0, online = 0;
-        for (const auto &s : songs)
-            s.isOnline() ? ++online : ++local;
-        const QString meta = QStringLiteral("本地 %1 首 · 在线 %2 首").arg(local).arg(online);
-        m_songListPage->showContent(songs, name, meta, m_currentSongId, false);
-        m_songListPage->setPlaylistContext(-1);
-        showPage(4);
-    }, [this](const QString &msg) {
-        QMessageBox::information(this, QStringLiteral("在线歌单"), QStringLiteral("加载失败:%1").arg(msg));
+        if (!coverUrl.isEmpty()) {
+            m_apiClient.downloadToFile(QUrl(coverUrl), coverPath, [showTracks, coverPath](bool ok) {
+                showTracks(ok ? coverPath : QString());
+            });
+        } else {
+            showTracks(QString());
+        }
+    }, [showTracks](const QString &) {
+        showTracks(QString());
     });
 }
 
 void MainWindow::ensureOnlineCovers(const QList<core::Song> &songs)
 {
     for (const core::Song &s : songs) {
-        if (!s.isOnline() || s.coverUrl.isEmpty() || s.id <= 0)
+        if (!s.isOnline() || s.coverUrl.isEmpty() || s.id <= 0 || m_onlineCoverAttempted.contains(s.id))
             continue;
         const core::Song current = m_library.songById(s.id);
-        if (!current.coverPath.isEmpty())
+        if (!current.coverPath.isEmpty() && QFileInfo::exists(current.coverPath))
             continue;
-        const QString path = m_library.coverCacheDir()
-            + QStringLiteral("/online_%1_%2.jpg").arg(s.source).arg(s.onlineId);
+        m_onlineCoverAttempted.insert(s.id);
+        const QString path = m_library.songCoverCachePath(s);
+        if (path.isEmpty())
+            continue;
         if (QFileInfo::exists(path)) {
             m_library.setSongCoverPath(s.id, path);
             continue;
@@ -577,6 +608,47 @@ void MainWindow::ensureOnlineCovers(const QList<core::Song> &songs)
                 m_library.setSongCoverPath(id, path);
         });
     }
+}
+
+void MainWindow::hydrateOnlineCovers(const QList<core::Song> &songs)
+{
+    if (!m_apiReady)
+        return;
+    QList<core::Song> withCoverUrls;
+    QList<qint64> ids;
+    for (const core::Song &song : songs) {
+        if (!song.isOnline() || song.id <= 0 || song.onlineId <= 0)
+            continue;
+        const core::Song stored = m_library.songById(song.id);
+        if (!stored.coverPath.isEmpty() && QFileInfo::exists(stored.coverPath))
+            continue;
+        if (!song.coverUrl.isEmpty()) {
+            withCoverUrls.append(song);
+        } else if (!m_onlineCoverAttempted.contains(song.id)) {
+            m_onlineCoverAttempted.insert(song.id);
+            ids.append(song.onlineId);
+        }
+    }
+    ensureOnlineCovers(withCoverUrls);
+    if (ids.isEmpty())
+        return;
+    m_apiClient.songDetails(ids, [this](const QJsonArray &arr) {
+        QList<core::Song> enriched;
+        for (const QJsonValue &value : arr) {
+            core::Song detail = m_apiClient.songFromJson(value.toObject());
+            const core::Song stored = m_library.songByOnlineId(detail.source, detail.onlineId);
+            if (stored.id <= 0 || detail.coverUrl.isEmpty())
+                continue;
+            detail.id = stored.id;
+            detail.coverPath = stored.coverPath;
+            detail.cachePath = stored.cachePath;
+            detail.lyricPath = stored.lyricPath;
+            m_library.upsertOnlineSong(detail);
+            m_onlineCoverAttempted.remove(stored.id);
+            enriched.append(detail);
+        }
+        ensureOnlineCovers(enriched);
+    });
 }
 
 void MainWindow::openAccount()
@@ -660,6 +732,7 @@ void MainWindow::refreshLibraryViews()
     if (!m_searchQuery.isEmpty())
         m_search->refreshLocalResults(all);
     m_search->refreshOnlineCovers();
+    hydrateOnlineCovers(all);
 }
 
 void MainWindow::refreshAllPages()

@@ -325,8 +325,7 @@ void OnlinePage::refreshPlaylistSquare()
             if (coverUrl.isEmpty())
                 coverUrl = o.value(QStringLiteral("picUrl")).toString();
             if (m_source && m_lib && !coverUrl.isEmpty()) {
-                const QString path = m_lib->coverCacheDir()
-                    + QStringLiteral("/online_playlist_%1.jpg").arg(id);
+                const QString path = m_lib->playlistCoverCachePath(id);
                 auto apply = [card, path](bool ok) {
                     if (!ok)
                         return;
@@ -373,8 +372,7 @@ void OnlinePage::ensureCover(const core::Song &song)
     const core::Song current = m_lib->songById(song.id);
     if (!current.coverPath.isEmpty())
         return;
-    const QString path = m_lib->coverCacheDir()
-        + QStringLiteral("/online_%1_%2.jpg").arg(song.source).arg(song.onlineId);
+    const QString path = m_lib->songCoverCachePath(song);
     if (QFileInfo::exists(path)) {
         m_lib->setSongCoverPath(song.id, path);
         return;

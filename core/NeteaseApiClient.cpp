@@ -8,6 +8,7 @@
 #include <QNetworkRequest>
 #include <QUrl>
 
+#include <memory>
 #include <utility>
 
 namespace core {
@@ -141,6 +142,24 @@ void NeteaseApiClient::songUrls(const QList<qint64> &ids, JsonArrayFn ok, ErrFn 
     get(QStringLiteral("/song/url/v1"), q, [ok](const QJsonObject &obj) { ok(obj.value(QStringLiteral("data")).toArray()); }, err);
 }
 
+void NeteaseApiClient::songDetails(const QList<qint64> &ids, JsonArrayFn ok, ErrFn err)
+{
+    QStringList values;
+    for (qint64 id : ids) {
+        if (id > 0)
+            values << QString::number(id);
+    }
+    if (values.isEmpty()) {
+        if (ok)
+            ok({});
+        return;
+    }
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("ids"), values.join(QLatin1Char(',')));
+    get(QStringLiteral("/song/detail"), q,
+        [ok](const QJsonObject &obj) { ok(obj.value(QStringLiteral("songs")).toArray()); }, err);
+}
+
 void NeteaseApiClient::lyric(qint64 id, String3Fn ok, ErrFn err)
 {
     QUrlQuery q;
@@ -192,11 +211,61 @@ void NeteaseApiClient::playlistDetail(qint64 id, OkFn ok, ErrFn err)
 
 void NeteaseApiClient::playlistTracks(qint64 id, JsonArrayFn ok, ErrFn err)
 {
-    QUrlQuery q;
-    q.addQueryItem(QStringLiteral("id"), QString::number(id));
-    q.addQueryItem(QStringLiteral("limit"), QStringLiteral("1000"));
-    q.addQueryItem(QStringLiteral("offset"), QStringLiteral("0"));
-    get(QStringLiteral("/playlist/track/all"), q, [ok](const QJsonObject &obj) { ok(obj.value(QStringLiteral("songs")).toArray()); }, err);
+    QUrlQuery detailQuery;
+    detailQuery.addQueryItem(QStringLiteral("id"), QString::number(id));
+    get(QStringLiteral("/playlist/detail"), detailQuery,
+        [this, id, ok, err](const QJsonObject &obj) {
+            const QJsonObject playlist = obj.value(QStringLiteral("playlist")).toObject();
+            const QJsonArray trackIds = playlist.value(QStringLiteral("trackIds")).toArray();
+            if (trackIds.isEmpty()) {
+                QUrlQuery q;
+                q.addQueryItem(QStringLiteral("id"), QString::number(id));
+                q.addQueryItem(QStringLiteral("limit"), QStringLiteral("1000"));
+                q.addQueryItem(QStringLiteral("offset"), QStringLiteral("0"));
+                get(QStringLiteral("/playlist/track/all"), q,
+                    [ok](const QJsonObject &fallback) {
+                        ok(fallback.value(QStringLiteral("songs")).toArray());
+                    }, err);
+                return;
+            }
+
+            QList<qint64> ids;
+            for (const QJsonValue &value : trackIds)
+                ids.append(value.toObject().value(QStringLiteral("id")).toVariant().toLongLong());
+
+            const int batchSize = 300;
+            auto songs = std::make_shared<QHash<qint64, QJsonObject>>();
+            auto fetch = std::make_shared<std::function<void(int)>>();
+            *fetch = [this, ids, batchSize, songs, fetch, ok, err](int offset) {
+                if (offset >= ids.size()) {
+                    QJsonArray ordered;
+                    for (qint64 songId : ids) {
+                        const auto it = songs->constFind(songId);
+                        if (it != songs->constEnd())
+                            ordered.append(it.value());
+                    }
+                    ok(ordered);
+                    return;
+                }
+                const int end = qMin(offset + batchSize, ids.size());
+                QList<qint64> batch;
+                for (int i = offset; i < end; ++i)
+                    batch.append(ids[i]);
+                songDetails(batch,
+                            [songs, fetch, offset, end](const QJsonArray &arr) {
+                                for (const QJsonValue &value : arr) {
+                                    const QJsonObject song = value.toObject();
+                                    songs->insert(song.value(QStringLiteral("id")).toVariant().toLongLong(), song);
+                                }
+                                (*fetch)(end);
+                            },
+                            [err](const QString &message) {
+                                if (err)
+                                    err(message);
+                            });
+            };
+            (*fetch)(0);
+        }, err);
 }
 
 void NeteaseApiClient::topPlaylists(const QString &cat, int offset, JsonArrayFn ok, ErrFn err)

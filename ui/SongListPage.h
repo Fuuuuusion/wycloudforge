@@ -23,10 +23,12 @@ public:
     explicit SongListPage(QWidget *parent = nullptr);
 
     void showContent(const QList<core::Song> &songs, const QString &title, const QString &meta,
-                     qint64 playingId, bool removable = false);
+                     qint64 playingId, bool removable = false,
+                     const QString &headerCoverPath = QString());
     QList<core::Song> currentSongs() const;
     void setPlayingId(qint64 playingId);
     void refreshCovers(core::LibraryService *library);
+    void setHeaderCoverPath(const QString &path);
     void setPlaylistContext(int playlistId);
     void setPlaylistMenuItems(const QList<QPair<int, QString>> &items);
 
@@ -49,6 +51,7 @@ private:
     SongListView *m_view = nullptr;
     QList<core::Song> m_songs;
     qint64 m_playingId = -1;
+    QString m_headerCoverPath;
     int m_playlistContext = -1;
 };
 

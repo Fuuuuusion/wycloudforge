@@ -123,7 +123,7 @@ void RecommendPage::buildPlaylists(const QJsonArray &arr)
         if (pic.isEmpty())
             pic = o.value(QStringLiteral("coverImgUrl")).toString();
         if (m_lib && !pic.isEmpty()) {
-            const QString path = m_lib->coverCacheDir() + QStringLiteral("/reco_pl%1.jpg").arg(id);
+            const QString path = m_lib->playlistCoverCachePath(id);
             m_source->downloadToFile(QUrl(pic), path, [card, path](bool ok) {
                 if (ok) {
                     QPixmap pm(path);

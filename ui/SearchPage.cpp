@@ -311,8 +311,7 @@ void SearchPage::ensureCover(const core::Song &song)
         setOnlineCover(song.id, current.coverPath);
         return;
     }
-    const QString path = m_lib->coverCacheDir()
-        + QStringLiteral("/online_%1_%2.jpg").arg(song.source).arg(song.onlineId);
+    const QString path = m_lib->songCoverCachePath(song);
     if (QFileInfo::exists(path)) {
         m_lib->setSongCoverPath(song.id, path);
         return;

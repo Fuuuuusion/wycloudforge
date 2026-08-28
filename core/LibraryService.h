@@ -42,6 +42,8 @@ public:
     qint64 upsertOnlineSong(const Song &song);
     void fillMissingSongMetadata(qint64 songId, const QString &artist, const QString &album);
     void setSongCoverPath(qint64 songId, const QString &path);
+    QString songCoverCachePath(const Song &song) const;
+    QString playlistCoverCachePath(qint64 playlistId) const;
 
     // 播放缓存
     QString cacheDir() const;

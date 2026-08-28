@@ -5,6 +5,7 @@
 #include "ui/SongListView.h"
 
 #include <QHBoxLayout>
+#include <QFileInfo>
 #include <QLabel>
 #include <QMenu>
 #include <QPushButton>
@@ -79,13 +80,17 @@ SongListPage::SongListPage(QWidget *parent)
 }
 
 void SongListPage::showContent(const QList<core::Song> &songs, const QString &title, const QString &meta,
-                               qint64 playingId, bool removable)
+                               qint64 playingId, bool removable, const QString &headerCoverPath)
 {
     m_songs = songs;
     m_playingId = playingId;
+    m_headerCoverPath = headerCoverPath;
     m_title->setText(title);
     m_meta->setText(meta);
-    if (songs.isEmpty())
+    if (!m_headerCoverPath.isEmpty() && QFileInfo::exists(m_headerCoverPath)) {
+        const QPixmap pm(m_headerCoverPath);
+        m_cover->setPixmap(pm.scaled(160, 160, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation));
+    } else if (songs.isEmpty())
         m_cover->setPixmap(CoverProvider::placeholder(title, 160, 10));
     else
         m_cover->setPixmap(CoverProvider::coverFor(songs.first(), 160, 10));
@@ -121,9 +126,25 @@ void SongListPage::refreshCovers(core::LibraryService *library)
     if (!changed)
         return;
     m_view->setSongs(m_songs, m_playingId);
-    m_cover->setPixmap(m_songs.isEmpty()
-                           ? CoverProvider::placeholder(m_title->text(), 160, 10)
-                           : CoverProvider::coverFor(m_songs.first(), 160, 10));
+    if (!m_headerCoverPath.isEmpty() && QFileInfo::exists(m_headerCoverPath)) {
+        const QPixmap pm(m_headerCoverPath);
+        m_cover->setPixmap(pm.scaled(160, 160, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation));
+    } else {
+        m_cover->setPixmap(m_songs.isEmpty()
+                               ? CoverProvider::placeholder(m_title->text(), 160, 10)
+                               : CoverProvider::coverFor(m_songs.first(), 160, 10));
+    }
+}
+
+void SongListPage::setHeaderCoverPath(const QString &path)
+{
+    if (path.isEmpty() || !QFileInfo::exists(path))
+        return;
+    const QPixmap pm(path);
+    if (pm.isNull())
+        return;
+    m_headerCoverPath = path;
+    m_cover->setPixmap(pm.scaled(160, 160, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation));
 }
 
 void SongListPage::setPlaylistContext(int playlistId)

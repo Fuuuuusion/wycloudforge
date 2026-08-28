@@ -50,6 +50,7 @@ private:
     void openArtist(const QString &artist);
     void openAlbum(const QString &album, const QString &artist);
     void openOnlinePlaylist(qint64 id, const QString &name);
+    void hydrateOnlineCovers(const QList<core::Song> &songs);
     void ensureOnlineCovers(const QList<core::Song> &songs);
     void openAccount();
     void openSettings();
@@ -96,4 +97,5 @@ private:
     bool m_restoredLastSong = false;
     bool m_apiReady = false;
     QSet<QString> m_metadataAttempted;
+    QSet<qint64> m_onlineCoverAttempted;
 };

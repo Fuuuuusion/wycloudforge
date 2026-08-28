@@ -563,6 +563,20 @@ QString LibraryService::coverCacheDir() const
     return dir;
 }
 
+QString LibraryService::songCoverCachePath(const Song &song) const
+{
+    if (!song.isOnline() || song.onlineId <= 0)
+        return {};
+    return coverCacheDir() + QStringLiteral("/song_%1_%2.jpg").arg(song.source).arg(song.onlineId);
+}
+
+QString LibraryService::playlistCoverCachePath(qint64 playlistId) const
+{
+    if (playlistId <= 0)
+        return {};
+    return coverCacheDir() + QStringLiteral("/playlist_%1.jpg").arg(playlistId);
+}
+
 QString LibraryService::cacheFilePathFor(const Song &song) const
 {
     if (!song.isOnline())
