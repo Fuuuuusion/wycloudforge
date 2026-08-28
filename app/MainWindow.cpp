@@ -21,10 +21,12 @@
 
 #include <QApplication>
 #include <QAbstractScrollArea>
+#include <QCryptographicHash>
 #include <QCursor>
 #include <QCloseEvent>
 #include <QDir>
 #include <QEvent>
+#include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFrame>
@@ -40,6 +42,7 @@
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QTextEdit>
+#include <QUrl>
 #include <QVBoxLayout>
 
 #include <windows.h>
@@ -427,6 +430,7 @@ MainWindow::MainWindow(QWidget *parent)
                 }
             }
         }
+        enrichLocalMetadata(m_library.allSongs());
     });
 
     // ---------- 播放列表信号 ----------
@@ -458,10 +462,13 @@ MainWindow::MainWindow(QWidget *parent)
 
     m_apiService.ensureRunning(
         [this] {
+            m_apiReady = true;
             m_apiClient.setBaseUrl(m_apiService.apiBase());
             m_recommend->refresh();
+            enrichLocalMetadata(m_library.allSongs());
         },
         [this](const QString &) {
+            m_apiReady = false;
             m_recommend->refresh();
         });
 }
@@ -669,6 +676,171 @@ void MainWindow::onCurrentSongChanged(const core::Song &song, int index)
         m_library.markPlayed(song.id);
         m_playlists.recordPlay(song.id);
     }
+}
+
+namespace {
+
+QString normalizedMatchText(const QString &text)
+{
+    QString result;
+    for (const QChar ch : text) {
+        if (ch.isLetterOrNumber())
+            result.append(ch.toLower());
+    }
+    return result;
+}
+
+bool hasUsableSidecarLyrics(const QString &musicPath)
+{
+    const QString path = core::LyricsLoader::sidecarPathFor(musicPath);
+    return QFileInfo::exists(path) && QFileInfo(path).size() > 0;
+}
+
+} // namespace
+
+void MainWindow::enrichLocalMetadata(const QList<core::Song> &songs)
+{
+    if (!m_apiReady)
+        return;
+    for (const core::Song &song : songs) {
+        if (song.isOnline() || song.id <= 0 || song.filePath.isEmpty())
+            continue;
+        const QString suffix = QFileInfo(song.filePath).suffix().toLower();
+        if (suffix == QLatin1String("mgg") || suffix == QLatin1String("mflac"))
+            continue;
+        const bool hasCover = !song.coverPath.isEmpty() && QFileInfo::exists(song.coverPath);
+        if (hasCover && hasUsableSidecarLyrics(song.filePath) && !song.album.isEmpty())
+            continue;
+        enrichLocalSong(song);
+    }
+}
+
+void MainWindow::enrichLocalSong(const core::Song &song)
+{
+    if (m_metadataAttempted.contains(song.filePath))
+        return;
+    const QString titleKey = normalizedMatchText(song.title);
+    if (titleKey.isEmpty())
+        return;
+
+    m_metadataAttempted.insert(song.filePath);
+
+    QFile file(song.filePath);
+    QCryptographicHash hash(QCryptographicHash::Md5);
+    const bool hashed = file.open(QIODevice::ReadOnly) && hash.addData(&file);
+    const QString md5 = hashed ? QString::fromLatin1(hash.result().toHex()) : QString();
+    if (!md5.isEmpty()) {
+        m_apiClient.matchSong(song.title, song.artist, song.album, song.durationMs, md5,
+                              [this, song](const QJsonArray &items) {
+                                  if (!items.isEmpty())
+                                      resolveLocalMetadataMatch(song, items, true);
+                                  else
+                                      searchLocalMetadata(song);
+                              },
+                              [this, song](const QString &) { searchLocalMetadata(song); });
+    } else {
+        searchLocalMetadata(song);
+    }
+}
+
+void MainWindow::searchLocalMetadata(const core::Song &song)
+{
+    QString keywords = song.title;
+    if (!song.artist.isEmpty())
+        keywords += QLatin1Char(' ') + song.artist;
+    m_apiClient.searchSongs(keywords, 8,
+                            [this, song](const QJsonArray &items) {
+                                resolveLocalMetadataMatch(song, items, false);
+                            });
+}
+
+void MainWindow::resolveLocalMetadataMatch(const core::Song &song, const QJsonArray &items, bool exactHash)
+{
+    core::Song best;
+    int bestScore = -1;
+    bool ambiguous = false;
+    const QString localTitle = normalizedMatchText(song.title);
+    const QString localArtist = normalizedMatchText(song.artist);
+    for (const QJsonValue &value : items) {
+        const core::Song candidate = m_apiClient.songFromJson(value.toObject());
+        if (candidate.onlineId <= 0)
+            continue;
+        const QString candidateTitle = normalizedMatchText(candidate.title);
+        const QString candidateArtist = normalizedMatchText(candidate.artist);
+        if (candidateTitle != localTitle)
+            continue;
+        if (!localArtist.isEmpty() && !candidateArtist.contains(localArtist)
+            && !localArtist.contains(candidateArtist))
+            continue;
+
+        int score = 100;
+        if (!localArtist.isEmpty())
+            score += 50;
+        if (song.durationMs > 0 && candidate.durationMs > 0) {
+            const qint64 delta = qAbs(song.durationMs - candidate.durationMs);
+            if (delta <= 3000)
+                score += 40;
+            else if (delta > 10000)
+                score -= 40;
+        }
+        if (score > bestScore) {
+            best = candidate;
+            bestScore = score;
+            ambiguous = false;
+        } else if (score == bestScore && candidate.onlineId != best.onlineId) {
+            ambiguous = true;
+        }
+    }
+    if (best.onlineId <= 0 || (!exactHash && ambiguous))
+        return;
+
+    // 搜索结果有时只有 picId 没有 picUrl,详情接口能补齐封面和完整字段。
+    m_apiClient.songDetail(best.onlineId, [this, song, best](const QJsonObject &obj) {
+        core::Song detail = best;
+        const QJsonArray songs = obj.value(QStringLiteral("songs")).toArray();
+        if (!songs.isEmpty())
+            detail = m_apiClient.songFromJson(songs.first().toObject());
+        if (detail.onlineId <= 0)
+            return;
+        m_library.fillMissingSongMetadata(song.id, detail.artist, detail.album);
+
+        if (!hasUsableSidecarLyrics(song.filePath)) {
+            m_apiClient.lyric(detail.onlineId, [this, song](const QString &lrc, const QString &, const QString &) {
+                if (!lrc.trimmed().isEmpty() && !core::LrcParser::parseBytes(lrc.toUtf8()).isEmpty()
+                    && core::LyricsLoader::saveSidecar(song, lrc))
+                    refreshCurrentSongMetadata(song.id);
+            });
+        }
+
+        const core::Song current = m_library.songById(song.id);
+        if (current.coverPath.isEmpty() && !detail.coverUrl.isEmpty()) {
+            const QString path = m_library.coverCacheDir()
+                + QStringLiteral("/local_netease_%1.jpg").arg(detail.onlineId);
+            if (QFileInfo::exists(path) && QFileInfo(path).size() > 0) {
+                m_library.setSongCoverPath(song.id, path);
+                refreshCurrentSongMetadata(song.id);
+            } else {
+                m_apiClient.downloadToFile(QUrl(detail.coverUrl), path, [this, id = song.id, path](bool ok) {
+                    if (ok) {
+                        m_library.setSongCoverPath(id, path);
+                        refreshCurrentSongMetadata(id);
+                    }
+                });
+            }
+        }
+    });
+}
+
+void MainWindow::refreshCurrentSongMetadata(qint64 songId)
+{
+    if (songId != m_currentSongId)
+        return;
+    const core::Song updated = m_library.songById(songId);
+    if (updated.id <= 0)
+        return;
+    m_playerBar->setSong(updated, m_playlists.isFavorite(songId));
+    m_playing->setSong(updated, QPixmap());
+    m_playing->loadLyricsFor(updated);
 }
 
 void MainWindow::setupShortcuts()

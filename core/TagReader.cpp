@@ -2,7 +2,12 @@
 
 #include <QFile>
 #include <QFileInfo>
+#include <QRegularExpression>
 #include <string>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
 
 #ifdef NETECLONE_HAVE_TAGLIB
 #include <taglib/attachedpictureframe.h>
@@ -30,6 +35,114 @@ QString fromTagLibString(const TagLib::String &s)
 QString fallbackTitle(const QString &filePath)
 {
     return QFileInfo(filePath).completeBaseName();
+}
+
+bool hasCjk(const QString &text)
+{
+    for (const QChar ch : text) {
+        const ushort u = ch.unicode();
+        if ((u >= 0x3400 && u <= 0x4DBF) || (u >= 0x4E00 && u <= 0x9FFF)
+            || (u >= 0xF900 && u <= 0xFAFF))
+            return true;
+    }
+    return false;
+}
+
+bool isValidUtf8Bytes(const QByteArray &data)
+{
+    int i = 0;
+    while (i < data.size()) {
+        const uchar c = uchar(data[i]);
+        int extra = 0;
+        if (c < 0x80) { ++i; continue; }
+        if ((c & 0xE0) == 0xC0) extra = 1;
+        else if ((c & 0xF0) == 0xE0) extra = 2;
+        else if ((c & 0xF8) == 0xF0) extra = 3;
+        else return false;
+        if (i + extra >= data.size())
+            return false;
+        for (int k = 1; k <= extra; ++k)
+            if ((uchar(data[i + k]) & 0xC0) != 0x80)
+                return false;
+        i += extra + 1;
+    }
+    return true;
+}
+
+QByteArray trimLegacyBytes(QByteArray bytes)
+{
+    const int nul = bytes.indexOf('\0');
+    if (nul >= 0)
+        bytes.truncate(nul);
+    while (!bytes.isEmpty() && (bytes.endsWith(' ') || bytes.endsWith('\0')))
+        bytes.chop(1);
+    return bytes;
+}
+
+QString decodeLegacyBytes(const QByteArray &raw)
+{
+    const QByteArray bytes = trimLegacyBytes(raw);
+    if (bytes.isEmpty())
+        return {};
+
+    if (isValidUtf8Bytes(bytes)) {
+        const QString utf8 = QString::fromUtf8(bytes);
+        bool ascii = true;
+        for (const char ch : bytes)
+            ascii = ascii && uchar(ch) < 0x80;
+        if (ascii || hasCjk(utf8))
+            return utf8;
+    }
+
+#ifdef Q_OS_WIN
+    const int len = MultiByteToWideChar(936, MB_ERR_INVALID_CHARS,
+                                        bytes.constData(), bytes.size(), nullptr, 0);
+    if (len > 0) {
+        std::wstring wide(len, L'\0');
+        MultiByteToWideChar(936, MB_ERR_INVALID_CHARS, bytes.constData(), bytes.size(),
+                            wide.data(), len);
+        const QString cp936 = QString::fromWCharArray(wide.data(), len);
+        if (hasCjk(cp936))
+            return cp936;
+    }
+#endif
+    return QString::fromLatin1(bytes);
+}
+
+void applyId3v1(const QString &filePath, TagInfo &info)
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly) || file.size() < 128 || !file.seek(file.size() - 128))
+        return;
+    const QByteArray tag = file.read(128);
+    if (tag.size() != 128 || tag.left(3) != QByteArrayLiteral("TAG"))
+        return;
+
+    const QString title = decodeLegacyBytes(tag.mid(3, 30));
+    const QString artist = decodeLegacyBytes(tag.mid(33, 30));
+    const QString album = decodeLegacyBytes(tag.mid(63, 30));
+    if (info.title.isEmpty())
+        info.title = title;
+    if (!artist.isEmpty() && (!hasCjk(info.artist) || info.artist.isEmpty()))
+        info.artist = artist;
+    if (info.album.isEmpty())
+        info.album = album;
+}
+
+void applyFilenameFallback(const QString &filePath, TagInfo &info)
+{
+    const QString base = fallbackTitle(filePath);
+    if (info.title.isEmpty()) {
+        static const QRegularExpression separator(QStringLiteral("^(.+?)\\s*[-－–—]\\s*(.+)$"));
+        const auto match = separator.match(base);
+        if (match.hasMatch()) {
+            if (info.artist.isEmpty())
+                info.artist = match.captured(1).trimmed();
+            info.title = match.captured(2).trimmed();
+        }
+    }
+    if (info.title.isEmpty())
+        info.title = base;
 }
 
 #ifndef NETECLONE_HAVE_TAGLIB
@@ -232,7 +345,7 @@ TagInfo TagReader::read(const QString &filePath)
     // 网易云加密容器(.mgg/.mflac)不是 TagLib 可解析的音频,直接按文件名兜底,避免解析崩溃
     const QString suffix = QFileInfo(filePath).suffix().toLower();
     if (suffix == QLatin1String("mgg") || suffix == QLatin1String("mflac")) {
-        info.title = fallbackTitle(filePath);
+        applyFilenameFallback(filePath, info);
         return info;
     }
 
@@ -301,8 +414,10 @@ TagInfo TagReader::read(const QString &filePath)
         info = readFlac(head);
 #endif
 
-    if (info.title.isEmpty())
-        info.title = fallbackTitle(filePath);
+    // 很多旧 MP3 只有 ID3v1，中文字段按 GBK 写入；TagLib 会把它们当作
+    // Latin-1 字符返回，因此在通用标签读取后用原始字节补一次正确解码。
+    applyId3v1(filePath, info);
+    applyFilenameFallback(filePath, info);
     return info;
 }
 

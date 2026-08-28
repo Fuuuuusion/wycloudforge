@@ -40,6 +40,7 @@ public:
 
     // 在线歌曲
     qint64 upsertOnlineSong(const Song &song);
+    void fillMissingSongMetadata(qint64 songId, const QString &artist, const QString &album);
     void setSongCoverPath(qint64 songId, const QString &path);
 
     // 播放缓存

@@ -123,6 +123,18 @@ QByteArray makeFlac()
     return out;
 }
 
+QByteArray makeMp3WithId3v1()
+{
+    QByteArray out(QByteArrayLiteral("\xFF\xFB\x90\x64"));
+    out.append(QByteArray(413, '\0'));
+
+    QByteArray tag(128, '\0');
+    tag.replace(0, 3, QByteArrayLiteral("TAG"));
+    tag.replace(33, 6, QByteArrayLiteral("\xCB\xEF\xD1\xE0\xD7\xCB")); // GBK:孙燕姿
+    out.append(tag);
+    return out;
+}
+
 } // namespace
 
 class TagReaderTest : public QObject
@@ -130,6 +142,7 @@ class TagReaderTest : public QObject
     Q_OBJECT
 private slots:
     void readsMp3Tags();
+    void readsGbkId3v1Tags();
     void readsFlacTags();
     void fallsBackToFileName();
 };
@@ -148,6 +161,22 @@ void TagReaderTest::readsMp3Tags()
     QVERIFY(info.hasCover());
     QVERIFY(info.lyricsData.contains("第一行"));
     Q_UNUSED(info.durationMs); // 合成音频帧时长可能为 0,不做断言
+}
+
+void TagReaderTest::readsGbkId3v1Tags()
+{
+#ifndef Q_OS_WIN
+    QSKIP("ID3v1 legacy decoding is platform-specific in this test");
+#else
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("孙燕姿 - 任性.mp3"));
+    QVERIFY(writeFile(path, makeMp3WithId3v1()));
+
+    const TagInfo info = TagReader::read(path);
+    QCOMPARE(info.title, QStringLiteral("任性"));
+    QCOMPARE(info.artist, QStringLiteral("孙燕姿"));
+#endif
 }
 
 void TagReaderTest::readsFlacTags()

@@ -9,7 +9,9 @@
 
 #include "ui/SideBar.h"
 
+#include <QJsonArray>
 #include <QMainWindow>
+#include <QSet>
 #include <QStackedWidget>
 
 namespace ui {
@@ -58,6 +60,11 @@ private:
     void refreshLibraryViews();
     void refreshAllPages();
     void onCurrentSongChanged(const core::Song &song, int index);
+    void enrichLocalMetadata(const QList<core::Song> &songs);
+    void enrichLocalSong(const core::Song &song);
+    void searchLocalMetadata(const core::Song &song);
+    void resolveLocalMetadataMatch(const core::Song &song, const QJsonArray &items, bool exactHash);
+    void refreshCurrentSongMetadata(qint64 songId);
     void setupShortcuts();
     void addMusicFolder();
     void addMusicFiles();
@@ -87,4 +94,6 @@ private:
     int m_lastPage = 0;
     QString m_searchQuery;
     bool m_restoredLastSong = false;
+    bool m_apiReady = false;
+    QSet<QString> m_metadataAttempted;
 };

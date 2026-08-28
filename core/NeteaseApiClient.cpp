@@ -105,6 +105,22 @@ void NeteaseApiClient::searchSongs(const QString &keywords, int limit, JsonArray
         err);
 }
 
+void NeteaseApiClient::matchSong(const QString &title, const QString &artist, const QString &album,
+                                 qint64 durationMs, const QString &md5, JsonArrayFn ok, ErrFn err)
+{
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("title"), title);
+    q.addQueryItem(QStringLiteral("artist"), artist);
+    q.addQueryItem(QStringLiteral("album"), album);
+    q.addQueryItem(QStringLiteral("duration"), QString::number(double(durationMs) / 1000.0, 'f', 3));
+    q.addQueryItem(QStringLiteral("md5"), md5);
+    get(QStringLiteral("/search/match"), q,
+        [ok](const QJsonObject &obj) {
+            ok(obj.value(QStringLiteral("result")).toObject().value(QStringLiteral("songs")).toArray());
+        },
+        err);
+}
+
 void NeteaseApiClient::songUrls(const QList<qint64> &ids, JsonArrayFn ok, ErrFn err)
 {
     QStringList s;
@@ -275,9 +291,10 @@ void NeteaseApiClient::downloadToFile(const QUrl &url, const QString &filePath, 
         reply->deleteLater();
         bool ok = false;
         if (reply->error() == QNetworkReply::NoError) {
+            const QByteArray data = reply->readAll();
             QFile f(filePath);
-            if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-                ok = f.write(reply->readAll()) >= 0;
+            if (!data.isEmpty() && f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                ok = f.write(data) == data.size();
                 f.close();
             }
         }
@@ -297,13 +314,16 @@ Song NeteaseApiClient::songFromJson(const QJsonObject &obj) const
     QJsonObject al = obj.value(QStringLiteral("al")).toObject();
     if (al.isEmpty())
         al = obj.value(QStringLiteral("album")).toObject();
+    qint64 durationMs = obj.value(QStringLiteral("dt")).toVariant().toLongLong();
+    if (durationMs <= 0)
+        durationMs = obj.value(QStringLiteral("duration")).toVariant().toLongLong();
     return MusicSource::makeOnlineSong(
         sourceId(), sourceScheme(),
         obj.value(QStringLiteral("id")).toVariant().toLongLong(),
         obj.value(QStringLiteral("name")).toString(),
         artists.join(QLatin1Char('/')),
         al.value(QStringLiteral("name")).toString(),
-        obj.value(QStringLiteral("dt")).toVariant().toLongLong(),
+        durationMs,
         al.value(QStringLiteral("picUrl")).toString(),
         al.value(QStringLiteral("id")).toVariant().toLongLong());
 }

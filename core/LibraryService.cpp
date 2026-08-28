@@ -96,7 +96,9 @@ public slots:
                             "VALUES(?,?,?,?,?,?,?,0) "
                             "ON CONFLICT(path) DO UPDATE SET title=excluded.title,artist=excluded.artist,"
                             "album=excluded.album,duration_ms=excluded.duration_ms,"
-                            "cover_path=excluded.cover_path,has_cover=excluded.has_cover,missing=0"));
+                            // 保留此前从网易云获取的封面;文件本身有内嵌封面时则以新封面为准。
+                            "cover_path=CASE WHEN excluded.cover_path <> '' THEN excluded.cover_path ELSE songs.cover_path END,"
+                            "has_cover=CASE WHEN excluded.cover_path <> '' THEN excluded.has_cover ELSE songs.has_cover END,missing=0"));
                         ins.addBindValue(path);
                         ins.addBindValue(info.title);
                         ins.addBindValue(info.artist);
@@ -498,12 +500,41 @@ qint64 LibraryService::upsertOnlineSong(const Song &song)
     return id;
 }
 
+void LibraryService::fillMissingSongMetadata(qint64 songId, const QString &artist, const QString &album)
+{
+    if (!m_db.isOpen())
+        return;
+    const Song current = songById(songId);
+    if (current.id <= 0)
+        return;
+    const QString newArtist = current.artist.isEmpty() ? artist : current.artist;
+    const QString newAlbum = current.album.isEmpty() ? album : current.album;
+    if (newArtist == current.artist && newAlbum == current.album)
+        return;
+
+    QSqlQuery q(m_db);
+    q.prepare(QStringLiteral("UPDATE songs SET artist=?,album=? WHERE id=?"));
+    q.addBindValue(newArtist);
+    q.addBindValue(newAlbum);
+    q.addBindValue(songId);
+    if (!q.exec())
+        return;
+    for (Song &s : m_songs) {
+        if (s.id == songId) {
+            s.artist = newArtist;
+            s.album = newAlbum;
+            break;
+        }
+    }
+    emit libraryChanged();
+}
+
 void LibraryService::setSongCoverPath(qint64 songId, const QString &path)
 {
     if (!m_db.isOpen())
         return;
     QSqlQuery q(m_db);
-    q.prepare(QStringLiteral("UPDATE songs SET cover_path=? WHERE id=?"));
+    q.prepare(QStringLiteral("UPDATE songs SET cover_path=?,has_cover=1 WHERE id=?"));
     q.addBindValue(path);
     q.addBindValue(songId);
     q.exec();

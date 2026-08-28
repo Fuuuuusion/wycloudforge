@@ -29,6 +29,8 @@ public:
     void checkReachable(BoolFn done);
 
     void searchSongs(const QString &keywords, int limit, JsonArrayFn ok, ErrFn err = {}) override;
+    void matchSong(const QString &title, const QString &artist, const QString &album,
+                   qint64 durationMs, const QString &md5, JsonArrayFn ok, ErrFn err = {});
     void songUrls(const QList<qint64> &ids, JsonArrayFn ok, ErrFn err = {}) override;
     void lyric(qint64 id, String3Fn ok, ErrFn err = {}) override;
     void songDetail(qint64 id, OkFn ok, ErrFn err = {}) override;
