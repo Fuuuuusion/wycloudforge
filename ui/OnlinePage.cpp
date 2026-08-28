@@ -360,29 +360,53 @@ void OnlinePage::loadSongs(SongListView *view, const QJsonArray &arr)
             s.lyricPath = stored.lyricPath;
         }
         songs.append(s);
-        ensureCover(s);
     }
     view->setSongs(songs);
+    for (const core::Song &song : songs)
+        ensureCover(view, song);
 }
 
-void OnlinePage::ensureCover(const core::Song &song)
+void OnlinePage::ensureCover(SongListView *view, const core::Song &song)
 {
     if (!song.isOnline() || song.coverUrl.isEmpty() || song.id <= 0 || !m_source || !m_lib)
         return;
     const core::Song current = m_lib->songById(song.id);
-    if (!current.coverPath.isEmpty())
+    if (!current.coverPath.isEmpty() && QFileInfo::exists(current.coverPath))
         return;
     const QString path = m_lib->songCoverCachePath(song);
-    if (QFileInfo::exists(path)) {
+    if (QFileInfo::exists(path) && QFileInfo(path).size() > 0) {
         m_lib->setSongCoverPath(song.id, path);
+        updateSongCover(view, song.id, path);
         return;
     }
     const QUrl url(song.coverUrl);
     const qint64 id = song.id;
     m_source->downloadToFile(url, path, [this, id, path](bool ok) {
-        if (ok && m_lib)
+        if (ok && m_lib) {
             m_lib->setSongCoverPath(id, path);
+            updateSongCover(m_dailyList, id, path);
+            updateSongCover(m_rankList, id, path);
+            updateSongCover(m_squareList, id, path);
+            updateSongCover(m_mineList, id, path);
+            updateSongCover(m_fmList, id, path);
+        }
     });
+}
+
+void OnlinePage::updateSongCover(SongListView *view, qint64 songId, const QString &path)
+{
+    if (!view || path.isEmpty() || !QFileInfo::exists(path))
+        return;
+    auto songs = view->songs();
+    bool changed = false;
+    for (core::Song &song : songs) {
+        if (song.id == songId && song.coverPath != path) {
+            song.coverPath = path;
+            changed = true;
+        }
+    }
+    if (changed)
+        view->setSongs(songs);
 }
 
 } // namespace ui

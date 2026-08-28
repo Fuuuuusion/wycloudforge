@@ -48,7 +48,8 @@ private:
     void buildMyPlaylistsTab();
     void buildFmTab();
     void loadSongs(SongListView *view, const QJsonArray &arr);
-    void ensureCover(const core::Song &song);
+    void ensureCover(SongListView *view, const core::Song &song);
+    void updateSongCover(SongListView *view, qint64 songId, const QString &path);
     void refreshPlaylistSquare();
 
     core::MusicSource *m_source = nullptr;

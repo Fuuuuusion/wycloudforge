@@ -8,6 +8,7 @@
 #include "ui/SongListView.h"
 
 #include <QFile>
+#include <QFileInfo>
 #include <QHBoxLayout>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -89,13 +90,57 @@ void RecommendPage::buildDaily(const QJsonArray &arr)
     QList<core::Song> songs;
     for (const QJsonValue &v : arr) {
         core::Song s = m_source ? m_source->songFromJson(v.toObject()) : core::Song();
-        if (m_lib && s.isOnline())
+        if (m_lib && s.isOnline()) {
             s.id = m_lib->upsertOnlineSong(s);
+            if (s.id > 0) {
+                const core::Song stored = m_lib->songById(s.id);
+                s.coverPath = stored.coverPath;
+                s.cachePath = stored.cachePath;
+                s.lyricPath = stored.lyricPath;
+            }
+        }
         songs.append(s);
     }
     m_list->setSongs(songs);
     m_emptyLabel->setVisible(false);
     m_list->setVisible(true);
+
+    for (const core::Song &song : songs) {
+        if (!song.isOnline() || song.id <= 0 || song.coverUrl.isEmpty() || !m_source || !m_lib)
+            continue;
+        const core::Song stored = m_lib->songById(song.id);
+        if (!stored.coverPath.isEmpty() && QFileInfo::exists(stored.coverPath))
+            continue;
+        const QString path = m_lib->songCoverCachePath(song);
+        if (QFileInfo::exists(path) && QFileInfo(path).size() > 0) {
+            m_lib->setSongCoverPath(song.id, path);
+            updateDailySongCover(song.id, path);
+            continue;
+        }
+        const qint64 songId = song.id;
+        m_source->downloadToFile(QUrl(song.coverUrl), path, [this, songId, path](bool ok) {
+            if (!ok || !m_lib)
+                return;
+            m_lib->setSongCoverPath(songId, path);
+            updateDailySongCover(songId, path);
+        });
+    }
+}
+
+void RecommendPage::updateDailySongCover(qint64 songId, const QString &path)
+{
+    if (!m_list || path.isEmpty() || !QFileInfo::exists(path))
+        return;
+    auto songs = m_list->songs();
+    bool changed = false;
+    for (core::Song &song : songs) {
+        if (song.id == songId && song.coverPath != path) {
+            song.coverPath = path;
+            changed = true;
+        }
+    }
+    if (changed)
+        m_list->setSongs(songs);
 }
 
 void RecommendPage::buildPlaylists(const QJsonArray &arr)

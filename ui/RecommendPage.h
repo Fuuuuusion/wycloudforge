@@ -33,6 +33,7 @@ signals:
 private:
     void loadCache();
     void buildDaily(const QJsonArray &songs);
+    void updateDailySongCover(qint64 songId, const QString &path);
     void buildPlaylists(const QJsonArray &playlists);
     void saveCache(const QJsonArray &songs, const QJsonArray &playlists);
     void showEmpty();
