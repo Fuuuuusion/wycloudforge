@@ -53,6 +53,7 @@ public:
     QString cachePathFor(qint64 songId) const;
     bool isSongCached(qint64 songId) const;
     void setSongCached(qint64 songId, const QString &path, qint64 sizeBytes);
+    void invalidateSongCache(qint64 songId);
     void clearCache();
     void cacheUsage(qint64 *bytes, int *count) const;
 
@@ -73,6 +74,7 @@ private:
 
     QString m_dbPath;
     QSqlDatabase m_db;
+    QString m_lastError;
     QFileSystemWatcher *m_watcher = nullptr;
     QTimer *m_watchTimer = nullptr;
     QStringList m_pendingFolders;

@@ -3,7 +3,9 @@
 #include "core/LyricsLoader.h"
 
 #include <QDateTime>
+#include <QDebug>
 #include <QFileInfo>
+#include <QSqlError>
 #include <QSqlQuery>
 #include <QVariant>
 
@@ -17,25 +19,27 @@ PlaylistController::PlaylistController(QObject *parent)
 void PlaylistController::setDatabase(const QSqlDatabase &db)
 {
     m_db = db;
+    m_lastError.clear();
     reload();
 }
 
 void PlaylistController::reload()
 {
-    reloadPlaylists();
-    emit playlistsChanged();
+    if (reloadPlaylists())
+        emit playlistsChanged();
 }
 
-void PlaylistController::reloadPlaylists()
+bool PlaylistController::reloadPlaylists()
 {
     m_playlists.clear();
     if (!m_db.isOpen())
-        return;
+        return fail(QStringLiteral("读取歌单"), QStringLiteral("数据库未打开"));
     QSqlQuery q(m_db);
-    q.exec(QStringLiteral(
+    if (!q.exec(QStringLiteral(
         "SELECT p.id,p.name,p.cover_path,p.description,COUNT(ps.song_id) FROM playlists p "
         "LEFT JOIN playlist_songs ps ON ps.playlist_id=p.id "
-        "GROUP BY p.id ORDER BY p.id"));
+        "GROUP BY p.id ORDER BY p.id")))
+        return fail(QStringLiteral("读取歌单"), q.lastError().text());
     while (q.next()) {
         PlaylistInfo info;
         info.id = q.value(0).toInt();
@@ -45,6 +49,15 @@ void PlaylistController::reloadPlaylists()
         info.songCount = q.value(4).toInt();
         m_playlists.append(info);
     }
+    m_lastError.clear();
+    return true;
+}
+
+bool PlaylistController::fail(const QString &action, const QString &detail)
+{
+    m_lastError = detail.isEmpty() ? action : QStringLiteral("%1失败：%2").arg(action, detail);
+    emit operationFailed(m_lastError);
+    return false;
 }
 
 QList<Song> PlaylistController::songsOf(int playlistId) const
@@ -103,14 +116,18 @@ bool PlaylistController::isFavorite(qint64 songId) const
 
 int PlaylistController::createPlaylist(const QString &name)
 {
-    if (!m_db.isOpen() || name.trimmed().isEmpty())
+    if (!m_db.isOpen() || name.trimmed().isEmpty()) {
+        fail(QStringLiteral("创建歌单"), QStringLiteral("名称为空或数据库未打开"));
         return -1;
+    }
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral("INSERT INTO playlists(name,created_ms) VALUES(?,?)"));
     q.addBindValue(name.trimmed());
     q.addBindValue(QDateTime::currentMSecsSinceEpoch());
-    if (!q.exec())
+    if (!q.exec()) {
+        fail(QStringLiteral("创建歌单"), q.lastError().text());
         return -1;
+    }
     const int id = q.lastInsertId().toInt();
     reload();
     return id;
@@ -119,13 +136,15 @@ int PlaylistController::createPlaylist(const QString &name)
 bool PlaylistController::renamePlaylist(int id, const QString &name)
 {
     if (!m_db.isOpen() || name.trimmed().isEmpty() || id == favoritePlaylistId())
-        return false;
+        return fail(QStringLiteral("重命名歌单"), QStringLiteral("歌单或名称无效"));
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral("UPDATE playlists SET name=? WHERE id=?"));
     q.addBindValue(name.trimmed());
     q.addBindValue(id);
     if (!q.exec())
-        return false;
+        return fail(QStringLiteral("重命名歌单"), q.lastError().text());
+    if (q.numRowsAffected() != 1)
+        return fail(QStringLiteral("重命名歌单"), QStringLiteral("目标歌单不存在"));
     reload();
     return true;
 }
@@ -134,45 +153,57 @@ bool PlaylistController::setPlaylistCover(int id, const QString &coverPath)
 {
     const QFileInfo cover(coverPath);
     if (!m_db.isOpen() || id == favoritePlaylistId() || !cover.isFile())
-        return false;
+        return fail(QStringLiteral("设置歌单封面"), QStringLiteral("歌单或封面文件无效"));
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral("UPDATE playlists SET cover_path=? WHERE id=?"));
     q.addBindValue(cover.absoluteFilePath());
     q.addBindValue(id);
     if (!q.exec())
-        return false;
+        return fail(QStringLiteral("设置歌单封面"), q.lastError().text());
     reload();
-    emit playlistsChanged();
     return true;
 }
 
 bool PlaylistController::setPlaylistDescription(int id, const QString &text)
 {
     if (!m_db.isOpen())
-        return false;
+        return fail(QStringLiteral("保存歌单简介"), QStringLiteral("数据库未打开"));
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral("UPDATE playlists SET description=? WHERE id=?"));
     q.addBindValue(text.trimmed());
     q.addBindValue(id);
     if (!q.exec())
-        return false;
+        return fail(QStringLiteral("保存歌单简介"), q.lastError().text());
     reload();
-    emit playlistsChanged();
     return true;
 }
 
 bool PlaylistController::deletePlaylist(int id)
 {
     if (!m_db.isOpen() || id == favoritePlaylistId())
-        return false;
+        return fail(QStringLiteral("删除歌单"), QStringLiteral("歌单无效"));
+    if (!m_db.transaction())
+        return fail(QStringLiteral("删除歌单"), m_db.lastError().text());
     QSqlQuery q(m_db);
-    q.prepare(QStringLiteral("DELETE FROM playlists WHERE id=?"));
+    q.prepare(QStringLiteral("DELETE FROM playlist_songs WHERE playlist_id=?"));
     q.addBindValue(id);
-    q.exec();
+    if (!q.exec()) {
+        m_db.rollback();
+        return fail(QStringLiteral("删除歌单"), q.lastError().text());
+    }
     QSqlQuery q2(m_db);
-    q2.prepare(QStringLiteral("DELETE FROM playlist_songs WHERE playlist_id=?"));
+    q2.prepare(QStringLiteral("DELETE FROM playlists WHERE id=?"));
     q2.addBindValue(id);
-    q2.exec();
+    if (!q2.exec() || q2.numRowsAffected() != 1) {
+        const QString detail = q2.lastError().text().isEmpty()
+            ? QStringLiteral("目标歌单不存在") : q2.lastError().text();
+        m_db.rollback();
+        return fail(QStringLiteral("删除歌单"), detail);
+    }
+    if (!m_db.commit()) {
+        m_db.rollback();
+        return fail(QStringLiteral("删除歌单"), m_db.lastError().text());
+    }
     reload();
     return true;
 }
@@ -180,44 +211,79 @@ bool PlaylistController::deletePlaylist(int id)
 bool PlaylistController::addSong(int playlistId, qint64 songId)
 {
     if (!m_db.isOpen())
-        return false;
+        return fail(QStringLiteral("添加歌曲到歌单"), QStringLiteral("数据库未打开"));
+    if (!m_db.transaction())
+        return fail(QStringLiteral("添加歌曲到歌单"), m_db.lastError().text());
     QSqlQuery exists(m_db);
     exists.prepare(QStringLiteral(
         "SELECT EXISTS(SELECT 1 FROM playlists WHERE id=?),"
         "EXISTS(SELECT 1 FROM songs WHERE id=?)"));
     exists.addBindValue(playlistId);
     exists.addBindValue(songId);
-    if (!exists.exec() || !exists.next() || !exists.value(0).toBool() || !exists.value(1).toBool())
-        return false;
+    if (!exists.exec() || !exists.next()) {
+        const QString detail = exists.lastError().text();
+        m_db.rollback();
+        return fail(QStringLiteral("添加歌曲到歌单"), detail);
+    }
+    if (!exists.value(0).toBool() || !exists.value(1).toBool()) {
+        m_db.rollback();
+        return fail(QStringLiteral("添加歌曲到歌单"), QStringLiteral("歌单或歌曲记录不存在"));
+    }
+    QSqlQuery membership(m_db);
+    membership.prepare(QStringLiteral("SELECT 1 FROM playlist_songs WHERE playlist_id=? AND song_id=?"));
+    membership.addBindValue(playlistId);
+    membership.addBindValue(songId);
+    if (!membership.exec()) {
+        const QString detail = membership.lastError().text();
+        m_db.rollback();
+        return fail(QStringLiteral("添加歌曲到歌单"), detail);
+    }
+    if (membership.next()) {
+        m_db.rollback();
+        return true;
+    }
     int pos = 0;
     QSqlQuery count(m_db);
-    count.prepare(QStringLiteral("SELECT COUNT(*) FROM playlist_songs WHERE playlist_id=?"));
+    count.prepare(QStringLiteral("SELECT COALESCE(MAX(position),-1)+1 FROM playlist_songs WHERE playlist_id=?"));
     count.addBindValue(playlistId);
-    count.exec();
-    if (count.next())
-        pos = count.value(0).toInt();
+    if (!count.exec() || !count.next()) {
+        const QString detail = count.lastError().text();
+        m_db.rollback();
+        return fail(QStringLiteral("添加歌曲到歌单"), detail);
+    }
+    pos = count.value(0).toInt();
     QSqlQuery q(m_db);
-    q.prepare(QStringLiteral("INSERT OR IGNORE INTO playlist_songs(playlist_id,song_id,position) VALUES(?,?,?)"));
+    q.prepare(QStringLiteral("INSERT INTO playlist_songs(playlist_id,song_id,position) VALUES(?,?,?)"));
     q.addBindValue(playlistId);
     q.addBindValue(songId);
     q.addBindValue(pos);
-    const bool ok = q.exec();
-    if (ok) {
-        reload();
-        emit playlistSongsChanged(playlistId);
+    if (!q.exec()) {
+        const QString detail = q.lastError().text();
+        m_db.rollback();
+        return fail(QStringLiteral("添加歌曲到歌单"), detail);
     }
-    return ok;
+    if (!m_db.commit()) {
+        m_db.rollback();
+        return fail(QStringLiteral("添加歌曲到歌单"), m_db.lastError().text());
+    }
+    if (!isInPlaylist(playlistId, songId))
+        return fail(QStringLiteral("添加歌曲到歌单"), QStringLiteral("写入后校验失败"));
+    reload();
+    emit playlistSongsChanged(playlistId);
+    return true;
 }
 
 bool PlaylistController::removeSong(int playlistId, qint64 songId)
 {
     if (!m_db.isOpen())
-        return false;
+        return fail(QStringLiteral("从歌单移除歌曲"), QStringLiteral("数据库未打开"));
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral("DELETE FROM playlist_songs WHERE playlist_id=? AND song_id=?"));
     q.addBindValue(playlistId);
     q.addBindValue(songId);
     const bool ok = q.exec();
+    if (!ok)
+        return fail(QStringLiteral("从歌单移除歌曲"), q.lastError().text());
     if (ok) {
         reload();
         emit playlistSongsChanged(playlistId);
@@ -243,10 +309,11 @@ bool PlaylistController::moveSong(int playlistId, int from, int to)
     QSqlQuery upd(m_db);
     upd.prepare(QStringLiteral("UPDATE playlist_songs SET position=? WHERE playlist_id=? AND song_id=?"));
     for (int i = 0; i < ids.size(); ++i) {
-        upd.addBindValue(i);
-        upd.addBindValue(playlistId);
-        upd.addBindValue(ids[i]);
-        upd.exec();
+        upd.bindValue(0, i);
+        upd.bindValue(1, playlistId);
+        upd.bindValue(2, ids[i]);
+        if (!upd.exec())
+            return fail(QStringLiteral("调整歌单顺序"), upd.lastError().text());
     }
     reload();
     emit playlistSongsChanged(playlistId);
@@ -268,12 +335,17 @@ QList<Song> PlaylistController::recentSongs(int limit) const
     if (!m_db.isOpen())
         return songs;
     QSqlQuery q(m_db);
-    q.prepare(QStringLiteral(
+    const int safeLimit = qBound(1, limit, 1000);
+    const QString sql = QStringLiteral(
         "SELECT s.id,s.path,s.title,s.artist,s.album,s.duration_ms,s.cover_path,s.missing,s.play_count,s.last_played_ms,"
         "s.source,s.online_id,s.cover_url,s.album_id,COALESCE(NULLIF(sc.cache_path,''),s.cache_path,'') "
-        "FROM recent r JOIN songs s ON s.id=r.song_id ORDER BY r.played_ms DESC LIMIT ?"));
-    q.addBindValue(limit);
-    q.exec();
+        "FROM recent r JOIN songs s ON s.id=r.song_id "
+        "LEFT JOIN song_cache sc ON sc.song_id=s.id "
+        "ORDER BY r.played_ms DESC, r.rowid DESC LIMIT %1").arg(safeLimit);
+    if (!q.exec(sql)) {
+        qWarning() << "Failed to load recent songs:" << q.lastError().text();
+        return songs;
+    }
     while (q.next()) {
         Song s;
         s.id = q.value(0).toLongLong();
@@ -303,11 +375,11 @@ void PlaylistController::recordPlay(qint64 songId)
         return;
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral(
-        "INSERT INTO recent(song_id,played_ms) VALUES(?,?) "
-        "ON CONFLICT(song_id) DO UPDATE SET played_ms=excluded.played_ms"));
+        "INSERT OR REPLACE INTO recent(song_id,played_ms) VALUES(?,?)"));
     q.addBindValue(songId);
     q.addBindValue(QDateTime::currentMSecsSinceEpoch());
-    q.exec();
+    if (!q.exec())
+        fail(QStringLiteral("记录最近播放"), q.lastError().text());
 }
 
 } // namespace core

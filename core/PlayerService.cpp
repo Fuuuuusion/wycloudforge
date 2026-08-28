@@ -6,6 +6,7 @@
 #include <numeric>
 
 #include <QFileInfo>
+#include <QAudioDevice>
 #include <QRandomGenerator>
 #include <QTimer>
 #include <QUrl>
@@ -17,6 +18,10 @@ PlayerService::PlayerService(QObject *parent)
 {
     m_audio.setVolume(0.7);
     m_player.setAudioOutput(&m_audio);
+    ensureAudioOutput();
+    connect(&m_mediaDevices, &QMediaDevices::audioOutputsChanged, this, [this] {
+        ensureAudioOutput();
+    });
 
     connect(&m_player, &QMediaPlayer::playbackStateChanged, this, [this](QMediaPlayer::PlaybackState state) {
         if (state == QMediaPlayer::PlayingState)
@@ -40,9 +45,12 @@ PlayerService::PlayerService(QObject *parent)
                 m_player.setPosition(0);
             next();
         }
+        if (status == QMediaPlayer::InvalidMedia && !retryInvalidCache())
+            emit errorOccurred(QStringLiteral("媒体无法解码或播放源已失效"));
     });
     connect(&m_player, &QMediaPlayer::errorOccurred, this, [this](QMediaPlayer::Error, const QString &err) {
-        emit errorOccurred(err);
+        if (!retryInvalidCache())
+            emit errorOccurred(err.isEmpty() ? QStringLiteral("播放失败") : err);
     });
 }
 
@@ -89,6 +97,10 @@ void PlayerService::play()
             m_index = 0;
             loadCurrent(true);
         }
+        return;
+    }
+    if (!ensureAudioOutput()) {
+        m_pendingAutoPlay = false;
         return;
     }
     // 线上歌曲的播放地址可能仍在请求中;保留自动播放意图,待新媒体加载完成后再启动。
@@ -190,26 +202,40 @@ qint64 PlayerService::duration() const
     return m_player.duration();
 }
 
-void PlayerService::loadCurrent(bool autoPlay)
+void PlayerService::loadCurrent(bool autoPlay, bool allowCached, bool resetCacheRetry)
 {
     if (m_index < 0 || m_index >= m_playlist.size())
         return;
     const Song &song = m_playlist[m_index];
     ++m_loadToken;
+    if (resetCacheRetry)
+        m_cacheRetryAttempted = false;
     m_currentUrl.clear();
     m_pendingAutoPlay = autoPlay;
+    m_usingCachedSource = false;
     m_player.stop();
     m_player.setSource(QUrl());
 
-    if (song.isOnline() && m_source && m_lib) {
+    if (song.isOnline()) {
         m_cacheSaved = false;
-        const QString cached = m_lib->cachePathFor(song.id);
-        if (!cached.isEmpty() && QFileInfo::exists(cached)) {
+        QString cached = song.cachePath;
+        if (cached.isEmpty() && m_lib)
+            cached = m_lib->cachePathFor(song.id);
+        if (allowCached && !cached.isEmpty() && QFileInfo::exists(cached)
+            && QFileInfo(cached).size() > 0) {
             m_cacheSaved = true;
+            m_usingCachedSource = true;
+            m_playlist[m_index].cachePath = cached;
             m_player.setSource(QUrl::fromLocalFile(cached));
-            if (m_pendingAutoPlay)
+            if (m_pendingAutoPlay && ensureAudioOutput())
                 m_player.play();
+            emit songChanged(m_playlist[m_index], m_index);
+            return;
+        }
+        if (!m_source || song.onlineId <= 0) {
+            m_pendingAutoPlay = false;
             emit songChanged(song, m_index);
+            emit errorOccurred(QStringLiteral("歌曲没有可用的缓存或在线播放源"));
             return;
         }
         const int token = m_loadToken;
@@ -226,10 +252,10 @@ void PlayerService::loadCurrent(bool autoPlay)
                                    QTimer::singleShot(0, this, [this] { next(); });
                                    return;
                                }
-                               m_currentUrl = url;
-                               m_player.setSource(QUrl(url));
-                               if (m_pendingAutoPlay)
-                                   m_player.play();
+                                m_currentUrl = url;
+                                m_player.setSource(QUrl(url));
+                                if (m_pendingAutoPlay && ensureAudioOutput())
+                                    m_player.play();
                            },
                            [this, token](const QString &err) {
                                if (token != m_loadToken)
@@ -242,10 +268,45 @@ void PlayerService::loadCurrent(bool autoPlay)
         return;
     }
 
+    if (song.filePath.isEmpty() || !QFileInfo::exists(song.filePath)) {
+        m_pendingAutoPlay = false;
+        emit songChanged(song, m_index);
+        emit errorOccurred(QStringLiteral("本地音频文件不存在"));
+        return;
+    }
     m_player.setSource(QUrl::fromLocalFile(song.filePath));
-    if (m_pendingAutoPlay)
+    if (m_pendingAutoPlay && ensureAudioOutput())
         m_player.play();
     emit songChanged(song, m_index);
+}
+
+bool PlayerService::ensureAudioOutput()
+{
+    const QAudioDevice device = QMediaDevices::defaultAudioOutput();
+    if (device.isNull()) {
+        emit errorOccurred(QStringLiteral("未检测到可用的音频输出设备"));
+        return false;
+    }
+    if (m_audio.device().isNull() || m_audio.device().id() != device.id())
+        m_audio.setDevice(device);
+    return true;
+}
+
+bool PlayerService::retryInvalidCache()
+{
+    if (!m_usingCachedSource || m_cacheRetryAttempted || m_index < 0 || m_index >= m_playlist.size())
+        return false;
+    m_cacheRetryAttempted = true;
+    const bool autoPlay = m_pendingAutoPlay || m_player.playbackState() == QMediaPlayer::PlayingState;
+    const qint64 songId = m_playlist[m_index].id;
+    m_usingCachedSource = false;
+    m_playlist[m_index].cachePath.clear();
+    if (m_lib)
+        m_lib->invalidateSongCache(songId);
+    QTimer::singleShot(0, this, [this, autoPlay] {
+        loadCurrent(autoPlay, false, false);
+    });
+    return true;
 }
 
 void PlayerService::maybeCacheCurrent(qint64 positionMs)

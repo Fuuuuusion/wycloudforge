@@ -350,6 +350,7 @@ void PlayerBar::setSong(const core::Song &song, bool favorite)
     else
         m_sourceBadge->setText(QStringLiteral("本地"));
     m_sourceBadge->setVisible(!m_sourceBadge->text().isEmpty());
+    m_sourceBadge->setToolTip(QString());
     m_heartBtn->setIcon(makeSvgIcon(favorite ? QStringLiteral(":/icons/icon-heart-fill.svg")
                                        : QStringLiteral(":/icons/icon-heart.svg"), 18));
     if (!song.coverPath.isEmpty()) {
@@ -361,6 +362,13 @@ void PlayerBar::setSong(const core::Song &song, bool favorite)
     }
     setDuration(song.durationMs);
     setPosition(0);
+}
+
+void PlayerBar::setPlaybackError(const QString &message)
+{
+    m_sourceBadge->setText(QStringLiteral("⚠ 播放失败"));
+    m_sourceBadge->setToolTip(message);
+    m_sourceBadge->setVisible(true);
 }
 
 void PlayerBar::setPlaying(bool playing)

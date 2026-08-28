@@ -20,6 +20,7 @@ public:
     explicit PlayerBar(QWidget *parent = nullptr);
 
     void setSong(const core::Song &song, bool favorite);
+    void setPlaybackError(const QString &message);
     void setPlaying(bool playing);
     void setPosition(qint64 ms);
     void setDuration(qint64 ms);

@@ -6,6 +6,7 @@
 #include <QAudioOutput>
 #include <QJsonArray>
 #include <QMediaPlayer>
+#include <QMediaDevices>
 #include <QObject>
 #include <QVector>
 
@@ -58,12 +59,15 @@ signals:
     void errorOccurred(const QString &message);
 
 private:
-    void loadCurrent(bool autoPlay);
+    void loadCurrent(bool autoPlay, bool allowCached = true, bool resetCacheRetry = true);
+    bool ensureAudioOutput();
+    bool retryInvalidCache();
     void buildShuffleOrder();
     void maybeCacheCurrent(qint64 positionMs);
 
     QMediaPlayer m_player;
     QAudioOutput m_audio;
+    QMediaDevices m_mediaDevices;
     QList<Song> m_playlist;
     int m_index = -1;
     PlayMode m_mode = Order;
@@ -76,6 +80,8 @@ private:
     bool m_cacheSaved = false;
     int m_loadToken = 0;
     bool m_pendingAutoPlay = false;
+    bool m_usingCachedSource = false;
+    bool m_cacheRetryAttempted = false;
 };
 
 } // namespace core

@@ -17,6 +17,7 @@
 #include <QThread>
 #include <QTimer>
 #include <QVariant>
+#include <QDebug>
 
 namespace core {
 namespace {
@@ -39,6 +40,36 @@ QString coverCacheDir()
     return dir;
 }
 
+QString databaseIntegrityError(const QSqlDatabase &db)
+{
+    QSqlQuery check(db);
+    if (!check.exec(QStringLiteral("PRAGMA quick_check")))
+        return check.lastError().text();
+    QStringList errors;
+    while (check.next()) {
+        const QString message = check.value(0).toString();
+        if (message.compare(QStringLiteral("ok"), Qt::CaseInsensitive) != 0)
+            errors.append(message);
+    }
+    return errors.join(QStringLiteral("; "));
+}
+
+QString backupDatabaseFiles(const QString &dbPath)
+{
+    const QString root = QFileInfo(dbPath).absolutePath() + QStringLiteral("/db-backups/automatic-")
+        + QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss"));
+    if (!QDir().mkpath(root))
+        return {};
+    bool copied = false;
+    for (const QString &suffix : { QString(), QStringLiteral("-wal"), QStringLiteral("-shm") }) {
+        const QString source = dbPath + suffix;
+        if (!QFileInfo::exists(source))
+            continue;
+        copied = QFile::copy(source, root + QLatin1Char('/') + QFileInfo(source).fileName()) || copied;
+    }
+    return copied ? root : QString();
+}
+
 class ScanWorker : public QObject
 {
     Q_OBJECT
@@ -49,104 +80,125 @@ public slots:
         int removed = 0;
         QStringList watchDirs;
 
+        const QString conn = QStringLiteral("scan_%1").arg(quintptr(QThread::currentThread()));
         {
-            const QString conn = QStringLiteral("scan_%1").arg(quintptr(QThread::currentThread()));
             QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), conn);
             db.setDatabaseName(dbPath);
             if (db.open()) {
-                QSqlQuery q(db);
-                q.exec(QStringLiteral("PRAGMA busy_timeout=5000"));
-                q.exec(QStringLiteral("PRAGMA journal_mode=WAL"));
+                {
+                    QSqlQuery q(db);
+                    q.exec(QStringLiteral("PRAGMA busy_timeout=5000"));
+                    q.exec(QStringLiteral("PRAGMA journal_mode=WAL"));
+                    q.exec(QStringLiteral("PRAGMA synchronous=FULL"));
 
-                int total = 0;
-                for (const QString &folder : folders) {
-                    QDirIterator it(folder, QDir::Files, QDirIterator::Subdirectories);
-                    while (it.hasNext()) {
-                        it.next();
-                        if (isSupportedFile(it.filePath()))
-                            ++total;
+                    int total = 0;
+                    for (const QString &folder : folders) {
+                        if (QThread::currentThread()->isInterruptionRequested())
+                            break;
+                        QDirIterator it(folder, QDir::Files, QDirIterator::Subdirectories);
+                        while (it.hasNext()) {
+                            if (QThread::currentThread()->isInterruptionRequested())
+                                break;
+                            it.next();
+                            if (isSupportedFile(it.filePath()))
+                                ++total;
+                        }
                     }
-                }
-                emit progress(0, qMax(1, total));
+                    emit progress(0, qMax(1, total));
 
-                int done = 0;
-                for (const QString &folder : folders) {
-                    QDirIterator it(folder, QDir::Files, QDirIterator::Subdirectories);
-                    while (it.hasNext()) {
-                        const QString path = it.next();
-                        if (!isSupportedFile(path))
-                            continue;
-                        const TagInfo info = TagReader::read(path);
-                        QString coverPath;
-                        if (info.hasCover()) {
-                            const QByteArray hash = QCryptographicHash::hash(path.toUtf8(), QCryptographicHash::Sha1).toHex();
-                            const QString suffix = info.coverData.startsWith("\xFF\xD8") ? QStringLiteral("jpg")
-                                : info.coverData.startsWith("\x89PNG") ? QStringLiteral("png") : QStringLiteral("jpg");
-                            coverPath = coverCacheDir() + QLatin1Char('/') + QString::fromLatin1(hash) + QLatin1Char('.') + suffix;
-                            if (!QFile::exists(coverPath)) {
-                                QFile f(coverPath);
-                                if (f.open(QIODevice::WriteOnly)) {
-                                    f.write(info.coverData);
-                                    f.close();
+                    int done = 0;
+                    for (const QString &folder : folders) {
+                        if (QThread::currentThread()->isInterruptionRequested())
+                            break;
+                        QDirIterator it(folder, QDir::Files, QDirIterator::Subdirectories);
+                        while (it.hasNext()) {
+                            if (QThread::currentThread()->isInterruptionRequested())
+                                break;
+                            const QString path = it.next();
+                            if (!isSupportedFile(path))
+                                continue;
+                            const TagInfo info = TagReader::read(path);
+                            QString coverPath;
+                            if (info.hasCover()) {
+                                const QByteArray hash = QCryptographicHash::hash(path.toUtf8(), QCryptographicHash::Sha1).toHex();
+                                const QString suffix = info.coverData.startsWith("\xFF\xD8") ? QStringLiteral("jpg")
+                                    : info.coverData.startsWith("\x89PNG") ? QStringLiteral("png") : QStringLiteral("jpg");
+                                coverPath = coverCacheDir() + QLatin1Char('/') + QString::fromLatin1(hash) + QLatin1Char('.') + suffix;
+                                if (!QFile::exists(coverPath)) {
+                                    QFile f(coverPath);
+                                    if (f.open(QIODevice::WriteOnly)) {
+                                        f.write(info.coverData);
+                                        f.close();
+                                    }
                                 }
                             }
+                            QSqlQuery ins(db);
+                            ins.prepare(QStringLiteral(
+                                "INSERT INTO songs(path,title,artist,album,duration_ms,cover_path,has_cover,missing) "
+                                "VALUES(?,?,?,?,?,?,?,0) "
+                                "ON CONFLICT(path) DO UPDATE SET title=excluded.title,artist=excluded.artist,"
+                                "album=excluded.album,duration_ms=excluded.duration_ms,"
+                                // 保留此前从网易云获取的封面;文件本身有内嵌封面时则以新封面为准。
+                                "cover_path=CASE WHEN excluded.cover_path <> '' THEN excluded.cover_path ELSE songs.cover_path END,"
+                                "has_cover=CASE WHEN excluded.cover_path <> '' THEN excluded.has_cover ELSE songs.has_cover END,missing=0"));
+                            ins.addBindValue(path);
+                            ins.addBindValue(info.title);
+                            ins.addBindValue(info.artist);
+                            ins.addBindValue(info.album);
+                            ins.addBindValue(info.durationMs);
+                            ins.addBindValue(coverPath);
+                            ins.addBindValue(info.hasCover() ? 1 : 0);
+                            if (ins.exec())
+                                ++added;
+                            ++done;
+                            if (done % 25 == 0)
+                                emit progress(done, qMax(1, total));
                         }
-                        QSqlQuery ins(db);
-                        ins.prepare(QStringLiteral(
-                            "INSERT INTO songs(path,title,artist,album,duration_ms,cover_path,has_cover,missing) "
-                            "VALUES(?,?,?,?,?,?,?,0) "
-                            "ON CONFLICT(path) DO UPDATE SET title=excluded.title,artist=excluded.artist,"
-                            "album=excluded.album,duration_ms=excluded.duration_ms,"
-                            // 保留此前从网易云获取的封面;文件本身有内嵌封面时则以新封面为准。
-                            "cover_path=CASE WHEN excluded.cover_path <> '' THEN excluded.cover_path ELSE songs.cover_path END,"
-                            "has_cover=CASE WHEN excluded.cover_path <> '' THEN excluded.has_cover ELSE songs.has_cover END,missing=0"));
-                        ins.addBindValue(path);
-                        ins.addBindValue(info.title);
-                        ins.addBindValue(info.artist);
-                        ins.addBindValue(info.album);
-                        ins.addBindValue(info.durationMs);
-                        ins.addBindValue(coverPath);
-                        ins.addBindValue(info.hasCover() ? 1 : 0);
-                        if (ins.exec())
-                            ++added;
-                        ++done;
-                        if (done % 25 == 0)
-                            emit progress(done, qMax(1, total));
                     }
-                }
 
-                QSqlQuery select(db);
-                // 在线歌曲使用 netease:// 虚拟路径，不能按本地文件是否存在判断失效。
-                q.exec(QStringLiteral("UPDATE songs SET missing=0 WHERE source>0"));
-                select.exec(QStringLiteral("SELECT id,path,source,missing FROM songs"));
-                QSqlQuery mark(db);
-                mark.prepare(QStringLiteral("UPDATE songs SET missing=? WHERE id=?"));
-                while (select.next()) {
-                    const qint64 id = select.value(0).toLongLong();
-                    const QString path = select.value(1).toString();
-                    const int source = select.value(2).toInt();
-                    const bool wasMissing = select.value(3).toInt() != 0;
-                    if (source > 0)
-                        continue;
-                    const bool exists = QFile::exists(path);
-                    if (!wasMissing && !exists) {
-                        mark.addBindValue(1);
-                        mark.addBindValue(id);
-                        mark.exec();
-                        ++removed;
+                    if (!QThread::currentThread()->isInterruptionRequested()) {
+                        QSqlQuery select(db);
+                        // 在线歌曲使用 netease:// 虚拟路径，不能按本地文件是否存在判断失效。
+                        q.exec(QStringLiteral("UPDATE songs SET missing=0 WHERE source>0"));
+                        select.exec(QStringLiteral("SELECT id,path,source,missing FROM songs"));
+                        QSqlQuery mark(db);
+                        mark.prepare(QStringLiteral("UPDATE songs SET missing=? WHERE id=?"));
+                        while (select.next()) {
+                            if (QThread::currentThread()->isInterruptionRequested())
+                                break;
+                            const qint64 id = select.value(0).toLongLong();
+                            const QString path = select.value(1).toString();
+                            const int source = select.value(2).toInt();
+                            const bool wasMissing = select.value(3).toInt() != 0;
+                            if (source > 0)
+                                continue;
+                            const bool exists = QFile::exists(path);
+                            if (!wasMissing && !exists) {
+                                mark.bindValue(0, 1);
+                                mark.bindValue(1, id);
+                                if (mark.exec())
+                                    ++removed;
+                            }
+                        }
                     }
-                }
 
-                for (const QString &folder : folders) {
-                    QDirIterator it(folder, QDir::Dirs | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
-                    watchDirs << folder;
-                    while (it.hasNext() && watchDirs.size() < 4000)
-                        watchDirs << it.next();
+                    for (const QString &folder : folders) {
+                        if (QThread::currentThread()->isInterruptionRequested())
+                            break;
+                        QDirIterator it(folder, QDir::Dirs | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
+                        watchDirs << folder;
+                        while (it.hasNext() && watchDirs.size() < 4000) {
+                            if (QThread::currentThread()->isInterruptionRequested())
+                                break;
+                            watchDirs << it.next();
+                        }
+                    }
                 }
                 db.close();
             }
-            QSqlDatabase::removeDatabase(conn);
         }
+        // Qt 要求所有 QSqlQuery 和 QSqlDatabase 句柄都先析构，才能移除连接。
+        QSqlDatabase::removeDatabase(conn);
         emit finished(added, removed, watchDirs);
     }
 
@@ -184,32 +236,77 @@ LibraryService::LibraryService(QObject *parent)
 LibraryService::~LibraryService()
 {
     if (m_scanThread && m_scanThread->isRunning()) {
+        m_scanThread->requestInterruption();
         m_scanThread->quit();
-        m_scanThread->wait(3000);
+        m_scanThread->wait();
     }
+    const QString connectionName = m_db.connectionName();
+    m_db.close();
+    m_db = QSqlDatabase();
+    if (!connectionName.isEmpty() && QSqlDatabase::contains(connectionName))
+        QSqlDatabase::removeDatabase(connectionName);
 }
 
 QString LibraryService::lastError() const
 {
+    if (!m_lastError.isEmpty())
+        return m_lastError;
     return m_db.isValid() ? m_db.lastError().text() : QStringLiteral("invalid db handle");
 }
 
 bool LibraryService::openDatabase()
 {
+    m_lastError.clear();
     m_dbPath = s_dbOverride.isEmpty()
         ? QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + QStringLiteral("/library.db")
         : s_dbOverride;
     QDir().mkpath(QFileInfo(m_dbPath).absolutePath());
-    if (QSqlDatabase::contains(QStringLiteral("main")))
+    if (m_db.isValid()) {
+        m_db.close();
+        m_db = QSqlDatabase();
+    }
+    if (QSqlDatabase::contains(QStringLiteral("main"))) {
+        QSqlDatabase stale = QSqlDatabase::database(QStringLiteral("main"), false);
+        stale.close();
+        stale = QSqlDatabase();
         QSqlDatabase::removeDatabase(QStringLiteral("main"));
+    }
     m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("main"));
     m_db.setDatabaseName(m_dbPath);
-    if (!m_db.open())
+    if (!m_db.open()) {
+        m_lastError = m_db.lastError().text();
         return false;
+    }
 
     QSqlQuery q(m_db);
-    q.exec(QStringLiteral("PRAGMA busy_timeout=5000"));
-    q.exec(QStringLiteral("PRAGMA journal_mode=WAL"));
+    if (!q.exec(QStringLiteral("PRAGMA busy_timeout=5000"))
+        || !q.exec(QStringLiteral("PRAGMA journal_mode=WAL"))
+        || !q.exec(QStringLiteral("PRAGMA synchronous=FULL"))
+        || !q.exec(QStringLiteral("PRAGMA wal_autocheckpoint=100"))) {
+        m_lastError = q.lastError().text();
+        return false;
+    }
+
+    QString integrityError = databaseIntegrityError(m_db);
+    if (!integrityError.isEmpty()) {
+        QSqlQuery checkpoint(m_db);
+        checkpoint.exec(QStringLiteral("PRAGMA wal_checkpoint(PASSIVE)"));
+        const QString backupPath = backupDatabaseFiles(m_dbPath);
+        QSqlQuery repair(m_db);
+        if (!repair.exec(QStringLiteral("REINDEX"))) {
+            m_lastError = QStringLiteral("数据库索引损坏，自动修复失败：%1；备份：%2")
+                              .arg(repair.lastError().text(), backupPath);
+            return false;
+        }
+        integrityError = databaseIntegrityError(m_db);
+        if (!integrityError.isEmpty()) {
+            m_lastError = QStringLiteral("数据库完整性检查失败：%1；备份：%2")
+                              .arg(integrityError, backupPath);
+            return false;
+        }
+        qWarning() << "Repaired database indexes; backup:" << backupPath;
+    }
+
     q.exec(QStringLiteral(
         "CREATE TABLE IF NOT EXISTS songs("
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -240,6 +337,14 @@ bool LibraryService::openDatabase()
     if (!cols.contains(QStringLiteral("cover_url"))) addCol(QStringLiteral("cover_url"), QStringLiteral("TEXT DEFAULT ''"));
     if (!cols.contains(QStringLiteral("cache_path"))) addCol(QStringLiteral("cache_path"), QStringLiteral("TEXT DEFAULT ''"));
     if (!cols.contains(QStringLiteral("album_id"))) addCol(QStringLiteral("album_id"), QStringLiteral("INTEGER DEFAULT 0"));
+
+    q.exec(QStringLiteral(
+        "CREATE TABLE IF NOT EXISTS playlists("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "name TEXT NOT NULL UNIQUE,"
+        "cover_path TEXT DEFAULT '',"
+        "description TEXT DEFAULT '',"
+        "created_ms INTEGER DEFAULT 0)"));
 
     // 歌单表:老库补充封面/简介列
     {
@@ -285,9 +390,19 @@ bool LibraryService::openDatabase()
         "played_ms INTEGER NOT NULL)"));
     q.exec(QStringLiteral(
         "INSERT OR IGNORE INTO playlists(id,name,created_ms) VALUES(1,'我喜欢的音乐',0)"));
+    q.exec(QStringLiteral("DELETE FROM song_cache WHERE song_id NOT IN (SELECT id FROM songs)"));
+    q.exec(QStringLiteral(
+        "DELETE FROM playlist_songs WHERE playlist_id NOT IN (SELECT id FROM playlists) "
+        "OR song_id NOT IN (SELECT id FROM songs)"));
+
+    integrityError = databaseIntegrityError(m_db);
+    if (!integrityError.isEmpty()) {
+        m_lastError = QStringLiteral("数据库初始化后完整性检查失败：%1").arg(integrityError);
+        return false;
+    }
 
     reloadSongs();
-    return true;
+    return m_lastError.isEmpty();
 }
 
 void LibraryService::reloadDatabase()
@@ -335,17 +450,18 @@ void LibraryService::startWorker(const QStringList &folders)
     worker->moveToThread(thread);
     connect(thread, &QThread::finished, worker, &QObject::deleteLater);
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+    connect(thread, &QThread::finished, this, [this, thread] {
+        if (m_scanThread == thread)
+            m_scanThread = nullptr;
+    });
     const QString dbPath = m_dbPath;
     connect(this, &LibraryService::scanStarted, worker, [worker, folders, dbPath] {
         worker->run(folders, dbPath);
     });
     connect(worker, &ScanWorker::progress, this, &LibraryService::scanProgress);
-    connect(worker, &ScanWorker::finished, this, [this](int added, int removed, const QStringList &watchDirs) {
+    connect(worker, &ScanWorker::finished, this, [this, thread](int added, int removed, const QStringList &watchDirs) {
         m_scanRunning = false;
-        if (m_scanThread) {
-            m_scanThread->quit();
-            m_scanThread = nullptr;
-        }
+        thread->quit();
         m_watcher->removePaths(m_watcher->directories());
         m_watcher->addPaths(watchDirs);
         reloadSongs();
@@ -392,10 +508,13 @@ void LibraryService::reloadSongs()
     repair.exec(QStringLiteral("UPDATE songs SET cache_path='' WHERE source=0"));
 
     QSqlQuery q(m_db);
-    q.exec(QStringLiteral(
+    if (!q.exec(QStringLiteral(
         "SELECT s.id,s.path,s.title,s.artist,s.album,s.duration_ms,s.cover_path,s.missing,"
         "s.play_count,s.last_played_ms,s.source,s.online_id,s.cover_url,s.album_id,sc.cache_path "
-        "FROM songs s LEFT JOIN song_cache sc ON sc.song_id=s.id ORDER BY s.id"));
+        "FROM songs s LEFT JOIN song_cache sc ON sc.song_id=s.id ORDER BY s.id"))) {
+        m_lastError = q.lastError().text();
+        return;
+    }
     while (q.next()) {
         Song s;
         s.id = q.value(0).toLongLong();
@@ -670,6 +789,38 @@ void LibraryService::setSongCached(qint64 songId, const QString &path, qint64 si
     }
     evictCacheIfNeeded();
     emit cacheChanged();
+}
+
+void LibraryService::invalidateSongCache(qint64 songId)
+{
+    if (!m_db.isOpen() || songId <= 0)
+        return;
+    QString path;
+    QSqlQuery find(m_db);
+    find.prepare(QStringLiteral("SELECT cache_path FROM song_cache WHERE song_id=?"));
+    find.addBindValue(songId);
+    if (find.exec() && find.next())
+        path = find.value(0).toString();
+
+    QSqlQuery remove(m_db);
+    remove.prepare(QStringLiteral("DELETE FROM song_cache WHERE song_id=?"));
+    remove.addBindValue(songId);
+    remove.exec();
+    QSqlQuery clear(m_db);
+    clear.prepare(QStringLiteral("UPDATE songs SET cache_path='' WHERE id=?"));
+    clear.addBindValue(songId);
+    clear.exec();
+
+    if (!path.isEmpty()) {
+        const QString relative = QDir(cacheDir()).relativeFilePath(path);
+        if (!QFileInfo(path).isRelative() && !relative.startsWith(QStringLiteral("..")))
+            QFile::remove(path);
+    }
+    for (Song &song : m_songs)
+        if (song.id == songId)
+            song.cachePath.clear();
+    emit cacheChanged();
+    emit libraryChanged();
 }
 
 void LibraryService::clearCache()

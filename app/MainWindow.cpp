@@ -44,6 +44,7 @@
 #include <QScrollBar>
 #include <QTextEdit>
 #include <QTimer>
+#include <QToolTip>
 #include <QUrl>
 #include <QVBoxLayout>
 
@@ -207,9 +208,10 @@ MainWindow::MainWindow(QWidget *parent)
         if (ok && !name.trimmed().isEmpty()) {
             const int id = m_playlists.createPlaylist(name);
             if (id > 0) {
+                m_playlistContext = -1;
                 refreshSidebar();
                 refreshAllPages();
-                openPlaylist(id);
+                showPage(3);
             }
         }
     });
@@ -260,9 +262,10 @@ MainWindow::MainWindow(QWidget *parent)
     connect(&m_player, &core::PlayerService::modeChanged, m_playerBar, &ui::PlayerBar::setMode);
     connect(&m_player, &core::PlayerService::volumeChanged, m_playerBar, &ui::PlayerBar::setVolume);
     connect(&m_player, &core::PlayerService::mutedChanged, m_playerBar, &ui::PlayerBar::setMuted);
-    connect(&m_player, &core::PlayerService::errorOccurred, this, [this](const QString &) {
+    connect(&m_player, &core::PlayerService::errorOccurred, this, [this](const QString &message) {
         const core::Song s = m_player.currentSong();
         m_playerBar->setSong(s, m_playlists.isFavorite(s.id));
+        m_playerBar->setPlaybackError(message);
     });
 
     // ---------- 推荐页 ----------
@@ -278,7 +281,7 @@ MainWindow::MainWindow(QWidget *parent)
             this, [this](int row, int playlistId) {
         const core::Song song = m_recommend->currentSongs().value(row);
         if (song.id > 0)
-            m_playlists.addSong(playlistId, song.id);
+            addSongToPlaylist(song, playlistId);
     });
 
     // ---------- 收藏页 ----------
@@ -293,7 +296,7 @@ MainWindow::MainWindow(QWidget *parent)
         const auto songs = m_playlists.songsOf(m_playlists.favoritePlaylistId());
         const core::Song s = songs.value(row);
         if (s.id > 0)
-            m_playlists.addSong(plId, s.id);
+            addSongToPlaylist(s, plId);
     });
     connect(m_favorites, &ui::FavoritesPage::removeFromPlaylistRequested, this, [this](int row) {
         const auto songs = m_playlists.songsOf(m_playlists.favoritePlaylistId());
@@ -314,7 +317,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_libraryPage, &ui::LibraryPage::addToPlaylistRequested, this, [this](int row, int plId) {
         const core::Song s = m_libraryPage->currentSongs().value(row);
         if (s.id > 0)
-            m_playlists.addSong(plId, s.id);
+            addSongToPlaylist(s, plId);
     });
     connect(m_libraryPage, &ui::LibraryPage::deleteFromLibraryRequested, this, [this](int row) {
         const core::Song s = m_libraryPage->currentSongs().value(row);
@@ -333,9 +336,10 @@ MainWindow::MainWindow(QWidget *parent)
         if (ok && !name.trimmed().isEmpty()) {
             const int id = m_playlists.createPlaylist(name);
             if (id > 0) {
+                m_playlistContext = -1;
                 refreshSidebar();
                 refreshAllPages();
-                openPlaylist(id);
+                showPage(3);
             }
         }
     });
@@ -353,7 +357,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_songListPage, &ui::SongListPage::addToPlaylistRequested, this, [this](int row, int plId) {
         const core::Song s = m_songListPage->currentSongs().value(row);
         if (s.id > 0)
-            m_playlists.addSong(plId, s.id);
+            addSongToPlaylist(s, plId);
     });
     connect(m_songListPage, &ui::SongListPage::removeFromPlaylistRequested, this, [this](int row) {
         const core::Song s = m_songListPage->currentSongs().value(row);
@@ -418,7 +422,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_search, &ui::SearchPage::addToPlaylistRequested, this, [this](int row, int plId) {
         const core::Song s = m_search->currentSongs().value(row);
         if (s.id > 0)
-            m_playlists.addSong(plId, s.id);
+            addSongToPlaylist(s, plId);
     });
     connect(m_search, &ui::SearchPage::deleteFromLibraryRequested, this, [this](int row) {
         const core::Song s = m_search->currentSongs().value(row);
@@ -452,10 +456,14 @@ MainWindow::MainWindow(QWidget *parent)
         refreshSidebar();
         refreshAllPages();
     });
-    connect(&m_playlists, &core::PlaylistController::playlistSongsChanged, this, [this](int) {
+    connect(&m_playlists, &core::PlaylistController::playlistSongsChanged, this, [this](int playlistId) {
         refreshSidebar();
-        if (m_playlistContext > 0)
+        refreshAllPages();
+        if (m_playlistContext == playlistId && m_stack->currentIndex() == 4)
             openPlaylist(m_playlistContext);
+    });
+    connect(&m_playlists, &core::PlaylistController::operationFailed, this, [this](const QString &message) {
+        QMessageBox::warning(this, QStringLiteral("歌单操作失败"), message);
     });
 
     // ---------- 初始化 ----------
@@ -465,6 +473,9 @@ MainWindow::MainWindow(QWidget *parent)
         refreshLibraryViews();
         refreshAllPages();
         m_library.startScan();
+    } else {
+        QMessageBox::critical(this, QStringLiteral("数据库打开失败"),
+                              QStringLiteral("音乐库无法安全打开：%1").arg(m_library.lastError()));
     }
     m_player.setVolume(core::SettingsService::volume());
     m_player.setMuted(core::SettingsService::muted());
@@ -493,6 +504,12 @@ MainWindow::MainWindow(QWidget *parent)
 
 void MainWindow::showPage(int pageId)
 {
+    const bool clearPlaylistSelection = pageId >= 0 && pageId != 4 && pageId != 5
+        && m_playlistContext > 0;
+    if (clearPlaylistSelection) {
+        m_playlistContext = -1;
+        refreshSidebar();
+    }
     if (pageId == 5)
         m_lastPage = m_stack->currentIndex();
     if (pageId >= 0 && pageId < m_stack->count())
@@ -518,6 +535,7 @@ void MainWindow::openPlaybackQueue()
         .arg(totalSec / 60)
         .arg(totalSec % 60, 2, 10, QLatin1Char('0'));
     m_playlistContext = -1;
+    refreshSidebar();
     m_songListPage->showContent(queue, QStringLiteral("播放列表"), meta,
                                 m_currentSongId, false);
     m_songListPage->setPlaylistContext(-1);
@@ -526,19 +544,27 @@ void MainWindow::openPlaybackQueue()
 
 void MainWindow::openPlaylist(int playlistId)
 {
-    m_playlistContext = playlistId;
-    refreshSidebar();
-    const auto songs = m_playlists.songsOf(playlistId);
     QString name = QStringLiteral("歌单");
     QString desc;
     QString cover;
+    bool found = false;
     for (const auto &p : m_playlists.playlists())
         if (p.id == playlistId) {
+            found = true;
             name = p.name;
             desc = p.description;
             cover = p.coverPath;
             break;
         }
+    if (!found) {
+        m_playlistContext = -1;
+        refreshSidebar();
+        showPage(3);
+        return;
+    }
+    m_playlistContext = playlistId;
+    refreshSidebar();
+    const auto songs = m_playlists.songsOf(playlistId);
     qint64 totalSec = 0;
     for (const auto &s : songs)
         totalSec += s.durationMs / 1000;
@@ -746,6 +772,25 @@ void MainWindow::playSongs(const QList<core::Song> &songs, int index)
         return;
     m_player.setPlaylist(songs, index);
     m_player.play();
+}
+
+void MainWindow::addSongToPlaylist(const core::Song &song, int playlistId)
+{
+    if (song.id <= 0 || playlistId <= 0)
+        return;
+    if (!m_playlists.addSong(playlistId, song.id))
+        return;
+    QString playlistName;
+    for (const auto &playlist : m_playlists.playlists()) {
+        if (playlist.id == playlistId) {
+            playlistName = playlist.name;
+            break;
+        }
+    }
+    const QString message = playlistName.isEmpty()
+        ? QStringLiteral("已添加到歌单")
+        : QStringLiteral("已添加到「%1」").arg(playlistName);
+    QToolTip::showText(QCursor::pos(), message, this, QRect(), 1800);
 }
 
 QList<ui::SideBar::PlaylistItem> MainWindow::selfPlaylistInfos() const

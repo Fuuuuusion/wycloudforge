@@ -142,6 +142,13 @@ Start-Process $exe -ArgumentList "--folder `"$tmp`"","--db `"$tmp\t.db`"","--pag
 - SQLite 主连接和扫描连接均设置 `busy_timeout=5000`，避免扫描写入期间收藏/歌单操作因瞬时锁竞争静默失败。
 - 验证方法：复制真实 DB 到隔离目录，写入收藏及自建歌单关联，连续两次 `--screenshot` 启动后查询 `playlist_songs` 仍存在，并目视确认收藏、自建歌单、推荐页。
 
+### (L) 真实库扫描期间重启导致歌单空白 / 播放有进度但无声
+
+- 后台扫描连接曾在 `QSqlQuery` / `QSqlDatabase` 句柄仍存活时调用 `removeDatabase()`，退出又只等待 3 秒；现在扫描支持中断，严格先析构查询和连接句柄，再移除连接，退出会等待安全收尾。
+- 主库启动执行 `PRAGMA quick_check`；索引损坏时先把 db/wal/shm 备份到 `db-backups/automatic-*`，再 `REINDEX` 并复检，同时清理悬空 `song_cache` / `playlist_songs`。
+- 播放前重新绑定 Windows 当前默认音频输出；优先使用 `Song::cachePath`，缓存无法解码时清掉失效记录并回退在线地址，播放失败会在播放器来源徽标显示原因。
+- 歌单添加改成事务写入、提交后 membership 回查；成功显示“已添加到…”提示，失败显示具体错误。创建成功留在自建歌单总览，避免详情页与侧栏高亮错位。
+
 ---
 
 ## 4) 用户对工作逻辑的约束

@@ -57,6 +57,7 @@ private:
     void openSettings();
     void openPlaylistEditor(int playlistId);
     void playSongs(const QList<core::Song> &songs, int index);
+    void addSongToPlaylist(const core::Song &song, int playlistId);
     QList<ui::SideBar::PlaylistItem> selfPlaylistInfos() const;
     void refreshSidebar();
     void refreshLibraryViews();

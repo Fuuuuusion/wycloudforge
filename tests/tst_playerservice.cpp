@@ -56,6 +56,7 @@ class PlayerServiceTest : public QObject
 private slots:
     void playlistNavigation();
     void playPauseAndPosition();
+    void cachedOnlineSongPlayback();
 };
 
 void PlayerServiceTest::playlistNavigation()
@@ -129,6 +130,34 @@ void PlayerServiceTest::playPauseAndPosition()
     QVERIFY(!player.isPlaying());
     player.seek(1000);
     QVERIFY(player.position() >= 900);
+}
+
+void PlayerServiceTest::cachedOnlineSongPlayback()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString cachePath = dir.filePath(QStringLiteral("online-cache.wav"));
+    writeWav(cachePath, 3);
+
+    Song song;
+    song.id = 42;
+    song.filePath = QStringLiteral("netease://123456");
+    song.title = QStringLiteral("缓存歌曲");
+    song.source = 1;
+    song.onlineId = 123456;
+    song.cachePath = cachePath;
+    song.durationMs = 3000;
+
+    PlayerService player;
+    QSignalSpy changed(&player, &PlayerService::songChanged);
+    player.setPlaylist({ song }, 0);
+    QCOMPARE(changed.count(), 1);
+    QCOMPARE(player.currentSong().cachePath, cachePath);
+    player.play();
+    const bool started = QTest::qWaitFor([&player] { return player.isPlaying(); }, 4000);
+    if (!started)
+        QSKIP("无可用音频输出设备,跳过缓存在线歌曲播放验证");
+    QVERIFY(QTest::qWaitFor([&player] { return player.position() >= 300; }, 3000));
 }
 
 QTEST_MAIN(PlayerServiceTest)

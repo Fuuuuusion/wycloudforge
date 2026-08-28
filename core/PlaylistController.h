@@ -24,6 +24,7 @@ public:
 
     void setDatabase(const QSqlDatabase &db);
     void reload();
+    QString lastError() const { return m_lastError; }
 
     QList<PlaylistInfo> playlists() const { return m_playlists; }
     int favoritePlaylistId() const { return 1; }
@@ -50,13 +51,16 @@ signals:
     void playlistsChanged();
     void playlistSongsChanged(int playlistId);
     void favoritesChanged(qint64 songId, bool favorite);
+    void operationFailed(const QString &message);
 
 private:
     QSqlDatabase db() const { return m_db; }
-    void reloadPlaylists();
+    bool reloadPlaylists();
+    bool fail(const QString &action, const QString &detail = QString());
 
     QSqlDatabase m_db;
     QList<PlaylistInfo> m_playlists;
+    QString m_lastError;
 };
 
 } // namespace core

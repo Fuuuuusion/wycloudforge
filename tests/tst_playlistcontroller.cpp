@@ -19,6 +19,7 @@ private slots:
     void favorites();
     void recentPlays();
     void persistenceAcrossReopen();
+    void duplicateAddAndOrphanCleanup();
 
 private:
     QTemporaryDir *m_dir = nullptr;
@@ -152,6 +153,10 @@ void PlaylistControllerTest::recentPlays()
 
     m_controller->recordPlay(id1);
     m_controller->recordPlay(id2);
+    QSqlQuery verify(m_library->database());
+    QVERIFY(verify.exec(QStringLiteral("SELECT COUNT(*) FROM recent")));
+    QVERIFY(verify.next());
+    QCOMPARE(verify.value(0).toInt(), 2);
     const auto recent = m_controller->recentSongs(10);
     QCOMPARE(recent.size(), 2);
     QCOMPARE(recent[0].title, QStringLiteral("最近二"));
@@ -199,6 +204,42 @@ void PlaylistControllerTest::persistenceAcrossReopen()
     QCOMPARE(persisted.first().id, playlistSongId);
     QCOMPARE(persisted.first().source, 1);
     QCOMPARE(persisted.first().onlineId, qint64(123456));
+}
+
+void PlaylistControllerTest::duplicateAddAndOrphanCleanup()
+{
+    QSqlQuery q(m_library->database());
+    QVERIFY(q.exec(QStringLiteral("INSERT INTO songs(path,title) VALUES('/tmp/once.mp3','只添加一次')")));
+    const qint64 songId = q.lastInsertId().toLongLong();
+    const int playlistId = m_controller->createPlaylist(QStringLiteral("去重歌单"));
+    QVERIFY(playlistId > 1);
+    QVERIFY(m_controller->addSong(playlistId, songId));
+    QVERIFY(m_controller->addSong(playlistId, songId));
+    QCOMPARE(m_controller->songsOf(playlistId).size(), 1);
+
+    q.prepare(QStringLiteral(
+        "INSERT INTO song_cache(song_id,cache_path,size_bytes,last_used_ms) VALUES(?,?,?,?)"));
+    q.addBindValue(999999);
+    q.addBindValue(m_dir->filePath(QStringLiteral("orphan.mp3")));
+    q.addBindValue(1);
+    q.addBindValue(1);
+    QVERIFY(q.exec());
+    q = QSqlQuery();
+
+    delete m_controller;
+    m_controller = nullptr;
+    delete m_library;
+    m_library = nullptr;
+    m_library = new LibraryService;
+    QVERIFY(m_library->openDatabase());
+    m_controller = new PlaylistController;
+    m_controller->setDatabase(m_library->database());
+
+    QSqlQuery verify(m_library->database());
+    QVERIFY(verify.exec(QStringLiteral("SELECT COUNT(*) FROM song_cache WHERE song_id=999999")));
+    QVERIFY(verify.next());
+    QCOMPARE(verify.value(0).toInt(), 0);
+    QCOMPARE(m_controller->songsOf(playlistId).size(), 1);
 }
 
 QTEST_MAIN(PlaylistControllerTest)
