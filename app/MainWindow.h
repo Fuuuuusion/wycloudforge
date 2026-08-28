@@ -46,6 +46,7 @@ protected:
 private:
     void positionPlayerBar();
     void showPage(int pageId);
+    void openPlaybackQueue();
     void openPlaylist(int playlistId);
     void openArtist(const QString &artist);
     void openAlbum(const QString &album, const QString &artist);

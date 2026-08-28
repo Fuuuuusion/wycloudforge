@@ -85,6 +85,37 @@ void PlaylistControllerTest::addRemoveMoveSongs()
 
     QVERIFY(m_controller->removeSong(pl, songs[0].id));
     QCOMPARE(m_controller->songsOf(pl).size(), 2);
+
+    const QString cachePath = m_dir->filePath(QStringLiteral("cached.mp3"));
+    QFile cache(cachePath);
+    QVERIFY(cache.open(QIODevice::WriteOnly));
+    QVERIFY(cache.write("cache") > 0);
+    cache.close();
+    q.prepare(QStringLiteral(
+        "INSERT INTO songs(path,title,artist,album,duration_ms,source,online_id,cover_url,album_id) "
+        "VALUES(?,?,?,?,?,?,?,?,?)"));
+    q.addBindValue(QStringLiteral("netease://99"));
+    q.addBindValue(QStringLiteral("线上歌"));
+    q.addBindValue(QStringLiteral("线上歌手"));
+    q.addBindValue(QStringLiteral("线上专辑"));
+    q.addBindValue(180000);
+    q.addBindValue(1);
+    q.addBindValue(99);
+    q.addBindValue(QStringLiteral("https://example.invalid/cover.jpg"));
+    q.addBindValue(1234);
+    QVERIFY(q.exec());
+    const qint64 onlineId = q.lastInsertId().toLongLong();
+    q.prepare(QStringLiteral("INSERT INTO song_cache(song_id,cache_path,size_bytes,last_used_ms) VALUES(?,?,?,?)"));
+    q.addBindValue(onlineId);
+    q.addBindValue(cachePath);
+    q.addBindValue(6);
+    q.addBindValue(1);
+    QVERIFY(q.exec());
+    QVERIFY(m_controller->addSong(pl, onlineId));
+    const auto persisted = m_controller->songsOf(pl).last();
+    QCOMPARE(persisted.source, 1);
+    QCOMPARE(persisted.onlineId, qint64(99));
+    QCOMPARE(persisted.cachePath, cachePath);
 }
 
 void PlaylistControllerTest::favorites()

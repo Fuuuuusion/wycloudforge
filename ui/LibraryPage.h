@@ -47,7 +47,7 @@ private:
     QList<core::Song> m_songs;
     QList<core::Song> m_filtered;
     qint64 m_playingId = -1;
-    int m_filter = 0; // 0 全部 / 1 本地 / 2 在线 / 3 已缓存
+    int m_filter = 0; // 0 本地与缓存 / 1 本地 / 2 在线 / 3 已缓存
 };
 
 } // namespace ui

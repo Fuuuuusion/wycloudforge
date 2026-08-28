@@ -19,6 +19,7 @@ public:
     ~LibraryService() override;
 
     bool openDatabase();
+    void reloadDatabase();
     QString databasePath() const { return m_dbPath; }
     QSqlDatabase database() const { return m_db; }
     QString lastError() const;

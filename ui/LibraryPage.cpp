@@ -6,6 +6,7 @@
 #include "ui/SongListView.h"
 
 #include <QButtonGroup>
+#include <QFileInfo>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -66,7 +67,7 @@ LibraryPage::LibraryPage(QWidget *parent)
     filterLayout->setSpacing(8);
     auto *filterGroup = new QButtonGroup(this);
     filterGroup->setExclusive(true);
-    const QStringList filters = { QStringLiteral("全部"), QStringLiteral("本地"),
+    const QStringList filters = { QStringLiteral("本地与缓存"), QStringLiteral("本地"),
                                   QStringLiteral("在线"), QStringLiteral("已缓存") };
     for (int i = 0; i < filters.size(); ++i) {
         auto *btn = new QPushButton(filters[i], filterRow);
@@ -85,6 +86,8 @@ LibraryPage::LibraryPage(QWidget *parent)
     connect(filterGroup, &QButtonGroup::idClicked, this, [this](int id) {
         m_filter = id;
         applyFilter();
+        rebuildArtists();
+        rebuildAlbums();
     });
 
     m_stack = new QStackedWidget(this);
@@ -167,7 +170,8 @@ void LibraryPage::applyFilter()
     for (const core::Song &s : m_songs) {
         const bool online = s.isOnline();
         switch (m_filter) {
-        case 0: m_filtered.append(s); break;
+        // “本地歌单”只展示可直接使用的本地文件和已经下载的线上歌曲。
+        case 0: if (!online || s.isCached()) m_filtered.append(s); break;
         case 1: if (!online) m_filtered.append(s); break;
         case 2: if (online) m_filtered.append(s); break;
         case 3: if (online && s.isCached()) m_filtered.append(s); break;
@@ -183,12 +187,17 @@ void LibraryPage::rebuildArtists()
         delete item->widget();
         delete item;
     }
-    const auto artists = core::SearchService::artists(m_songs);
+    const auto artists = core::SearchService::artists(m_filtered);
     for (int i = 0; i < artists.size(); ++i) {
         const auto &a = artists[i];
         auto *card = new CoverCard;
         card->setFixedCardSize(120, 120);
-        card->setCover(CoverProvider::placeholder(a.name, 120, 60));
+        QPixmap cover = a.coverPath.isEmpty() ? QPixmap() : QPixmap(a.coverPath);
+        if (cover.isNull())
+            cover = CoverProvider::placeholder(a.name, 120, 60);
+        else
+            cover = cover.scaled(120, 120, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+        card->setCover(cover);
         card->setRound(true);
         card->setText(a.name, QStringLiteral("%1 首").arg(a.count));
         connect(card, &CoverCard::clicked, this, [this, name = a.name] {
@@ -205,11 +214,16 @@ void LibraryPage::rebuildAlbums()
         delete item->widget();
         delete item;
     }
-    const auto albums = core::SearchService::albums(m_songs);
+    const auto albums = core::SearchService::albums(m_filtered);
     for (int i = 0; i < albums.size(); ++i) {
         const auto &a = albums[i];
         auto *card = new CoverCard;
-        card->setCover(CoverProvider::placeholder(a.name, 150, 8));
+        QPixmap cover = a.coverPath.isEmpty() ? QPixmap() : QPixmap(a.coverPath);
+        if (cover.isNull())
+            cover = CoverProvider::placeholder(a.name, 150, 8);
+        else
+            cover = cover.scaled(150, 150, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+        card->setCover(cover);
         card->setText(a.name, a.artist);
         connect(card, &CoverCard::clicked, this, [this, name = a.name, artist = a.artist] {
             emit albumClicked(name, artist);

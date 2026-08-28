@@ -248,7 +248,7 @@ MainWindow::MainWindow(QWidget *parent)
             m_playlists.setFavorite(m_currentSongId, fav);
     });
     connect(m_playerBar, &ui::PlayerBar::lyricsClicked, this, [this] { showPage(5); });
-    connect(m_playerBar, &ui::PlayerBar::playlistClicked, this, [this] { showPage(3); });
+    connect(m_playerBar, &ui::PlayerBar::playlistClicked, this, &MainWindow::openPlaybackQueue);
 
     // ---------- 播放器信号 → UI ----------
     connect(&m_player, &core::PlayerService::songChanged, this, &MainWindow::onCurrentSongChanged);
@@ -489,6 +489,26 @@ void MainWindow::showPage(int pageId)
     m_sideBar->setActivePage(pageId);
 }
 
+void MainWindow::openPlaybackQueue()
+{
+    const QList<core::Song> queue = m_player.playlist();
+    if (queue.isEmpty())
+        return;
+
+    qint64 totalSec = 0;
+    for (const auto &song : queue)
+        totalSec += song.durationMs / 1000;
+    const QString meta = QStringLiteral("%1 首 · 共 %2:%3")
+        .arg(queue.size())
+        .arg(totalSec / 60)
+        .arg(totalSec % 60, 2, 10, QLatin1Char('0'));
+    m_playlistContext = -1;
+    m_songListPage->showContent(queue, QStringLiteral("播放列表"), meta,
+                                m_currentSongId, false);
+    m_songListPage->setPlaylistContext(-1);
+    showPage(4);
+}
+
 void MainWindow::openPlaylist(int playlistId)
 {
     m_playlistContext = playlistId;
@@ -530,7 +550,8 @@ void MainWindow::openAlbum(const QString &album, const QString &artist)
 {
     QList<core::Song> songs;
     for (const auto &s : m_library.allSongs())
-        if (s.album == album && (artist.isEmpty() || s.artist == artist))
+        if (s.album == album && (artist.isEmpty() || s.artist == artist)
+            && (!s.isOnline() || s.isCached()))
             songs.append(s);
     m_songListPage->showContent(songs, album, QStringLiteral("专辑 · %1 首").arg(songs.size()), m_currentSongId, false);
     m_songListPage->setPlaylistContext(-1);
@@ -672,6 +693,14 @@ void MainWindow::openSettings()
     connect(&dlg, &ui::SettingsDialog::rescanRequested, this, [&dlg, this] {
         core::SettingsService::setMusicFolders(dlg.folders());
         m_library.startScan();
+    });
+    connect(&dlg, &ui::SettingsDialog::databaseReloadRequested, this, [this] {
+        m_library.reloadDatabase();
+        m_playlists.reload();
+        if (m_playlistContext > 0)
+            openPlaylist(m_playlistContext);
+        else
+            refreshAllPages();
     });
     if (dlg.exec() == QDialog::Accepted) {
         m_apiClient.setBaseUrl(core::SettingsService::onlineApiBase());
@@ -963,28 +992,26 @@ void MainWindow::addMusicFolder()
     QStringList folders = core::SettingsService::musicFolders();
     if (!folders.contains(dir)) {
         folders.append(dir);
-        m_library.setFolders(folders);
     }
+    // 即使目录已经在监控列表中，也要让“导入文件夹”立即重新读取元数据。
+    m_library.setFolders(folders);
 }
 
 void MainWindow::addMusicFiles()
 {
     const QStringList files = QFileDialog::getOpenFileNames(
         this, QStringLiteral("导入歌曲"), QString(),
-        QStringLiteral("音频 (*.mp3 *.flac *.wav *.m4a *.aac *.ogg)"));
+        QStringLiteral("音频 (*.mp3 *.flac *.wav *.m4a *.aac *.ogg *.mgg)"));
     if (files.isEmpty())
         return;
     QStringList folders = core::SettingsService::musicFolders();
-    bool changed = false;
     for (const QString &f : files) {
         const QString dir = QFileInfo(f).absolutePath();
-        if (!folders.contains(dir)) {
+        if (!folders.contains(dir))
             folders.append(dir);
-            changed = true;
-        }
     }
-    if (changed)
-        m_library.setFolders(folders);
+    // 之前同一目录已存在时不会触发扫描，导致手动导入看似无效。
+    m_library.setFolders(folders);
 }
 
 bool MainWindow::focusIsEditable() const

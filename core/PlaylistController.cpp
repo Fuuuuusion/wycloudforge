@@ -1,5 +1,7 @@
 #include "PlaylistController.h"
 
+#include "core/LyricsLoader.h"
+
 #include <QDateTime>
 #include <QFileInfo>
 #include <QSqlQuery>
@@ -52,8 +54,10 @@ QList<Song> PlaylistController::songsOf(int playlistId) const
         return songs;
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral(
-        "SELECT s.id,s.path,s.title,s.artist,s.album,s.duration_ms,s.cover_path,s.missing,s.play_count,s.last_played_ms "
+        "SELECT s.id,s.path,s.title,s.artist,s.album,s.duration_ms,s.cover_path,s.missing,s.play_count,s.last_played_ms,"
+        "s.source,s.online_id,s.cover_url,s.album_id,COALESCE(NULLIF(sc.cache_path,''),s.cache_path,'') "
         "FROM playlist_songs ps JOIN songs s ON s.id=ps.song_id "
+        "LEFT JOIN song_cache sc ON sc.song_id=s.id "
         "WHERE ps.playlist_id=? ORDER BY ps.position, s.id"));
     q.addBindValue(playlistId);
     q.exec();
@@ -69,6 +73,12 @@ QList<Song> PlaylistController::songsOf(int playlistId) const
         s.missing = q.value(7).toInt() != 0;
         s.playCount = q.value(8).toLongLong();
         s.lastPlayedMs = q.value(9).toLongLong();
+        s.source = q.value(10).toInt();
+        s.onlineId = q.value(11).toLongLong();
+        s.coverUrl = q.value(12).toString();
+        s.albumId = q.value(13).toLongLong();
+        s.cachePath = q.value(14).toString();
+        s.lyricPath = s.isOnline() ? QString() : LyricsLoader::sidecarPathFor(s.filePath);
         songs.append(s);
     }
     return songs;
@@ -171,8 +181,14 @@ bool PlaylistController::addSong(int playlistId, qint64 songId)
 {
     if (!m_db.isOpen())
         return false;
-    if (isInPlaylist(playlistId, songId))
-        return true;
+    QSqlQuery exists(m_db);
+    exists.prepare(QStringLiteral(
+        "SELECT EXISTS(SELECT 1 FROM playlists WHERE id=?),"
+        "EXISTS(SELECT 1 FROM songs WHERE id=?)"));
+    exists.addBindValue(playlistId);
+    exists.addBindValue(songId);
+    if (!exists.exec() || !exists.next() || !exists.value(0).toBool() || !exists.value(1).toBool())
+        return false;
     int pos = 0;
     QSqlQuery count(m_db);
     count.prepare(QStringLiteral("SELECT COUNT(*) FROM playlist_songs WHERE playlist_id=?"));
@@ -181,7 +197,7 @@ bool PlaylistController::addSong(int playlistId, qint64 songId)
     if (count.next())
         pos = count.value(0).toInt();
     QSqlQuery q(m_db);
-    q.prepare(QStringLiteral("INSERT INTO playlist_songs(playlist_id,song_id,position) VALUES(?,?,?)"));
+    q.prepare(QStringLiteral("INSERT OR IGNORE INTO playlist_songs(playlist_id,song_id,position) VALUES(?,?,?)"));
     q.addBindValue(playlistId);
     q.addBindValue(songId);
     q.addBindValue(pos);
@@ -253,7 +269,8 @@ QList<Song> PlaylistController::recentSongs(int limit) const
         return songs;
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral(
-        "SELECT s.id,s.path,s.title,s.artist,s.album,s.duration_ms,s.cover_path,s.missing,s.play_count,s.last_played_ms "
+        "SELECT s.id,s.path,s.title,s.artist,s.album,s.duration_ms,s.cover_path,s.missing,s.play_count,s.last_played_ms,"
+        "s.source,s.online_id,s.cover_url,s.album_id,COALESCE(NULLIF(sc.cache_path,''),s.cache_path,'') "
         "FROM recent r JOIN songs s ON s.id=r.song_id ORDER BY r.played_ms DESC LIMIT ?"));
     q.addBindValue(limit);
     q.exec();
@@ -269,6 +286,12 @@ QList<Song> PlaylistController::recentSongs(int limit) const
         s.missing = q.value(7).toInt() != 0;
         s.playCount = q.value(8).toLongLong();
         s.lastPlayedMs = q.value(9).toLongLong();
+        s.source = q.value(10).toInt();
+        s.onlineId = q.value(11).toLongLong();
+        s.coverUrl = q.value(12).toString();
+        s.albumId = q.value(13).toLongLong();
+        s.cachePath = q.value(14).toString();
+        s.lyricPath = s.isOnline() ? QString() : LyricsLoader::sidecarPathFor(s.filePath);
         songs.append(s);
     }
     return songs;

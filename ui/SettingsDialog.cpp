@@ -8,7 +8,10 @@
 
 #include <QCheckBox>
 #include <QDialogButtonBox>
+#include <QDesktopServices>
+#include <QDir>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -17,6 +20,7 @@
 #include <QPushButton>
 #include <QSlider>
 #include <QSpinBox>
+#include <QUrl>
 #include <QVBoxLayout>
 
 namespace ui {
@@ -177,6 +181,32 @@ SettingsDialog::SettingsDialog(core::ApiService *apiService, core::NeteaseApiCli
             m_library->clearCache();
             updateCacheStats();
         }
+    });
+
+    // ---------- 本地数据库 ----------
+    auto *databaseTitle = new QLabel(QStringLiteral("本地数据库"), this);
+    databaseTitle->setStyleSheet(QStringLiteral("font-weight:600;font-size:14px;"));
+    layout->addWidget(databaseTitle);
+    auto *databasePath = new QLabel(
+        m_library ? QStringLiteral("数据库文件：%1").arg(QDir::toNativeSeparators(m_library->databasePath()))
+                  : QStringLiteral("数据库不可用"), this);
+    databasePath->setWordWrap(true);
+    databasePath->setStyleSheet(QStringLiteral("color:#9A9AA5;font-size:12px;"));
+    layout->addWidget(databasePath);
+    auto *databaseBtns = new QHBoxLayout;
+    auto *openDatabaseBtn = new QPushButton(QStringLiteral("打开数据库目录"), this);
+    auto *reloadDatabaseBtn = new QPushButton(QStringLiteral("重新读取数据库"), this);
+    databaseBtns->addWidget(openDatabaseBtn);
+    databaseBtns->addWidget(reloadDatabaseBtn);
+    databaseBtns->addStretch(1);
+    layout->addLayout(databaseBtns);
+    connect(openDatabaseBtn, &QPushButton::clicked, this, [this] {
+        if (m_library)
+            QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(m_library->databasePath()).absolutePath()));
+    });
+    connect(reloadDatabaseBtn, &QPushButton::clicked, this, [this] {
+        emit databaseReloadRequested();
+        QMessageBox::information(this, QStringLiteral("数据库"), QStringLiteral("已重新读取本地数据库。"));
     });
     updateCacheStats();
     m_loginLabel->setText(core::SettingsService::onlineNickname().isEmpty()

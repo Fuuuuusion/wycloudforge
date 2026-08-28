@@ -30,6 +30,7 @@ public:
 
 signals:
     void rescanRequested();
+    void databaseReloadRequested();
 
 private:
     void updateCacheStats();

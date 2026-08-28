@@ -12,6 +12,7 @@ struct ArtistGroup
 {
     QString name;
     int count = 0;
+    QString coverPath;
 };
 
 struct AlbumGroup
@@ -19,6 +20,7 @@ struct AlbumGroup
     QString name;
     QString artist;
     int count = 0;
+    QString coverPath;
 };
 
 class SearchService
@@ -38,4 +40,3 @@ public:
 };
 
 } // namespace core
-

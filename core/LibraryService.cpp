@@ -115,13 +115,18 @@ public slots:
                 }
 
                 QSqlQuery select(db);
-                select.exec(QStringLiteral("SELECT id,path,missing FROM songs"));
+                // 在线歌曲使用 netease:// 虚拟路径，不能按本地文件是否存在判断失效。
+                q.exec(QStringLiteral("UPDATE songs SET missing=0 WHERE source>0"));
+                select.exec(QStringLiteral("SELECT id,path,source,missing FROM songs"));
                 QSqlQuery mark(db);
                 mark.prepare(QStringLiteral("UPDATE songs SET missing=? WHERE id=?"));
                 while (select.next()) {
                     const qint64 id = select.value(0).toLongLong();
                     const QString path = select.value(1).toString();
-                    const bool wasMissing = select.value(2).toInt() != 0;
+                    const int source = select.value(2).toInt();
+                    const bool wasMissing = select.value(3).toInt() != 0;
+                    if (source > 0)
+                        continue;
                     const bool exists = QFile::exists(path);
                     if (!wasMissing && !exists) {
                         mark.addBindValue(1);
@@ -283,6 +288,12 @@ bool LibraryService::openDatabase()
     return true;
 }
 
+void LibraryService::reloadDatabase()
+{
+    reloadSongs();
+    emit libraryChanged();
+}
+
 QStringList LibraryService::folders() const
 {
     return SettingsService::musicFolders();
@@ -355,6 +366,29 @@ void LibraryService::reloadSongs()
     m_songs.clear();
     if (!m_db.isOpen())
         return;
+
+    // song_cache 是缓存的唯一事实来源。启动时清掉数据库中已经不存在的缓存记录，
+    // 同时把旧版本遗留的线上 missing 标记恢复为可用状态。
+    QSqlQuery cacheRows(m_db);
+    cacheRows.exec(QStringLiteral("SELECT song_id,cache_path FROM song_cache"));
+    while (cacheRows.next()) {
+        const qint64 songId = cacheRows.value(0).toLongLong();
+        const QString path = cacheRows.value(1).toString();
+        if (!QFileInfo::exists(path) || QFileInfo(path).size() <= 0) {
+            QSqlQuery remove(m_db);
+            remove.prepare(QStringLiteral("DELETE FROM song_cache WHERE song_id=?"));
+            remove.addBindValue(songId);
+            remove.exec();
+            QSqlQuery clear(m_db);
+            clear.prepare(QStringLiteral("UPDATE songs SET cache_path='' WHERE id=?"));
+            clear.addBindValue(songId);
+            clear.exec();
+        }
+    }
+    QSqlQuery repair(m_db);
+    repair.exec(QStringLiteral("UPDATE songs SET missing=0 WHERE source>0"));
+    repair.exec(QStringLiteral("UPDATE songs SET cache_path='' WHERE source=0"));
+
     QSqlQuery q(m_db);
     q.exec(QStringLiteral(
         "SELECT s.id,s.path,s.title,s.artist,s.album,s.duration_ms,s.cover_path,s.missing,"
@@ -377,7 +411,7 @@ void LibraryService::reloadSongs()
         s.coverUrl = q.value(12).toString();
         s.albumId = q.value(13).toLongLong();
         s.cachePath = q.value(14).toString();
-        s.lyricPath = LyricsLoader::sidecarPathFor(s.filePath);
+        s.lyricPath = s.isOnline() ? QString() : LyricsLoader::sidecarPathFor(s.filePath);
         m_songs.append(s);
     }
 }
@@ -454,17 +488,21 @@ qint64 LibraryService::upsertOnlineSong(const Song &song)
         return -1;
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral(
-        "INSERT INTO songs(path,title,artist,album,duration_ms,cover_url,source,online_id,album_id,missing) "
-        "VALUES(?,?,?,?,?,?,?,?,?,0) "
+        "INSERT INTO songs(path,title,artist,album,duration_ms,cover_path,has_cover,cover_url,source,online_id,album_id,missing) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,0) "
         "ON CONFLICT(source,online_id) WHERE source>0 AND online_id>0 DO UPDATE SET "
         "title=excluded.title,artist=excluded.artist,album=excluded.album,"
         "duration_ms=excluded.duration_ms,cover_url=excluded.cover_url,"
+        "cover_path=CASE WHEN excluded.cover_path<>'' THEN excluded.cover_path ELSE songs.cover_path END,"
+        "has_cover=CASE WHEN excluded.cover_path<>'' THEN excluded.has_cover ELSE songs.has_cover END,"
         "album_id=excluded.album_id,missing=0"));
     q.addBindValue(song.filePath);
     q.addBindValue(song.title);
     q.addBindValue(song.artist);
     q.addBindValue(song.album);
     q.addBindValue(song.durationMs);
+    q.addBindValue(song.coverPath);
+    q.addBindValue(song.coverPath.isEmpty() ? 0 : 1);
     q.addBindValue(song.coverUrl);
     q.addBindValue(song.source);
     q.addBindValue(song.onlineId);
@@ -488,9 +526,13 @@ qint64 LibraryService::upsertOnlineSong(const Song &song)
             s.artist = song.artist;
             s.album = song.album;
             s.durationMs = song.durationMs;
+            // 元数据刷新不能抹掉已经下载的封面、缓存和外挂歌词。
+            if (!song.coverPath.isEmpty())
+                s.coverPath = song.coverPath;
             s.coverUrl = song.coverUrl;
             s.albumId = song.albumId;
             s.filePath = song.filePath;
+            s.missing = false;
             return id;
         }
     }
@@ -631,13 +673,22 @@ void LibraryService::setSongCached(qint64 songId, const QString &path, qint64 si
 void LibraryService::clearCache()
 {
     QDir dir(cacheDir());
-    for (const QFileInfo &fi : dir.entryInfoList(QDir::Files))
-        QFile::remove(fi.absoluteFilePath());
     if (m_db.isOpen()) {
+        QSqlQuery paths(m_db);
+        paths.exec(QStringLiteral("SELECT cache_path FROM song_cache"));
+        while (paths.next()) {
+            const QString path = paths.value(0).toString();
+            const QString relative = QDir(cacheDir()).relativeFilePath(path);
+            if (!relative.startsWith(QStringLiteral("..")) && !QFileInfo(path).isRelative())
+                QFile::remove(path);
+        }
         QSqlQuery q(m_db);
         q.exec(QStringLiteral("DELETE FROM song_cache"));
         q.exec(QStringLiteral("UPDATE songs SET cache_path='' WHERE source>0"));
     }
+    // 清理数据库外的残留播放文件，但不触碰 covers/ 下的本地与线上封面。
+    for (const QFileInfo &fi : dir.entryInfoList(QDir::Files | QDir::NoDotAndDotDot))
+        QFile::remove(fi.absoluteFilePath());
     for (Song &s : m_songs)
         s.cachePath.clear();
     emit cacheChanged();
@@ -687,13 +738,18 @@ void LibraryService::evictCacheIfNeeded()
     for (const auto &v : victims) {
         if (removeCount <= 0 && removeBytes <= 0)
             break;
+        const qint64 fileBytes = QFileInfo(v.second).size();
         QFile::remove(v.second);
         QSqlQuery del(m_db);
         del.prepare(QStringLiteral("DELETE FROM song_cache WHERE song_id=?"));
         del.addBindValue(v.first);
         del.exec();
+        QSqlQuery clear(m_db);
+        clear.prepare(QStringLiteral("UPDATE songs SET cache_path='' WHERE id=?"));
+        clear.addBindValue(v.first);
+        clear.exec();
         --removeCount;
-        removeBytes -= QFileInfo(v.second).size();
+        removeBytes -= fileBytes;
     }
     for (Song &s : m_songs) {
         for (const auto &v : victims)
