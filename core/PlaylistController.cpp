@@ -253,13 +253,13 @@ bool PlaylistController::moveSong(int playlistId, int from, int to)
     return true;
 }
 
-void PlaylistController::setFavorite(qint64 songId, bool favorite)
+bool PlaylistController::setFavorite(qint64 songId, bool favorite)
 {
-    if (favorite)
-        addSong(favoritePlaylistId(), songId);
-    else
-        removeSong(favoritePlaylistId(), songId);
-    emit favoritesChanged(songId, favorite);
+    const bool ok = favorite ? addSong(favoritePlaylistId(), songId)
+                             : removeSong(favoritePlaylistId(), songId);
+    if (ok)
+        emit favoritesChanged(songId, favorite);
+    return ok;
 }
 
 QList<Song> PlaylistController::recentSongs(int limit) const

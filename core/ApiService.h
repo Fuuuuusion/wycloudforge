@@ -41,7 +41,8 @@ signals:
 
 private:
     void checkHealth(std::function<void(bool)> done);
-    void pollUntilReady(int attemptsLeft);
+    void pollUntilReady(int attemptsLeft, std::function<void()> onReady,
+                        std::function<void(const QString &)> onFail);
 
     QProcess *m_process = nullptr;
     QNetworkAccessManager *m_nam = nullptr;
@@ -52,4 +53,3 @@ private:
 };
 
 } // namespace core
-

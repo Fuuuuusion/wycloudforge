@@ -14,6 +14,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
+#include <QPointer>
 #include <QPushButton>
 #include <QTextStream>
 #include <QUrl>
@@ -57,6 +58,9 @@ RecommendPage::RecommendPage(QWidget *parent)
     connect(m_list, &SongListView::playRequested, this, [this](int row) {
         emit playRequested(m_list->songs(), row);
     });
+    connect(m_list, &SongListView::heartRequested, this, &RecommendPage::heartRequested);
+    connect(m_list, &SongListView::addToPlaylistRequested,
+            this, &RecommendPage::addToPlaylistRequested);
 }
 
 void RecommendPage::setSourceProvider(core::MusicSource *source, core::LibraryService *library)
@@ -67,11 +71,12 @@ void RecommendPage::setSourceProvider(core::MusicSource *source, core::LibrarySe
 
 void RecommendPage::refresh()
 {
+    // 启动时先展示上次成功获取的内容，避免登录校验和 API 自启动期间整页空白。
+    // 在线请求完成后会用最新结果无缝替换缓存。
+    loadCache();
     const bool loggedIn = core::SettingsService::onlineUid() > 0;
-    if (!loggedIn || !m_source) {
-        loadCache();
+    if (!loggedIn || !m_source)
         return;
-    }
     m_source->recommendSongs([this](const QJsonArray &songs) {
         buildDaily(songs);
         m_source->topPlaylists(QString(), 0, [this, songs](const QJsonArray &pls) {
@@ -83,6 +88,16 @@ void RecommendPage::refresh()
     }, [this](const QString &) {
         loadCache();
     });
+}
+
+QList<core::Song> RecommendPage::currentSongs() const
+{
+    return m_list->songs();
+}
+
+void RecommendPage::setPlaylistMenuItems(const QList<QPair<int, QString>> &items)
+{
+    m_list->setPlaylistMenuItems(items);
 }
 
 void RecommendPage::buildDaily(const QJsonArray &arr)
@@ -169,13 +184,20 @@ void RecommendPage::buildPlaylists(const QJsonArray &arr)
             pic = o.value(QStringLiteral("coverImgUrl")).toString();
         if (m_lib && !pic.isEmpty()) {
             const QString path = m_lib->playlistCoverCachePath(id);
-            m_source->downloadToFile(QUrl(pic), path, [card, path](bool ok) {
-                if (ok) {
+            if (QFileInfo::exists(path) && QFileInfo(path).size() > 0) {
+                QPixmap pm(path);
+                if (!pm.isNull())
+                    card->setCover(pm.scaled(116, 116, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation));
+            } else {
+                const QPointer<CoverCard> guard(card);
+                m_source->downloadToFile(QUrl(pic), path, [guard, path](bool ok) {
+                    if (!ok || !guard)
+                        return;
                     QPixmap pm(path);
                     if (!pm.isNull())
-                        card->setCover(pm.scaled(116, 116, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation));
-                }
-            });
+                        guard->setCover(pm.scaled(116, 116, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation));
+                });
+            }
         }
     }
 }

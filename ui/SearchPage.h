@@ -35,7 +35,8 @@ public:
     void performSearch(const QList<core::Song> &allSongs, const QString &query);
     void refreshLocalResults(const QList<core::Song> &allSongs);
     void refreshOnlineCovers();
-    QList<core::Song> currentSongs() const { return m_results; }
+    QList<core::Song> currentSongs() const;
+    void setPlaylistMenuItems(const QList<QPair<int, QString>> &items);
 
 signals:
     void playRequested(const QList<core::Song> &songs, int index);

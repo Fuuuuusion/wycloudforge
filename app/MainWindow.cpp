@@ -33,6 +33,7 @@
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QJsonArray>
+#include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
@@ -268,6 +269,17 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_recommend, &ui::RecommendPage::playRequested, this, &MainWindow::playSongs);
     connect(m_recommend, &ui::RecommendPage::openPlaylistRequested, this, &MainWindow::openOnlinePlaylist);
     connect(m_recommend, &ui::RecommendPage::loginRequested, this, &MainWindow::openAccount);
+    connect(m_recommend, &ui::RecommendPage::heartRequested, this, [this](int row) {
+        const core::Song song = m_recommend->currentSongs().value(row);
+        if (song.id > 0)
+            m_playlists.setFavorite(song.id, !m_playlists.isFavorite(song.id));
+    });
+    connect(m_recommend, &ui::RecommendPage::addToPlaylistRequested,
+            this, [this](int row, int playlistId) {
+        const core::Song song = m_recommend->currentSongs().value(row);
+        if (song.id > 0)
+            m_playlists.addSong(playlistId, song.id);
+    });
 
     // ---------- 收藏页 ----------
     connect(m_favorites, &ui::FavoritesPage::playRequested, this, &MainWindow::playSongs);
@@ -462,11 +474,14 @@ MainWindow::MainWindow(QWidget *parent)
     setupShortcuts();
     disableHorizontalScrollbars(this);
 
+    // 在线服务可能需要数秒才能自启动；先让推荐页立即展示磁盘缓存。
+    // 服务就绪后 restoreOnlineSession() 会再次刷新为最新在线内容。
+    m_recommend->refresh();
     m_apiService.ensureRunning(
         [this] {
             m_apiReady = true;
             m_apiClient.setBaseUrl(m_apiService.apiBase());
-            m_recommend->refresh();
+            restoreOnlineSession();
             enrichLocalMetadata(m_library.allSongs());
             hydrateOnlineCovers(m_library.allSongs());
         },
@@ -756,6 +771,10 @@ void MainWindow::refreshSidebar()
     QList<QPair<int, QString>> menuItems;
     for (const auto &p : m_playlists.playlists())
         menuItems.append({ p.id, p.name });
+    m_recommend->setPlaylistMenuItems(menuItems);
+    m_favorites->setPlaylistMenuItems(menuItems);
+    m_libraryPage->setPlaylistMenuItems(menuItems);
+    m_search->setPlaylistMenuItems(menuItems);
     m_songListPage->setPlaylistMenuItems(menuItems);
 }
 
@@ -775,6 +794,56 @@ void MainWindow::refreshAllPages()
     m_selfPlaylists->setPlaylists(m_playlists.playlists());
     m_songListPage->refreshCovers(&m_library);
     m_songListPage->setPlayingId(m_currentSongId);
+}
+
+void MainWindow::restoreOnlineSession()
+{
+    const qint64 savedUid = core::SettingsService::onlineUid();
+    const QString cookie = core::SettingsService::onlineCookie();
+    if (savedUid <= 0 || cookie.isEmpty()) {
+        // uid 与 cookie 必须成对有效，不能只凭本地 uid 显示“已登录”。
+        if (savedUid > 0 || !cookie.isEmpty()) {
+            core::SettingsService::setOnlineCookie(QString());
+            core::SettingsService::setOnlineUid(0);
+            core::SettingsService::setOnlineNickname(QString());
+            core::SettingsService::setOnlineAvatarUrl(QString());
+            m_apiClient.setCookie(QString());
+        }
+        m_accountPanel->refresh();
+        m_recommend->refresh();
+        return;
+    }
+
+    m_apiClient.loginStatus([this](const QJsonObject &obj) {
+        const QJsonObject data = obj.value(QStringLiteral("data")).toObject();
+        QJsonObject profile = data.value(QStringLiteral("profile")).toObject();
+        if (profile.isEmpty())
+            profile = obj.value(QStringLiteral("profile")).toObject();
+        const QJsonObject account = data.value(QStringLiteral("account")).toObject();
+        qint64 uid = profile.value(QStringLiteral("userId")).toVariant().toLongLong();
+        if (uid <= 0)
+            uid = account.value(QStringLiteral("id")).toVariant().toLongLong();
+
+        if (uid > 0) {
+            core::SettingsService::setOnlineUid(uid);
+            const QString nickname = profile.value(QStringLiteral("nickname")).toString();
+            if (!nickname.isEmpty())
+                core::SettingsService::setOnlineNickname(nickname);
+        } else {
+            // cookie 已失效时同步清理展示状态，避免“显示已登录但请求均未授权”。
+            core::SettingsService::setOnlineCookie(QString());
+            core::SettingsService::setOnlineUid(0);
+            core::SettingsService::setOnlineNickname(QString());
+            core::SettingsService::setOnlineAvatarUrl(QString());
+            m_apiClient.setCookie(QString());
+        }
+        m_accountPanel->refresh();
+        m_recommend->refresh();
+    }, [this](const QString &) {
+        // 服务暂时不可用时保留本地登录信息，并让推荐页回退到磁盘缓存。
+        m_accountPanel->refresh();
+        m_recommend->refresh();
+    });
 }
 
 void MainWindow::onCurrentSongChanged(const core::Song &song, int index)

@@ -18,6 +18,7 @@ private slots:
     void addRemoveMoveSongs();
     void favorites();
     void recentPlays();
+    void persistenceAcrossReopen();
 
 private:
     QTemporaryDir *m_dir = nullptr;
@@ -154,6 +155,50 @@ void PlaylistControllerTest::recentPlays()
     const auto recent = m_controller->recentSongs(10);
     QCOMPARE(recent.size(), 2);
     QCOMPARE(recent[0].title, QStringLiteral("最近二"));
+}
+
+void PlaylistControllerTest::persistenceAcrossReopen()
+{
+    QSqlQuery q(m_library->database());
+    q.prepare(QStringLiteral("INSERT INTO songs(path,title) VALUES(?,?)"));
+    q.addBindValue(QStringLiteral("/tmp/persist-favorite.mp3"));
+    q.addBindValue(QStringLiteral("重启后收藏"));
+    QVERIFY(q.exec());
+    const qint64 favoriteId = q.lastInsertId().toLongLong();
+
+    q.prepare(QStringLiteral(
+        "INSERT INTO songs(path,title,source,online_id) VALUES(?,?,?,?)"));
+    q.addBindValue(QStringLiteral("netease://123456"));
+    q.addBindValue(QStringLiteral("重启后歌单"));
+    q.addBindValue(1);
+    q.addBindValue(123456);
+    QVERIFY(q.exec());
+    const qint64 playlistSongId = q.lastInsertId().toLongLong();
+
+    const int playlistId = m_controller->createPlaylist(QStringLiteral("持久化歌单"));
+    QVERIFY(playlistId > 1);
+    QVERIFY(m_controller->setFavorite(favoriteId, true));
+    QVERIFY(m_controller->addSong(playlistId, playlistSongId));
+
+    // 释放查询对象持有的数据库句柄，模拟应用彻底退出后重新连接。
+    q = QSqlQuery();
+    delete m_controller;
+    m_controller = nullptr;
+    delete m_library;
+    m_library = nullptr;
+
+    m_library = new LibraryService;
+    QVERIFY(m_library->openDatabase());
+    m_controller = new PlaylistController;
+    m_controller->setDatabase(m_library->database());
+
+    QVERIFY(m_controller->isFavorite(favoriteId));
+    QCOMPARE(m_controller->songsOf(m_controller->favoritePlaylistId()).size(), 1);
+    const QList<Song> persisted = m_controller->songsOf(playlistId);
+    QCOMPARE(persisted.size(), 1);
+    QCOMPARE(persisted.first().id, playlistSongId);
+    QCOMPARE(persisted.first().source, 1);
+    QCOMPARE(persisted.first().onlineId, qint64(123456));
 }
 
 QTEST_MAIN(PlaylistControllerTest)

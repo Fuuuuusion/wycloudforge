@@ -133,6 +133,15 @@ Start-Process $exe -ArgumentList "--folder `"$tmp`"","--db `"$tmp\t.db`"","--pag
 - **独立 g++ 编译含 Qt 头文件的小程序会静默崩溃/卡死**(`cc1plus` 0 CPU、exit 1、空日志)——别写独立 probe;用"应用自身 `--screenshot` + 临时 DB"验证即可。
 - 应用运行、AppData 读写都要沙箱外(require_escalated)。
 
+### (K) 重启后歌单/收藏/推荐看似丢失
+
+- 真实库仍有自建歌单，但 `SideBar::rebuildPlaylistButtons()` 每次刷新只删按钮、不删旧 `stretch`，新按钮会被逐步推到可视区域外；重建时必须清空全部 layout item。
+- 在线搜索页曾把在线列表行号映射到本地结果，收藏/加入歌单拿到错误 id 后被数据库校验拒绝；`SearchPage::currentSongs()` 必须按当前页返回本地或在线歌曲。
+- `ApiService` 自启动成功后曾丢失 `ensureRunning()` 的回调，导致登录状态仍显示但推荐页不刷新；轮询成功/失败都必须回调调用方。
+- 推荐页必须在 API 启动和登录校验前先加载 `recommend.json`，服务就绪后再在线刷新，避免启动时长期空白。
+- SQLite 主连接和扫描连接均设置 `busy_timeout=5000`，避免扫描写入期间收藏/歌单操作因瞬时锁竞争静默失败。
+- 验证方法：复制真实 DB 到隔离目录，写入收藏及自建歌单关联，连续两次 `--screenshot` 启动后查询 `playlist_songs` 仍存在，并目视确认收藏、自建歌单、推荐页。
+
 ---
 
 ## 4) 用户对工作逻辑的约束
@@ -197,7 +206,7 @@ a4dcb21  SongListModel 改多列表 + 登录补齐uid/昵称 + QPointer防闪退
 
 ## 6) 已知待办 / 未决问题
 
-1. **登录端到端未验证**:扫码后是否变"已登录"需用户实测;若仍不行,查 `/login/status` JSON 结构(`data.profile` 字段、`login/qr/check` 只回 cookie 不回 profile)。
+1. **扫码登录端到端仍需真人验证**:启动恢复现会用 `/login/status` 校验 cookie，并兼容 `data.profile` / `data.account`;但新扫码流程仍需用户实测。
 2. **.mgg/.mflac 解密播放未做**:能入库显示,`PlayerService` 无法解码;须 mgg→flac/mp3 解密,来源须合法。
 3. **QQ 音乐未实现**:仅账号占位;后续 `QqMusicSource`。
 4. **"样子"这首 ogg 未补封面**(用户可能想要)。

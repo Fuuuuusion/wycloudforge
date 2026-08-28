@@ -41,7 +41,7 @@ public:
     bool addSong(int playlistId, qint64 songId);
     bool removeSong(int playlistId, qint64 songId);
     bool moveSong(int playlistId, int from, int to);
-    void setFavorite(qint64 songId, bool favorite);
+    bool setFavorite(qint64 songId, bool favorite);
 
     QList<Song> recentSongs(int limit = 40) const;
     void recordPlay(qint64 songId);

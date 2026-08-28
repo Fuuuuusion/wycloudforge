@@ -165,6 +165,11 @@ QList<core::Song> LibraryPage::currentSongs() const
     return m_filtered;
 }
 
+void LibraryPage::setPlaylistMenuItems(const QList<QPair<int, QString>> &items)
+{
+    m_songList->setPlaylistMenuItems(items);
+}
+
 void LibraryPage::applyFilter()
 {
     m_filtered.clear();

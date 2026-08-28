@@ -282,6 +282,20 @@ void SearchPage::refreshOnlineCovers()
         m_onlineList->setSongs(m_onlineSongs);
 }
 
+QList<core::Song> SearchPage::currentSongs() const
+{
+    // 本地与在线列表共用操作信号，必须按当前可见页返回对应数据。
+    // 旧实现始终返回本地结果，在线歌曲收藏/加入歌单时会写入错误 id，
+    // 本地结果为空时则完全不会持久化。
+    return m_stack && m_stack->currentIndex() == 1 ? m_onlineSongs : m_results;
+}
+
+void SearchPage::setPlaylistMenuItems(const QList<QPair<int, QString>> &items)
+{
+    m_songList->setPlaylistMenuItems(items);
+    m_onlineList->setPlaylistMenuItems(items);
+}
+
 void SearchPage::ensureCover(const core::Song &song)
 {
     if (!song.isOnline() || song.id <= 0 || !m_source || !m_lib)

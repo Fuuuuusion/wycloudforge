@@ -174,7 +174,12 @@ void SideBar::setPlaylists(const QList<PlaylistItem> &items, int activeId)
 
 void SideBar::rebuildPlaylistButtons(const QList<PlaylistItem> &items, int activeId)
 {
-    qDeleteAll(m_playlistSection->findChildren<QPushButton *>());
+    // 每次重建时连同旧的 stretch 一起清空。此前只删除按钮、却不断追加
+    // addStretch()，多次刷新后新歌单按钮会被旧 stretch 推到可视区域之外。
+    while (QLayoutItem *item = m_playlistLayout->takeAt(0)) {
+        delete item->widget();
+        delete item;
+    }
     m_playlistIds.clear();
 
     for (const PlaylistItem &item : items) {

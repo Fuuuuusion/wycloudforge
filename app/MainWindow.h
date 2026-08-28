@@ -61,6 +61,7 @@ private:
     void refreshSidebar();
     void refreshLibraryViews();
     void refreshAllPages();
+    void restoreOnlineSession();
     void onCurrentSongChanged(const core::Song &song, int index);
     void enrichLocalMetadata(const QList<core::Song> &songs);
     void enrichLocalSong(const core::Song &song);

@@ -55,6 +55,7 @@ public slots:
             db.setDatabaseName(dbPath);
             if (db.open()) {
                 QSqlQuery q(db);
+                q.exec(QStringLiteral("PRAGMA busy_timeout=5000"));
                 q.exec(QStringLiteral("PRAGMA journal_mode=WAL"));
 
                 int total = 0;
@@ -207,6 +208,7 @@ bool LibraryService::openDatabase()
         return false;
 
     QSqlQuery q(m_db);
+    q.exec(QStringLiteral("PRAGMA busy_timeout=5000"));
     q.exec(QStringLiteral("PRAGMA journal_mode=WAL"));
     q.exec(QStringLiteral(
         "CREATE TABLE IF NOT EXISTS songs("

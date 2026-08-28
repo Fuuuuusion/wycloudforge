@@ -55,4 +55,9 @@ QList<core::Song> FavoritesPage::currentSongs() const
     return m_view->songs();
 }
 
+void FavoritesPage::setPlaylistMenuItems(const QList<QPair<int, QString>> &items)
+{
+    m_view->setPlaylistMenuItems(items);
+}
+
 } // namespace ui

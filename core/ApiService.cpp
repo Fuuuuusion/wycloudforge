@@ -111,7 +111,7 @@ void ApiService::ensureRunning(std::function<void()> onReady, std::function<void
             return;
         }
         start();
-        pollUntilReady(15);
+        pollUntilReady(15, onReady, onFail);
     });
 }
 
@@ -156,27 +156,32 @@ void ApiService::stop()
     m_startedByUs = false;
 }
 
-void ApiService::pollUntilReady(int attemptsLeft)
+void ApiService::pollUntilReady(int attemptsLeft, std::function<void()> onReady,
+                                std::function<void(const QString &)> onFail)
 {
     if (attemptsLeft <= 0) {
         m_running = false;
         emit serverStateChanged(false);
-        emit serverFailed(QStringLiteral("在线服务启动超时,请手动运行:node \"%1\"")
-                              .arg(QDir(m_pendingDir).filePath(QStringLiteral("app.js"))));
+        const QString message = QStringLiteral("在线服务启动超时,请手动运行:node \"%1\"")
+                                    .arg(QDir(m_pendingDir).filePath(QStringLiteral("app.js")));
+        emit serverFailed(message);
+        if (onFail)
+            onFail(message);
         return;
     }
-    QTimer::singleShot(800, this, [this, attemptsLeft] {
-        checkHealth([this, attemptsLeft](bool ok) {
+    QTimer::singleShot(800, this, [this, attemptsLeft, onReady, onFail] {
+        checkHealth([this, attemptsLeft, onReady, onFail](bool ok) {
             if (ok) {
                 m_running = true;
                 emit serverStateChanged(true);
                 emit serverReady();
+                if (onReady)
+                    onReady();
             } else {
-                pollUntilReady(attemptsLeft - 1);
+                pollUntilReady(attemptsLeft - 1, onReady, onFail);
             }
         });
     });
 }
 
 } // namespace core
-
