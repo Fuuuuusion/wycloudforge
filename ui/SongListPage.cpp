@@ -150,7 +150,12 @@ void SongListPage::setHeaderCoverPath(const QString &path)
 void SongListPage::setPlaylistContext(int playlistId)
 {
     m_playlistContext = playlistId;
-    delete m_moreBtn->menu();
+    // QToolButton 仍持有旧菜单指针时直接 delete 可能触发 QtWidgets 访问冲突。
+    // 先解除绑定，再延迟销毁旧菜单，避免刷新歌单详情时使用悬空指针。
+    if (QMenu *oldMenu = m_moreBtn->menu()) {
+        m_moreBtn->setMenu(nullptr);
+        oldMenu->deleteLater();
+    }
     auto *menu = new QMenu(m_moreBtn);
     if (playlistId > 0) {
         if (playlistId != 1) {

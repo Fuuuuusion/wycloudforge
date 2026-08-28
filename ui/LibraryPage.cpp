@@ -129,7 +129,8 @@ LibraryPage::LibraryPage(QWidget *parent)
 
     connect(group, &QButtonGroup::idClicked, m_stack, &QStackedWidget::setCurrentIndex);
     connect(m_songList, &SongListView::playRequested, this, [this](int row) {
-        emit playRequested(m_songs, row);
+        // 歌曲列表可能经过“本地与缓存/在线/已缓存”过滤，行号必须对应当前视图。
+        emit playRequested(m_filtered, row);
     });
     connect(m_songList, &SongListView::heartRequested, this, &LibraryPage::heartRequested);
     connect(m_songList, &SongListView::addToPlaylistRequested, this, &LibraryPage::addToPlaylistRequested);
