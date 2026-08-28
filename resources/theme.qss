@@ -72,19 +72,20 @@ QLabel[class="sectionTitle"] {
     letter-spacing: 1px;
 }
 QPushButton[nav="true"] {
-    text-align: left;
+    text-align: center;
     padding: 8px 10px;
     border: none;
     border-radius: 6px;
     background: transparent;
     color: #9A9AA5;
+    font-size: 15px;
 }
 QPushButton[nav="true"]:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: #E8E8E8;
+    background: transparent;
+    color: #FF5A5A;
 }
 QPushButton[nav="true"]:checked {
-    background: rgba(236, 65, 65, 0.16);
+    background: transparent;
     color: #EC4141;
     font-weight: 600;
 }
@@ -97,11 +98,11 @@ QPushButton[class="playlistBtn"] {
     color: #9A9AA5;
 }
 QPushButton[class="playlistBtn"]:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: #E8E8E8;
+    background: transparent;
+    color: #FF5A5A;
 }
 QPushButton[class="playlistBtn"]:checked {
-    background: rgba(236, 65, 65, 0.16);
+    background: transparent;
     color: #EC4141;
     font-weight: 600;
 }

@@ -5,6 +5,7 @@
 #include <QTableView>
 
 class QMenu;
+class QMouseEvent;
 
 namespace ui {
 
@@ -32,6 +33,8 @@ signals:
 
 protected:
     void contextMenuEvent(QContextMenuEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void leaveEvent(QEvent *event) override;
 
 private:
     SongListModel *m_model = nullptr;
@@ -42,4 +45,3 @@ private:
 };
 
 } // namespace ui
-

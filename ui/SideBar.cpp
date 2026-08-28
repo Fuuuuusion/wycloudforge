@@ -7,23 +7,104 @@
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QPainter>
 #include <QPushButton>
 #include <QVBoxLayout>
 
 namespace ui {
 namespace {
 
-const char kNavStyle[] =
-    "QPushButton{text-align:left;border:none;background:transparent;color:#9A9AA5;"
-    "padding:8px 10px;border-radius:6px;}"
-    "QPushButton:hover{background:rgba(255,255,255,0.08);color:#E8E8E8;}"
-    "QPushButton:checked{background:rgba(236,65,65,0.16);color:#EC4141;font-weight:600;}";
-
 const char kPlaylistStyle[] =
     "QPushButton{text-align:left;border:none;background:transparent;color:#9A9AA5;"
-    "padding:7px 10px;border-radius:6px;}"
-    "QPushButton:hover{background:rgba(255,255,255,0.08);color:#E8E8E8;}"
-    "QPushButton:checked{background:rgba(236,65,65,0.16);color:#EC4141;font-weight:600;}";
+    "font-size:14px;padding:6px 10px;border-radius:6px;}"
+    "QPushButton:hover{background:transparent;color:#FF5A5A;}"
+    "QPushButton:checked{background:transparent;color:#EC4141;font-weight:600;}";
+
+class NavButton : public QPushButton
+{
+public:
+    NavButton(const QString &text, const QString &iconPath, QWidget *parent)
+        : QPushButton(parent)
+        , m_label(text)
+        , m_iconPath(iconPath)
+    {
+        setCheckable(true);
+        setFlat(true);
+        setMouseTracking(true);
+        setAttribute(Qt::WA_Hover, true);
+        setFocusPolicy(Qt::NoFocus);
+        setCursor(Qt::PointingHandCursor);
+        setMinimumHeight(44);
+        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    }
+
+    QSize sizeHint() const override
+    {
+        return { 200, 44 };
+    }
+
+protected:
+    void enterEvent(QEnterEvent *event) override
+    {
+        m_hover = true;
+        update();
+        QPushButton::enterEvent(event);
+    }
+
+    void leaveEvent(QEvent *event) override
+    {
+        m_hover = false;
+        update();
+        QPushButton::leaveEvent(event);
+    }
+
+    void paintEvent(QPaintEvent *) override
+    {
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        const bool active = m_hover || isChecked();
+        QFont font = painter.font();
+        font.setFamily(QStringLiteral("Microsoft YaHei UI"));
+        font.setPointSize(15);
+        font.setWeight(active ? QFont::DemiBold : QFont::Normal);
+        painter.setFont(font);
+        const QFontMetrics metrics(font);
+        const int iconSize = 20;
+        const int gap = 8;
+        const int totalWidth = iconSize + gap + metrics.horizontalAdvance(m_label);
+        const int left = qMax(8, (width() - totalWidth) / 2);
+        const int top = (height() - iconSize) / 2;
+
+        QPixmap icon = makeSvgIcon(m_iconPath, iconSize).pixmap(iconSize, iconSize);
+        if (active && !icon.isNull()) {
+            QPixmap tinted(icon.size());
+            tinted.fill(Qt::transparent);
+            QPainter iconPainter(&tinted);
+            iconPainter.drawPixmap(0, 0, icon);
+            iconPainter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+            iconPainter.fillRect(tinted.rect(), QColor(0xEC, 0x41, 0x41));
+            icon = tinted;
+        }
+        if (!icon.isNull())
+            painter.drawPixmap(left, top, icon);
+
+        const QRect textRect(left + iconSize + gap, 0, metrics.horizontalAdvance(m_label), height());
+        if (active) {
+            QLinearGradient gradient(textRect.topLeft(), textRect.topRight());
+            gradient.setColorAt(0.0, QColor(0xEC, 0x41, 0x41));
+            gradient.setColorAt(1.0, QColor(0xFF, 0x9A, 0x76));
+            painter.setPen(QPen(QBrush(gradient), 1));
+        } else {
+            painter.setPen(QPen(QColor(0x9A, 0x9A, 0xA5), 1));
+        }
+        painter.drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, m_label);
+    }
+
+private:
+    QString m_label;
+    QString m_iconPath;
+    bool m_hover = false;
+};
 
 } // namespace
 
@@ -79,13 +160,7 @@ SideBar::SideBar(QWidget *parent)
 
 void SideBar::addNavButton(const QString &text, const QString &icon, int pageId)
 {
-    auto *btn = new QPushButton(text, this);
-    btn->setProperty("class", "navBtn");
-    btn->setStyleSheet(QLatin1String(kNavStyle));
-    btn->setIcon(QIcon(icon));
-    btn->setIconSize(QSize(18, 18));
-    btn->setCheckable(true);
-    btn->setCursor(Qt::PointingHandCursor);
+    auto *btn = new NavButton(text, icon, this);
     m_navGroup->addButton(btn, pageId);
     static_cast<QVBoxLayout *>(layout())->addWidget(btn);
     connect(btn, &QPushButton::clicked, this, [this, pageId] { emit pageRequested(pageId); });

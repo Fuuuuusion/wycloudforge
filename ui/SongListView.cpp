@@ -9,6 +9,7 @@
 #include <QHeaderView>
 #include <QIcon>
 #include <QMenu>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QStyledItemDelegate>
@@ -19,9 +20,30 @@ namespace {
 const QColor kText(0xE8, 0xE8, 0xE8);
 const QColor kText2(0x9A, 0x9A, 0xA5);
 const QColor kText3(0x6E, 0x6E, 0x7A);
-const QColor kHover(255, 255, 255, 16);
-const QColor kPlaying(236, 65, 65, 36);
 const QColor kPrimary(0xEC, 0x41, 0x41);
+const QColor kPrimaryLight(0xFF, 0x9A, 0x76);
+
+QBrush activeTextBrush(const QRectF &rect)
+{
+    QLinearGradient gradient(rect.topLeft(), rect.topRight());
+    gradient.setColorAt(0.0, kPrimary);
+    gradient.setColorAt(1.0, kPrimaryLight);
+    return QBrush(gradient);
+}
+
+QPixmap tintedIcon(const QString &path, int size, const QColor &color)
+{
+    const QPixmap source = makeSvgIcon(path, size).pixmap(size, size);
+    if (source.isNull())
+        return {};
+    QPixmap result(source.size());
+    result.fill(Qt::transparent);
+    QPainter painter(&result);
+    painter.drawPixmap(0, 0, source);
+    painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+    painter.fillRect(result.rect(), color);
+    return result;
+}
 
 QString formatDuration(qint64 ms)
 {
@@ -30,10 +52,10 @@ QString formatDuration(qint64 ms)
 }
 
 void drawHighlightedText(QPainter &p, const QRectF &rect, const QString &text, const QString &query,
-                         const QColor &normal, Qt::Alignment align)
+                         const QBrush &normal, Qt::Alignment align)
 {
     p.save();
-    p.setPen(normal);
+    p.setPen(QPen(normal, 1));
     const QFontMetrics fm = p.fontMetrics();
     QString elided = fm.elidedText(text, Qt::ElideRight, int(rect.width()));
     const QList<QPair<int, int>> ranges = core::SearchService::highlightRanges(elided, query);
@@ -56,7 +78,7 @@ void drawHighlightedText(QPainter &p, const QRectF &rect, const QString &text, c
     p.fillRect(matchRect.adjusted(0, 2, 0, -2), QColor(236, 65, 65, 80));
     p.setPen(kPrimary);
     p.drawText(matchRect, Qt::AlignVCenter, match);
-    p.setPen(normal);
+    p.setPen(QPen(normal, 1));
     p.drawText(QRectF(matchRect.right(), base.top(), base.width() - wBefore - wMatch, base.height()),
                Qt::AlignVCenter, after);
     p.restore();
@@ -73,20 +95,13 @@ public:
     void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
     {
         const bool playing = index.data(SongListModel::IsPlayingRole).toBool();
-        const bool hover = option.state & QStyle::State_MouseOver;
-        QColor bg;
-        if (playing)
-            bg = kPlaying;
-        else if (hover)
-            bg = kHover;
-        if (bg.isValid()) {
-            painter->save();
-            painter->fillRect(option.rect, bg);
-            painter->restore();
-        }
+        const bool hover = index.row() == m_hoverRow;
+        const bool active = playing || hover;
 
         const int col = index.column();
         QRectF rect = option.rect.adjusted(0, 0, 0, -1);
+        if (hover)
+            rect.translate(0, -2);
         if (col == 0) {
             painter->save();
             if (playing) {
@@ -100,7 +115,7 @@ public:
                 painter->setBrush(kPrimary);
                 painter->drawPath(path);
             } else {
-                painter->setPen(kText3);
+                painter->setPen(active ? QPen(activeTextBrush(rect), 1) : QPen(kText3, 1));
                 painter->drawText(rect, Qt::AlignCenter, QString::number(index.row() + 1));
             }
             painter->restore();
@@ -115,12 +130,14 @@ public:
             painter->drawPixmap(coverRect.toRect(), cover);
             qreal textX = rect.left() + 50;
             if (song.isOnline()) {
-                static const QIcon cloud = makeSvgIcon(QStringLiteral(":/icons/icon-cloud.svg"), 14);
                 const QRectF iconRect(rect.left() + 48, rect.center().y() - 7, 14, 14);
-                cloud.paint(painter, iconRect.toRect());
+                const QPixmap cloud = tintedIcon(QStringLiteral(":/icons/icon-cloud.svg"), 14,
+                                                 active ? kPrimary : QColor(0xB8, 0xB8, 0xC4));
+                painter->drawPixmap(iconRect.toRect(), cloud);
                 if (song.isCached()) {
-                    static const QIcon check = makeSvgIcon(QStringLiteral(":/icons/icon-check.svg"), 9);
-                    check.paint(painter, QRect(rect.left() + 57, rect.center().y() - 11, 9, 9));
+                    const QPixmap check = tintedIcon(QStringLiteral(":/icons/icon-check.svg"), 9,
+                                                     active ? kPrimary : QColor(0xB8, 0xB8, 0xC4));
+                    painter->drawPixmap(QRect(rect.left() + 57, rect.center().y() - 11, 9, 9), check);
                 }
                 textX = rect.left() + 68;
             }
@@ -128,22 +145,28 @@ public:
             painter->save();
             painter->setFont(m_titleFont);
             const QString titleText = song.missing ? song.title + QStringLiteral(" · 失效") : song.title;
-            drawHighlightedText(*painter, textRect, titleText, query, playing ? kPrimary : (song.missing ? kText3 : kText), Qt::AlignLeft);
+            const QBrush titleBrush = active ? activeTextBrush(textRect)
+                                             : QBrush(song.missing ? kText3 : kText);
+            drawHighlightedText(*painter, textRect, titleText, query, titleBrush, Qt::AlignLeft);
             painter->restore();
         } else if (col == 2) {
             painter->save();
             painter->setFont(m_baseFont);
-            drawHighlightedText(*painter, rect.adjusted(10, 0, 0, 0), song.artist, query, kText2, Qt::AlignLeft);
+            const QRectF textRect = rect.adjusted(10, 0, 0, 0);
+            drawHighlightedText(*painter, textRect, song.artist, query,
+                                active ? activeTextBrush(textRect) : QBrush(kText2), Qt::AlignLeft);
             painter->restore();
         } else if (col == 3) {
             painter->save();
             painter->setFont(m_baseFont);
-            drawHighlightedText(*painter, rect.adjusted(10, 0, 0, 0), song.album, query, kText3, Qt::AlignLeft);
+            const QRectF textRect = rect.adjusted(10, 0, 0, 0);
+            drawHighlightedText(*painter, textRect, song.album, query,
+                                active ? activeTextBrush(textRect) : QBrush(kText3), Qt::AlignLeft);
             painter->restore();
         } else {
             painter->save();
             painter->setFont(m_baseFont);
-            painter->setPen(kText3);
+            painter->setPen(active ? QPen(activeTextBrush(rect), 1) : QPen(kText3, 1));
             painter->drawText(rect.adjusted(0, 0, -12, 0), Qt::AlignRight | Qt::AlignVCenter,
                               formatDuration(song.durationMs));
             painter->restore();
@@ -160,10 +183,21 @@ public:
         m_query = query;
     }
 
+    void setHoverRow(int row)
+    {
+        m_hoverRow = row;
+    }
+
+    int hoverRow() const
+    {
+        return m_hoverRow;
+    }
+
 private:
     QFont m_baseFont = QFont(QStringLiteral("Microsoft YaHei UI"), 9);
     QFont m_titleFont = QFont(QStringLiteral("Microsoft YaHei UI"), 9);
     QString m_query;
+    int m_hoverRow = -1;
 };
 
 } // namespace
@@ -178,7 +212,7 @@ SongListView::SongListView(QWidget *parent)
 
     setShowGrid(false);
     setFrameShape(QFrame::NoFrame);
-    setSelectionMode(QAbstractItemView::SingleSelection);
+    setSelectionMode(QAbstractItemView::NoSelection);
     setSelectionBehavior(QAbstractItemView::SelectRows);
     setEditTriggers(QAbstractItemView::NoEditTriggers);
     setMouseTracking(true);
@@ -197,7 +231,8 @@ SongListView::SongListView(QWidget *parent)
     setColumnWidth(2, 200);
     setColumnWidth(3, 180);
     setColumnWidth(4, 70);
-    setStyleSheet(QStringLiteral("QTableView{background:rgba(255,255,255,0.05);border:none;border-radius:10px;}"));
+    viewport()->setAutoFillBackground(false);
+    setStyleSheet(QStringLiteral("QTableView{background:transparent;border:none;}"));
 
     connect(this, &QTableView::doubleClicked, this, [this](const QModelIndex &idx) {
         if (idx.isValid())
@@ -235,6 +270,29 @@ void SongListView::setHighlightQuery(const QString &query)
 void SongListView::setPlaylistMenuItems(const QList<QPair<int, QString>> &items)
 {
     m_playlistItems = items;
+}
+
+void SongListView::mouseMoveEvent(QMouseEvent *event)
+{
+    const int row = indexAt(event->pos()).row();
+    if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate())) {
+        if (delegate->hoverRow() != row) {
+            delegate->setHoverRow(row);
+            viewport()->update();
+        }
+    }
+    QTableView::mouseMoveEvent(event);
+}
+
+void SongListView::leaveEvent(QEvent *event)
+{
+    if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate())) {
+        if (delegate->hoverRow() != -1) {
+            delegate->setHoverRow(-1);
+            viewport()->update();
+        }
+    }
+    QTableView::leaveEvent(event);
 }
 
 void SongListView::contextMenuEvent(QContextMenuEvent *event)

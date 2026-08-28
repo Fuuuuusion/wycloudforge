@@ -165,13 +165,25 @@ void PlayingPage::updateBackdrop()
     const QSize size = m_backdrop->size();
     if (size.isEmpty())
         return;
-    QPixmap blurred = CoverProvider::blur(m_coverPix.scaled(size, Qt::KeepAspectRatioByExpanding,
-                                                            Qt::SmoothTransformation),
-                                          36, size);
-    QPainter p(&blurred);
-    p.fillRect(blurred.rect(), QColor(10, 10, 16, 200));
+    const QPixmap blurred = CoverProvider::blur(m_coverPix.scaled(size, Qt::KeepAspectRatioByExpanding,
+                                                                  Qt::SmoothTransformation),
+                                                36, size);
+    QImage faded(size, QImage::Format_ARGB32_Premultiplied);
+    faded.fill(Qt::transparent);
+    QPainter p(&faded);
+    p.drawPixmap(faded.rect(), blurred);
+    p.fillRect(faded.rect(), QColor(10, 10, 16, 150));
+    p.setCompositionMode(QPainter::CompositionMode_DestinationIn);
+    const QPointF center = faded.rect().center();
+    const qreal radius = qMax(faded.width(), faded.height()) * 0.72;
+    QRadialGradient mask(center, radius);
+    mask.setColorAt(0.0, QColor(255, 255, 255, 238));
+    mask.setColorAt(0.58, QColor(255, 255, 255, 220));
+    mask.setColorAt(0.82, QColor(255, 255, 255, 112));
+    mask.setColorAt(1.0, QColor(255, 255, 255, 0));
+    p.fillRect(faded.rect(), mask);
     p.end();
-    m_backdrop->setPixmap(blurred);
+    m_backdrop->setPixmap(QPixmap::fromImage(faded));
 }
 
 } // namespace ui

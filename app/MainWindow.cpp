@@ -42,6 +42,7 @@
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QTextEdit>
+#include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
 
@@ -177,6 +178,7 @@ MainWindow::MainWindow(QWidget *parent)
     positionPlayerBar();
     m_playerBar->raise();
     body->setStyleSheet(QStringLiteral("background: transparent;"));
+    QTimer::singleShot(0, this, [this] { positionPlayerBar(); });
 
     // ---------- 标题栏 ----------
     connect(m_titleBar, &ui::TitleBar::minimizeClicked, this, &QWidget::showMinimized);
@@ -599,13 +601,16 @@ void MainWindow::ensureOnlineCovers(const QList<core::Song> &songs)
             continue;
         if (QFileInfo::exists(path)) {
             m_library.setSongCoverPath(s.id, path);
+            m_songListPage->refreshCovers(&m_library);
             continue;
         }
         const QUrl url(s.coverUrl);
         const qint64 id = s.id;
         m_apiClient.downloadToFile(url, path, [this, id, path](bool ok) {
-            if (ok)
+            if (ok) {
                 m_library.setSongCoverPath(id, path);
+                m_songListPage->refreshCovers(&m_library);
+            }
         });
     }
 }
@@ -1024,8 +1029,8 @@ void MainWindow::changeEvent(QEvent *event)
 
 void MainWindow::resizeEvent(QResizeEvent *event)
 {
-    positionPlayerBar();
     QMainWindow::resizeEvent(event);
+    positionPlayerBar();
 }
 
 void MainWindow::positionPlayerBar()
@@ -1035,8 +1040,17 @@ void MainWindow::positionPlayerBar()
     QWidget *central = centralWidget();
     if (!central)
         return;
+    if (!m_stack || m_stack->width() <= 0)
+        return;
+    const QPoint contentTopLeft = m_stack->mapTo(central, QPoint(0, 0));
+    const int contentWidth = m_stack->width();
+    const int playerWidth = qMax(1, qMin(860, contentWidth - 24));
+    if (m_playerBar->width() != playerWidth)
+        m_playerBar->setFixedWidth(playerWidth);
+    const int maxX = contentTopLeft.x() + qMax(0, contentWidth - m_playerBar->width());
+    const int centeredX = contentTopLeft.x() + (contentWidth - m_playerBar->width()) / 2;
+    const int x = qBound(contentTopLeft.x(), centeredX, maxX);
     const int y = central->height() - m_playerBar->height() - 14;
-    const int x = (central->width() - m_playerBar->width()) / 2;
-    m_playerBar->move(x, y);
+    m_playerBar->move(x, qMax(contentTopLeft.y(), y));
     m_playerBar->raise();
 }
