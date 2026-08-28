@@ -8,6 +8,8 @@
 #include <QNetworkRequest>
 #include <QUrl>
 
+#include <utility>
+
 namespace core {
 namespace {
 
@@ -96,10 +98,17 @@ void NeteaseApiClient::checkReachable(BoolFn done)
 
 void NeteaseApiClient::searchSongs(const QString &keywords, int limit, JsonArrayFn ok, ErrFn err)
 {
+    searchSongsPage(keywords, limit, 0, std::move(ok), std::move(err));
+}
+
+void NeteaseApiClient::searchSongsPage(const QString &keywords, int limit, int offset,
+                                       JsonArrayFn ok, ErrFn err)
+{
     QUrlQuery q;
     q.addQueryItem(QStringLiteral("keywords"), keywords);
     q.addQueryItem(QStringLiteral("type"), QStringLiteral("1"));
     q.addQueryItem(QStringLiteral("limit"), QString::number(limit));
+    q.addQueryItem(QStringLiteral("offset"), QString::number(qMax(0, offset)));
     get(QStringLiteral("/search"), q,
         [ok](const QJsonObject &obj) { ok(obj.value(QStringLiteral("result")).toObject().value(QStringLiteral("songs")).toArray()); },
         err);
@@ -317,6 +326,11 @@ Song NeteaseApiClient::songFromJson(const QJsonObject &obj) const
     qint64 durationMs = obj.value(QStringLiteral("dt")).toVariant().toLongLong();
     if (durationMs <= 0)
         durationMs = obj.value(QStringLiteral("duration")).toVariant().toLongLong();
+    QString coverUrl = al.value(QStringLiteral("picUrl")).toString();
+    if (coverUrl.isEmpty())
+        coverUrl = obj.value(QStringLiteral("picUrl")).toString();
+    if (coverUrl.isEmpty())
+        coverUrl = obj.value(QStringLiteral("albumPicUrl")).toString();
     return MusicSource::makeOnlineSong(
         sourceId(), sourceScheme(),
         obj.value(QStringLiteral("id")).toVariant().toLongLong(),
@@ -324,7 +338,7 @@ Song NeteaseApiClient::songFromJson(const QJsonObject &obj) const
         artists.join(QLatin1Char('/')),
         al.value(QStringLiteral("name")).toString(),
         durationMs,
-        al.value(QStringLiteral("picUrl")).toString(),
+        coverUrl,
         al.value(QStringLiteral("id")).toVariant().toLongLong());
 }
 

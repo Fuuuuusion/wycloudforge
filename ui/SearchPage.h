@@ -5,7 +5,10 @@
 
 #include <QWidget>
 
+#include <QSet>
+
 class QLabel;
+class QPushButton;
 class QStackedWidget;
 class QVBoxLayout;
 class QFileInfo;
@@ -30,6 +33,8 @@ public:
 
     void setSourceProvider(core::MusicSource *source, core::LibraryService *library);
     void performSearch(const QList<core::Song> &allSongs, const QString &query);
+    void refreshLocalResults(const QList<core::Song> &allSongs);
+    void refreshOnlineCovers();
     QList<core::Song> currentSongs() const { return m_results; }
 
 signals:
@@ -42,7 +47,9 @@ signals:
     void deleteFromLibraryRequested(int row);
 
 private:
+    void loadOnlinePage(int offset);
     void ensureCover(const core::Song &song);
+    void setOnlineCover(qint64 songId, const QString &path);
 
     QLabel *m_title = nullptr;
     QStackedWidget *m_stack = nullptr;
@@ -51,10 +58,17 @@ private:
     QVBoxLayout *m_albumLayout = nullptr;
     QList<core::Song> m_results;
     QList<core::Song> m_onlineSongs;
+    QString m_query;
+    int m_onlineOffset = 0;
+    int m_onlinePageSize = 30;
+    int m_searchGeneration = 0;
+    bool m_onlineLoading = false;
+    QSet<qint64> m_albumCoverLookups;
     core::MusicSource *m_source = nullptr;
     core::LibraryService *m_lib = nullptr;
     QLabel *m_onlineHeader = nullptr;
     SongListView *m_onlineList = nullptr;
+    QPushButton *m_onlineMore = nullptr;
 };
 
 } // namespace ui

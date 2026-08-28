@@ -119,7 +119,9 @@ void RecommendPage::buildPlaylists(const QJsonArray &arr)
         m_playlistRow->insertWidget(m_playlistRow->count() - 1, card);
         ++shown;
         // 异步下载封面
-        const QString pic = o.value(QStringLiteral("picUrl")).toString();
+        QString pic = o.value(QStringLiteral("picUrl")).toString();
+        if (pic.isEmpty())
+            pic = o.value(QStringLiteral("coverImgUrl")).toString();
         if (m_lib && !pic.isEmpty()) {
             const QString path = m_lib->coverCacheDir() + QStringLiteral("/reco_pl%1.jpg").arg(id);
             m_source->downloadToFile(QUrl(pic), path, [card, path](bool ok) {

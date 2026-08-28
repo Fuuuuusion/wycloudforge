@@ -75,6 +75,7 @@ private:
     QString m_currentUrl;
     bool m_cacheSaved = false;
     int m_loadToken = 0;
+    bool m_pendingAutoPlay = false;
 };
 
 } // namespace core

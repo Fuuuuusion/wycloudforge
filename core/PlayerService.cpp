@@ -19,6 +19,8 @@ PlayerService::PlayerService(QObject *parent)
     m_player.setAudioOutput(&m_audio);
 
     connect(&m_player, &QMediaPlayer::playbackStateChanged, this, [this](QMediaPlayer::PlaybackState state) {
+        if (state == QMediaPlayer::PlayingState)
+            m_pendingAutoPlay = false;
         emit playingChanged(state == QMediaPlayer::PlayingState);
     });
     connect(&m_player, &QMediaPlayer::positionChanged, this, [this](qint64 pos) {
@@ -29,6 +31,10 @@ PlayerService::PlayerService(QObject *parent)
         emit durationChanged(dur);
     });
     connect(&m_player, &QMediaPlayer::mediaStatusChanged, this, [this](QMediaPlayer::MediaStatus status) {
+        if ((status == QMediaPlayer::LoadedMedia || status == QMediaPlayer::BufferedMedia)
+            && m_pendingAutoPlay) {
+            m_player.play();
+        }
         if (status == QMediaPlayer::EndOfMedia) {
             if (m_mode == RepeatOne)
                 m_player.setPosition(0);
@@ -52,6 +58,7 @@ void PlayerService::setPlaylist(const QList<Song> &songs, int startIndex)
     m_index = qBound(0, startIndex, qMax(0, m_playlist.size() - 1));
     if (m_playlist.isEmpty()) {
         m_player.stop();
+        m_pendingAutoPlay = false;
         m_index = -1;
         return;
     }
@@ -84,11 +91,14 @@ void PlayerService::play()
         }
         return;
     }
+    // 线上歌曲的播放地址可能仍在请求中;保留自动播放意图,待新媒体加载完成后再启动。
+    m_pendingAutoPlay = true;
     m_player.play();
 }
 
 void PlayerService::pause()
 {
+    m_pendingAutoPlay = false;
     m_player.pause();
 }
 
@@ -187,6 +197,9 @@ void PlayerService::loadCurrent(bool autoPlay)
     const Song &song = m_playlist[m_index];
     ++m_loadToken;
     m_currentUrl.clear();
+    m_pendingAutoPlay = autoPlay;
+    m_player.stop();
+    m_player.setSource(QUrl());
 
     if (song.isOnline() && m_source && m_lib) {
         m_cacheSaved = false;
@@ -194,32 +207,34 @@ void PlayerService::loadCurrent(bool autoPlay)
         if (!cached.isEmpty() && QFileInfo::exists(cached)) {
             m_cacheSaved = true;
             m_player.setSource(QUrl::fromLocalFile(cached));
-            if (autoPlay)
+            if (m_pendingAutoPlay)
                 m_player.play();
             emit songChanged(song, m_index);
             return;
         }
         const int token = m_loadToken;
         m_source->songUrls({ song.onlineId },
-                           [this, token, autoPlay](const QJsonArray &arr) {
+                           [this, token](const QJsonArray &arr) {
                                if (token != m_loadToken)
                                    return;
                                QString url;
                                if (!arr.isEmpty())
                                    url = arr.first().toObject().value(QStringLiteral("url")).toString();
                                if (url.isEmpty()) {
+                                   m_pendingAutoPlay = false;
                                    emit errorOccurred(QStringLiteral("歌曲不可用(可能受版权/VIP 限制)"));
                                    QTimer::singleShot(0, this, [this] { next(); });
                                    return;
                                }
                                m_currentUrl = url;
                                m_player.setSource(QUrl(url));
-                               if (autoPlay)
+                               if (m_pendingAutoPlay)
                                    m_player.play();
                            },
                            [this, token](const QString &err) {
                                if (token != m_loadToken)
                                    return;
+                               m_pendingAutoPlay = false;
                                emit errorOccurred(QStringLiteral("获取播放地址失败:%1").arg(err));
                                QTimer::singleShot(0, this, [this] { next(); });
                            });
@@ -228,7 +243,7 @@ void PlayerService::loadCurrent(bool autoPlay)
     }
 
     m_player.setSource(QUrl::fromLocalFile(song.filePath));
-    if (autoPlay)
+    if (m_pendingAutoPlay)
         m_player.play();
     emit songChanged(song, m_index);
 }

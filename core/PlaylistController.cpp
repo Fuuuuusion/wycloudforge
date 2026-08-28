@@ -1,6 +1,7 @@
 #include "PlaylistController.h"
 
 #include <QDateTime>
+#include <QFileInfo>
 #include <QSqlQuery>
 #include <QVariant>
 
@@ -121,11 +122,12 @@ bool PlaylistController::renamePlaylist(int id, const QString &name)
 
 bool PlaylistController::setPlaylistCover(int id, const QString &coverPath)
 {
-    if (!m_db.isOpen() || id == favoritePlaylistId())
+    const QFileInfo cover(coverPath);
+    if (!m_db.isOpen() || id == favoritePlaylistId() || !cover.isFile())
         return false;
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral("UPDATE playlists SET cover_path=? WHERE id=?"));
-    q.addBindValue(coverPath);
+    q.addBindValue(cover.absoluteFilePath());
     q.addBindValue(id);
     if (!q.exec())
         return false;

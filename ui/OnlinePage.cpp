@@ -312,15 +312,34 @@ void OnlinePage::refreshPlaylistSquare()
         for (const QJsonValue &v : arr) {
             const QJsonObject o = v.toObject();
             auto *card = new CoverCard;
-            card->setCover(CoverProvider::placeholder(o.value(QStringLiteral("name")).toString(), 150, 8));
+            const QString name = o.value(QStringLiteral("name")).toString();
+            card->setCover(CoverProvider::placeholder(name, 150, 8));
             card->setText(o.value(QStringLiteral("name")).toString(),
                           QStringLiteral("%1 首").arg(o.value(QStringLiteral("trackCount")).toInt()));
             const qint64 id = o.value(QStringLiteral("id")).toVariant().toLongLong();
-            const QString name = o.value(QStringLiteral("name")).toString();
             connect(card, &CoverCard::clicked, this, [this, id, name] {
                 emit openPlaylistRequested(id, name);
             });
             m_squareGrid->addWidget(card, i / 5, i % 5);
+            QString coverUrl = o.value(QStringLiteral("coverImgUrl")).toString();
+            if (coverUrl.isEmpty())
+                coverUrl = o.value(QStringLiteral("picUrl")).toString();
+            if (m_source && m_lib && !coverUrl.isEmpty()) {
+                const QString path = m_lib->coverCacheDir()
+                    + QStringLiteral("/online_playlist_%1.jpg").arg(id);
+                auto apply = [card, path](bool ok) {
+                    if (!ok)
+                        return;
+                    const QPixmap pm(path);
+                    if (!pm.isNull())
+                        card->setCover(pm.scaled(150, 150, Qt::KeepAspectRatioByExpanding,
+                                                  Qt::SmoothTransformation));
+                };
+                if (QFileInfo::exists(path) && QFileInfo(path).size() > 0)
+                    apply(true);
+                else
+                    m_source->downloadToFile(QUrl(coverUrl), path, apply);
+            }
             ++i;
         }
         m_squareGrid->setColumnStretch(5, 1);
@@ -335,6 +354,12 @@ void OnlinePage::loadSongs(SongListView *view, const QJsonArray &arr)
     for (const QJsonValue &v : arr) {
         core::Song s = m_source->songFromJson(v.toObject());
         s.id = m_lib->upsertOnlineSong(s);
+        if (s.id > 0) {
+            const core::Song stored = m_lib->songById(s.id);
+            s.coverPath = stored.coverPath;
+            s.cachePath = stored.cachePath;
+            s.lyricPath = stored.lyricPath;
+        }
         songs.append(s);
         ensureCover(s);
     }

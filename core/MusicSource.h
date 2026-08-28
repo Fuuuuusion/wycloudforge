@@ -34,6 +34,9 @@ public:
     virtual QString cookie() const = 0;
 
     virtual void searchSongs(const QString &keywords, int limit, JsonArrayFn ok, ErrFn err = {}) = 0;
+    // 分页搜索; searchSongs 保留为从第一页开始的便捷接口
+    virtual void searchSongsPage(const QString &keywords, int limit, int offset,
+                                 JsonArrayFn ok, ErrFn err = {}) = 0;
     virtual void songUrls(const QList<qint64> &ids, JsonArrayFn ok, ErrFn err = {}) = 0;
     // 原文 / 翻译 / 音译
     virtual void lyric(qint64 id, String3Fn ok, ErrFn err = {}) = 0;

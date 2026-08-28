@@ -13,6 +13,7 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QStackedWidget>
+#include <QUrl>
 #include <QVBoxLayout>
 
 namespace ui {
@@ -77,7 +78,15 @@ SearchPage::SearchPage(QWidget *parent)
     m_onlineHeader->setStyleSheet(QStringLiteral("color:#6E6E7A;font-size:12px;"));
     m_onlineHeader->hide();
     m_onlineList = new SongListView;
+    m_onlineMore = new QPushButton(QStringLiteral("加载更多"), onlinePage);
+    m_onlineMore->setCursor(Qt::PointingHandCursor);
+    m_onlineMore->setStyleSheet(QStringLiteral(
+        "QPushButton{border:none;background:rgba(255,255,255,0.06);color:#C8C8D0;"
+        "padding:7px 16px;border-radius:14px;}"
+        "QPushButton:hover{background:rgba(236,65,65,0.16);color:#EC4141;}"));
+    m_onlineMore->hide();
     onlineLayout->addWidget(m_onlineHeader);
+    onlineLayout->addWidget(m_onlineMore, 0, Qt::AlignLeft);
     onlineLayout->addWidget(m_onlineList, 1);
     m_stack->addWidget(onlinePage);
 
@@ -127,6 +136,10 @@ SearchPage::SearchPage(QWidget *parent)
     connect(m_onlineList, &SongListView::heartRequested, this, &SearchPage::heartRequested);
     connect(m_onlineList, &SongListView::addToPlaylistRequested, this, &SearchPage::addToPlaylistRequested);
     connect(m_onlineList, &SongListView::deleteFromLibraryRequested, this, &SearchPage::deleteFromLibraryRequested);
+    connect(m_onlineMore, &QPushButton::clicked, this, [this] {
+        if (!m_onlineLoading && !m_query.isEmpty())
+            loadOnlinePage(m_onlineOffset + m_onlinePageSize);
+    });
 }
 
 void SearchPage::setSourceProvider(core::MusicSource *source, core::LibraryService *library)
@@ -137,32 +150,20 @@ void SearchPage::setSourceProvider(core::MusicSource *source, core::LibraryServi
 
 void SearchPage::performSearch(const QList<core::Song> &allSongs, const QString &query)
 {
-    m_results.clear();
-    const auto results = core::SearchService::search(allSongs, query);
-    for (const auto &r : results)
-        m_results.append(allSongs[r.index]);
-
-    m_title->setText(QStringLiteral("搜索 \"%1\" · %2 个结果").arg(query).arg(m_results.size()));
-    m_songList->setSongs(m_results);
-    m_songList->setHighlightQuery(query);
+    m_query = query.trimmed();
+    ++m_searchGeneration;
+    m_onlineOffset = 0;
+    m_onlineLoading = false;
+    m_albumCoverLookups.clear();
+    m_onlineSongs.clear();
+    m_onlineList->setSongs({});
+    m_onlineHeader->hide();
+    m_onlineMore->hide();
+    refreshLocalResults(allSongs);
 
     // 在线结果
-    m_onlineSongs.clear();
-    if (m_source && m_lib && !query.isEmpty()) {
-        m_source->searchSongs(query, 30, [this](const QJsonArray &arr) {
-            m_onlineSongs.clear();
-            for (const QJsonValue &v : arr) {
-                core::Song s = m_source->songFromJson(v.toObject());
-                s.id = m_lib->upsertOnlineSong(s);
-                m_onlineSongs.append(s);
-            }
-            m_onlineList->setSongs(m_onlineSongs);
-            m_onlineHeader->setText(QStringLiteral("在线结果(%1)· %2 首").arg(m_source->sourceName()).arg(m_onlineSongs.size()));
-            m_onlineHeader->setVisible(!m_onlineSongs.isEmpty());
-            for (const core::Song &s : m_onlineSongs)
-                ensureCover(s);
-        });
-    }
+    if (m_source && m_lib && !m_query.isEmpty())
+        loadOnlinePage(0);
 
     while (QLayoutItem *item = m_artistLayout->takeAt(0)) {
         delete item->widget();
@@ -197,13 +198,119 @@ void SearchPage::performSearch(const QList<core::Song> &allSongs, const QString 
     m_albumLayout->addStretch(1);
 }
 
+void SearchPage::refreshLocalResults(const QList<core::Song> &allSongs)
+{
+    if (m_query.isEmpty())
+        return;
+    m_results.clear();
+    const auto results = core::SearchService::search(allSongs, m_query);
+    for (const auto &r : results)
+        m_results.append(allSongs[r.index]);
+    m_title->setText(QStringLiteral("搜索 \"%1\" · %2 个结果").arg(m_query).arg(m_results.size()));
+    m_songList->setSongs(m_results);
+    m_songList->setHighlightQuery(m_query);
+}
+
+void SearchPage::loadOnlinePage(int offset)
+{
+    if (!m_source || !m_lib || m_query.isEmpty() || m_onlineLoading)
+        return;
+    const int generation = m_searchGeneration;
+    m_onlineLoading = true;
+    m_onlineMore->setEnabled(false);
+    m_onlineMore->setText(QStringLiteral("加载中…"));
+    m_source->searchSongsPage(m_query, m_onlinePageSize, offset,
+                              [this, generation, offset](const QJsonArray &arr) {
+        if (generation != m_searchGeneration)
+            return;
+        if (offset == 0)
+            m_onlineSongs.clear();
+        for (const QJsonValue &v : arr) {
+            const core::Song s0 = m_source->songFromJson(v.toObject());
+            bool duplicate = false;
+            for (const core::Song &existing : m_onlineSongs) {
+                if (existing.onlineId == s0.onlineId) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (duplicate)
+                continue;
+            core::Song s = s0;
+            s.id = m_lib->upsertOnlineSong(s);
+            if (s.id > 0) {
+                const core::Song stored = m_lib->songById(s.id);
+                s.coverPath = stored.coverPath;
+                s.cachePath = stored.cachePath;
+                s.lyricPath = stored.lyricPath;
+            }
+            m_onlineSongs.append(s);
+        }
+        m_onlineOffset = offset;
+        m_onlineLoading = false;
+        m_onlineList->setSongs(m_onlineSongs);
+        m_onlineHeader->setText(QStringLiteral("在线结果(%1) · %2 首")
+                                    .arg(m_source->sourceName()).arg(m_onlineSongs.size()));
+        m_onlineHeader->setVisible(!m_onlineSongs.isEmpty());
+        m_onlineMore->setVisible(arr.size() >= m_onlinePageSize);
+        m_onlineMore->setEnabled(true);
+        m_onlineMore->setText(QStringLiteral("加载更多"));
+        for (const core::Song &s : m_onlineSongs)
+            ensureCover(s);
+    }, [this, generation](const QString &) {
+        if (generation != m_searchGeneration)
+            return;
+        m_onlineLoading = false;
+        m_onlineMore->setEnabled(true);
+        m_onlineMore->setText(QStringLiteral("加载更多"));
+    });
+}
+
+void SearchPage::refreshOnlineCovers()
+{
+    if (!m_lib || m_onlineSongs.isEmpty())
+        return;
+    bool changed = false;
+    for (core::Song &song : m_onlineSongs) {
+        const core::Song stored = m_lib->songById(song.id);
+        if (stored.coverPath != song.coverPath) {
+            song.coverPath = stored.coverPath;
+            changed = true;
+        }
+    }
+    if (changed)
+        m_onlineList->setSongs(m_onlineSongs);
+}
+
 void SearchPage::ensureCover(const core::Song &song)
 {
-    if (!song.isOnline() || song.coverUrl.isEmpty() || song.id <= 0 || !m_source || !m_lib)
+    if (!song.isOnline() || song.id <= 0 || !m_source || !m_lib)
+        return;
+    if (song.coverUrl.isEmpty() && song.albumId > 0 && !m_albumCoverLookups.contains(song.albumId)) {
+        m_albumCoverLookups.insert(song.albumId);
+        const qint64 albumId = song.albumId;
+        m_source->albumDetail(albumId, [this, albumId](const QJsonObject &obj) {
+            const QString coverUrl = obj.value(QStringLiteral("album")).toObject()
+                                         .value(QStringLiteral("picUrl")).toString();
+            if (coverUrl.isEmpty())
+                return;
+            for (core::Song &item : m_onlineSongs) {
+                if (item.albumId != albumId || !item.coverUrl.isEmpty())
+                    continue;
+                item.coverUrl = coverUrl;
+                m_lib->upsertOnlineSong(item);
+                ensureCover(item);
+            }
+        });
+        return;
+    }
+    if (song.coverUrl.isEmpty())
         return;
     const core::Song current = m_lib->songById(song.id);
-    if (!current.coverPath.isEmpty())
+    if (!current.coverPath.isEmpty()) {
+        setOnlineCover(song.id, current.coverPath);
         return;
+    }
     const QString path = m_lib->coverCacheDir()
         + QStringLiteral("/online_%1_%2.jpg").arg(song.source).arg(song.onlineId);
     if (QFileInfo::exists(path)) {
@@ -213,9 +320,24 @@ void SearchPage::ensureCover(const core::Song &song)
     const QUrl url(song.coverUrl);
     const qint64 id = song.id;
     m_source->downloadToFile(url, path, [this, id, path](bool ok) {
-        if (ok && m_lib)
+        if (ok && m_lib) {
+            setOnlineCover(id, path);
             m_lib->setSongCoverPath(id, path);
+        }
     });
+}
+
+void SearchPage::setOnlineCover(qint64 songId, const QString &path)
+{
+    bool changed = false;
+    for (core::Song &song : m_onlineSongs) {
+        if (song.id == songId && song.coverPath != path) {
+            song.coverPath = path;
+            changed = true;
+        }
+    }
+    if (changed)
+        m_onlineList->setSongs(m_onlineSongs);
 }
 
 } // namespace ui

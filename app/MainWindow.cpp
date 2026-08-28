@@ -535,6 +535,12 @@ void MainWindow::openOnlinePlaylist(qint64 id, const QString &name)
         for (const QJsonValue &v : arr) {
             core::Song s = m_apiClient.songFromJson(v.toObject());
             s.id = m_library.upsertOnlineSong(s);
+            if (s.id > 0) {
+                const core::Song stored = m_library.songById(s.id);
+                s.coverPath = stored.coverPath;
+                s.cachePath = stored.cachePath;
+                s.lyricPath = stored.lyricPath;
+            }
             songs.append(s);
         }
         ensureOnlineCovers(songs);
@@ -652,13 +658,15 @@ void MainWindow::refreshLibraryViews()
     const auto all = m_library.allSongs();
     m_libraryPage->setSongs(all, m_currentSongId);
     if (!m_searchQuery.isEmpty())
-        m_search->performSearch(all, m_searchQuery);
+        m_search->refreshLocalResults(all);
+    m_search->refreshOnlineCovers();
 }
 
 void MainWindow::refreshAllPages()
 {
     m_favorites->setSongs(m_playlists.songsOf(m_playlists.favoritePlaylistId()), m_currentSongId);
     m_selfPlaylists->setPlaylists(m_playlists.playlists());
+    m_songListPage->refreshCovers(&m_library);
     m_songListPage->setPlayingId(m_currentSongId);
 }
 

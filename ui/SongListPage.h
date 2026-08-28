@@ -4,6 +4,10 @@
 
 #include <QWidget>
 
+namespace core {
+class LibraryService;
+}
+
 class QLabel;
 class QPushButton;
 class QToolButton;
@@ -22,6 +26,7 @@ public:
                      qint64 playingId, bool removable = false);
     QList<core::Song> currentSongs() const;
     void setPlayingId(qint64 playingId);
+    void refreshCovers(core::LibraryService *library);
     void setPlaylistContext(int playlistId);
     void setPlaylistMenuItems(const QList<QPair<int, QString>> &items);
 
@@ -43,6 +48,7 @@ private:
     QToolButton *m_moreBtn = nullptr;
     SongListView *m_view = nullptr;
     QList<core::Song> m_songs;
+    qint64 m_playingId = -1;
     int m_playlistContext = -1;
 };
 

@@ -1,5 +1,6 @@
 #include "SongListPage.h"
 
+#include "core/LibraryService.h"
 #include "ui/CoverProvider.h"
 #include "ui/SongListView.h"
 
@@ -81,6 +82,7 @@ void SongListPage::showContent(const QList<core::Song> &songs, const QString &ti
                                qint64 playingId, bool removable)
 {
     m_songs = songs;
+    m_playingId = playingId;
     m_title->setText(title);
     m_meta->setText(meta);
     if (songs.isEmpty())
@@ -98,7 +100,30 @@ QList<core::Song> SongListPage::currentSongs() const
 
 void SongListPage::setPlayingId(qint64 playingId)
 {
+    m_playingId = playingId;
     m_view->setPlayingId(playingId);
+}
+
+void SongListPage::refreshCovers(core::LibraryService *library)
+{
+    if (!library || m_songs.isEmpty())
+        return;
+    bool changed = false;
+    for (core::Song &song : m_songs) {
+        const core::Song stored = library->songById(song.id);
+        if (stored.coverPath != song.coverPath) {
+            song.coverPath = stored.coverPath;
+            changed = true;
+        }
+        if (stored.lyricPath != song.lyricPath)
+            song.lyricPath = stored.lyricPath;
+    }
+    if (!changed)
+        return;
+    m_view->setSongs(m_songs, m_playingId);
+    m_cover->setPixmap(m_songs.isEmpty()
+                           ? CoverProvider::placeholder(m_title->text(), 160, 10)
+                           : CoverProvider::coverFor(m_songs.first(), 160, 10));
 }
 
 void SongListPage::setPlaylistContext(int playlistId)
