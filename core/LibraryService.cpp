@@ -57,17 +57,52 @@ QString databaseIntegrityError(const QSqlDatabase &db)
 QString backupDatabaseFiles(const QString &dbPath)
 {
     const QString root = QFileInfo(dbPath).absolutePath() + QStringLiteral("/db-backups/automatic-")
-        + QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss"));
+        + QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss-zzz"));
     if (!QDir().mkpath(root))
         return {};
-    bool copied = false;
-    for (const QString &suffix : { QString(), QStringLiteral("-wal"), QStringLiteral("-shm") }) {
+
+    // 主数据库必须备份成功后，才允许后续丢弃损坏的 WAL。仅复制到 WAL/SHM
+    // 不能构成可恢复备份。
+    const QString databaseCopy = root + QLatin1Char('/') + QFileInfo(dbPath).fileName();
+    if (!QFile::copy(dbPath, databaseCopy)) {
+        QDir(root).removeRecursively();
+        return {};
+    }
+    for (const QString &suffix : { QStringLiteral("-wal"), QStringLiteral("-shm") }) {
         const QString source = dbPath + suffix;
         if (!QFileInfo::exists(source))
             continue;
-        copied = QFile::copy(source, root + QLatin1Char('/') + QFileInfo(source).fileName()) || copied;
+        QFile::copy(source, root + QLatin1Char('/') + QFileInfo(source).fileName());
     }
-    return copied ? root : QString();
+    return root;
+}
+
+bool openConfiguredDatabase(QSqlDatabase *database, const QString &dbPath, QString *error)
+{
+    *database = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("main"));
+    database->setDatabaseName(dbPath);
+    if (!database->open()) {
+        *error = database->lastError().text();
+        return false;
+    }
+    QSqlQuery pragma(*database);
+    if (!pragma.exec(QStringLiteral("PRAGMA busy_timeout=5000"))
+        || !pragma.exec(QStringLiteral("PRAGMA journal_mode=WAL"))
+        || !pragma.exec(QStringLiteral("PRAGMA synchronous=FULL"))
+        || !pragma.exec(QStringLiteral("PRAGMA wal_autocheckpoint=100"))) {
+        *error = pragma.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+void closeDatabaseConnection(QSqlDatabase *database)
+{
+    const QString connectionName = database->connectionName();
+    database->close();
+    *database = QSqlDatabase();
+    if (!connectionName.isEmpty() && QSqlDatabase::contains(connectionName))
+        QSqlDatabase::removeDatabase(connectionName);
 }
 
 class ScanWorker : public QObject
@@ -240,6 +275,11 @@ LibraryService::~LibraryService()
         m_scanThread->quit();
         m_scanThread->wait();
     }
+    if (m_db.isOpen()) {
+        QSqlQuery checkpoint(m_db);
+        if (!checkpoint.exec(QStringLiteral("PRAGMA wal_checkpoint(TRUNCATE)")))
+            qWarning() << "Final WAL checkpoint failed:" << checkpoint.lastError().text();
+    }
     const QString connectionName = m_db.connectionName();
     m_db.close();
     m_db = QSqlDatabase();
@@ -271,42 +311,63 @@ bool LibraryService::openDatabase()
         stale = QSqlDatabase();
         QSqlDatabase::removeDatabase(QStringLiteral("main"));
     }
-    m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("main"));
-    m_db.setDatabaseName(m_dbPath);
-    if (!m_db.open()) {
-        m_lastError = m_db.lastError().text();
+    if (!openConfiguredDatabase(&m_db, m_dbPath, &m_lastError))
         return false;
-    }
-
-    QSqlQuery q(m_db);
-    if (!q.exec(QStringLiteral("PRAGMA busy_timeout=5000"))
-        || !q.exec(QStringLiteral("PRAGMA journal_mode=WAL"))
-        || !q.exec(QStringLiteral("PRAGMA synchronous=FULL"))
-        || !q.exec(QStringLiteral("PRAGMA wal_autocheckpoint=100"))) {
-        m_lastError = q.lastError().text();
-        return false;
-    }
 
     QString integrityError = databaseIntegrityError(m_db);
     if (!integrityError.isEmpty()) {
-        QSqlQuery checkpoint(m_db);
-        checkpoint.exec(QStringLiteral("PRAGMA wal_checkpoint(PASSIVE)"));
-        const QString backupPath = backupDatabaseFiles(m_dbPath);
-        QSqlQuery repair(m_db);
-        if (!repair.exec(QStringLiteral("REINDEX"))) {
-            m_lastError = QStringLiteral("数据库索引损坏，自动修复失败：%1；备份：%2")
-                              .arg(repair.lastError().text(), backupPath);
-            return false;
+        QString checkpointError;
+        QString repairError;
+        QString backupPath;
+        {
+            QSqlQuery checkpoint(m_db);
+            if (!checkpoint.exec(QStringLiteral("PRAGMA wal_checkpoint(FULL)")))
+                checkpointError = checkpoint.lastError().text();
+            backupPath = backupDatabaseFiles(m_dbPath);
+            QSqlQuery repair(m_db);
+            if (!repair.exec(QStringLiteral("REINDEX")))
+                repairError = repair.lastError().text();
         }
+
+        // REINDEX 即使报告某个旧索引读取失败，也必须依据新的完整性检查结果
+        // 决定是否继续，不能直接把应用判定为启动失败。
         integrityError = databaseIntegrityError(m_db);
         if (!integrityError.isEmpty()) {
-            m_lastError = QStringLiteral("数据库完整性检查失败：%1；备份：%2")
-                              .arg(integrityError, backupPath);
-            return false;
+            if (backupPath.isEmpty()) {
+                m_lastError = QStringLiteral("数据库损坏且无法创建安全备份：%1")
+                                  .arg(integrityError);
+                return false;
+            }
+
+            // 现场问题是 WAL 损坏而已落盘的主数据库仍然健康。先关闭所有句柄，
+            // 再丢弃已经完整备份的 WAL/SHM，并重新验证主库，避免用户被困在
+            // “自动修复失败”的启动弹窗中。
+            closeDatabaseConnection(&m_db);
+            const bool removedWal = !QFileInfo::exists(m_dbPath + QStringLiteral("-wal"))
+                || QFile::remove(m_dbPath + QStringLiteral("-wal"));
+            const bool removedShm = !QFileInfo::exists(m_dbPath + QStringLiteral("-shm"))
+                || QFile::remove(m_dbPath + QStringLiteral("-shm"));
+            if (!removedWal || !removedShm
+                || !openConfiguredDatabase(&m_db, m_dbPath, &m_lastError)) {
+                m_lastError = QStringLiteral("数据库恢复失败；备份：%1；%2")
+                                  .arg(backupPath, m_lastError);
+                return false;
+            }
+            integrityError = databaseIntegrityError(m_db);
+            if (!integrityError.isEmpty()) {
+                m_lastError = QStringLiteral("数据库完整性检查失败：%1；备份：%2")
+                                  .arg(integrityError, backupPath);
+                return false;
+            }
+            qWarning() << "Recovered database by discarding corrupt WAL; backup:" << backupPath
+                       << "checkpoint:" << checkpointError << "reindex:" << repairError;
+        } else {
+            qWarning() << "Repaired database indexes; backup:" << backupPath
+                       << "reindex:" << repairError;
         }
-        qWarning() << "Repaired database indexes; backup:" << backupPath;
     }
 
+    QSqlQuery q(m_db);
     q.exec(QStringLiteral(
         "CREATE TABLE IF NOT EXISTS songs("
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"

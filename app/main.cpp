@@ -4,8 +4,12 @@
 #include "core/SettingsService.h"
 
 #include <QApplication>
+#include <QDir>
 #include <QFile>
+#include <QLockFile>
+#include <QMessageBox>
 #include <QPalette>
+#include <QStandardPaths>
 #include <QtCore/qtenvironmentvariables.h>
 #include <QTimer>
 
@@ -45,6 +49,16 @@ int main(int argc, char *argv[])
         app.setStyleSheet(QString::fromUtf8(qss.readAll()));
 
     const QStringList args = app.arguments();
+    const bool isolatedTestRun = args.contains(QStringLiteral("--db"));
+    const QString appDataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QDir().mkpath(appDataDir);
+    QLockFile instanceLock(appDataDir + QStringLiteral("/NeteaseClone.lock"));
+    if (!isolatedTestRun && !instanceLock.tryLock(100)) {
+        QMessageBox::information(nullptr, QStringLiteral("仿网易云播放器"),
+                                 QStringLiteral("应用已经在运行，请使用现有窗口。"));
+        return 0;
+    }
+
     QStringList folders = core::SettingsService::musicFolders();
     int startPage = -1;
     bool hasFolderArg = false;
