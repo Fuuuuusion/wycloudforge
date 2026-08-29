@@ -26,6 +26,7 @@ private slots:
     void duplicateAddAndOrphanCleanup();
     void downloadedPersistenceAndCacheIsolation();
     void managedDownloadFolderIsNotImported();
+    void downloadAssociationsSurviveRestartAndRepair();
     void localAvailabilityClassification();
 
 private:
@@ -344,6 +345,86 @@ void PlaylistControllerTest::managedDownloadFolderIsNotImported()
     QCOMPARE(songs.size(), 1);
     QCOMPARE(songs.first().source, 0);
     QCOMPARE(QDir::cleanPath(songs.first().filePath), QDir::cleanPath(localPath));
+
+    if (oldDownloadDir.isEmpty())
+        QSettings().remove(QStringLiteral("online/downloadDir"));
+    else
+        SettingsService::setOnlineDownloadDir(oldDownloadDir);
+}
+
+void PlaylistControllerTest::downloadAssociationsSurviveRestartAndRepair()
+{
+    QCoreApplication::setOrganizationName(QStringLiteral("NeteaseClone"));
+    QCoreApplication::setApplicationName(QStringLiteral("NeteaseClone"));
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, m_dir->path());
+    const QString oldDownloadDir = QSettings().value(QStringLiteral("online/downloadDir")).toString();
+    const QString managedDir = m_dir->filePath(QStringLiteral("NeteaseClone Downloads"));
+    QVERIFY(QDir().mkpath(managedDir));
+    SettingsService::setOnlineDownloadDir(managedDir);
+
+    Song online;
+    online.filePath = QStringLiteral("netease://8001");
+    online.title = QStringLiteral("恢复下载");
+    online.artist = QStringLiteral("歌手/组合");
+    online.source = 1;
+    online.onlineId = 8001;
+    const qint64 onlineId = m_library->upsertOnlineSong(online);
+    QVERIFY(onlineId > 0);
+
+    const QString downloadPath = QDir(managedDir).filePath(
+        QStringLiteral("歌手_组合 - 恢复下载.mp3"));
+    QFile download(downloadPath);
+    QVERIFY(download.open(QIODevice::WriteOnly));
+    QVERIFY(download.write("download") > 0);
+    download.close();
+
+    // 旧库 download_path 为空时，启动重载应按下载命名规则重新关联现有文件。
+    m_library->reloadDatabase();
+    Song restored = m_library->songById(onlineId);
+    QCOMPARE(QDir::cleanPath(restored.downloadPath), QDir::cleanPath(downloadPath));
+    QVERIFY(restored.isDownloaded());
+
+    // 旧版本误导入的 source=0 副本被清理前，其歌单关系应迁移到在线记录。
+    QSqlQuery insert(m_library->database());
+    insert.prepare(QStringLiteral("INSERT INTO songs(path,title,artist) VALUES(?,?,?)"));
+    insert.addBindValue(downloadPath);
+    insert.addBindValue(QStringLiteral("恢复下载"));
+    insert.addBindValue(QStringLiteral("歌手/组合"));
+    QVERIFY(insert.exec());
+    const qint64 importedId = insert.lastInsertId().toLongLong();
+    const int playlistId = m_controller->createPlaylist(QStringLiteral("下载迁移"));
+    QVERIFY(m_controller->addSong(playlistId, importedId));
+    m_library->reloadDatabase();
+    QVERIFY(m_library->songById(importedId).id <= 0);
+    QVERIFY(m_controller->isInPlaylist(playlistId, onlineId));
+
+    // 临时不可访问只改变下载状态，不能永久清空数据库里的关联路径。
+    QVERIFY(QFile::remove(downloadPath));
+    m_library->reloadDatabase();
+    restored = m_library->songById(onlineId);
+    QCOMPARE(QDir::cleanPath(restored.downloadPath), QDir::cleanPath(downloadPath));
+    QVERIFY(!restored.isDownloaded());
+
+    QVERIFY(download.open(QIODevice::WriteOnly));
+    QVERIFY(download.write("download-again") > 0);
+    download.close();
+    m_library->reloadDatabase();
+    restored = m_library->songById(onlineId);
+    QCOMPARE(QDir::cleanPath(restored.downloadPath), QDir::cleanPath(downloadPath));
+    QVERIFY(restored.isDownloaded());
+
+    delete m_controller;
+    m_controller = nullptr;
+    delete m_library;
+    m_library = new LibraryService;
+    QVERIFY(m_library->openDatabase());
+    m_controller = new PlaylistController;
+    m_controller->setDatabase(m_library->database());
+    restored = m_library->songById(onlineId);
+    QCOMPARE(QDir::cleanPath(restored.downloadPath), QDir::cleanPath(downloadPath));
+    QVERIFY(restored.isDownloaded());
+    QVERIFY(m_controller->isInPlaylist(playlistId, onlineId));
 
     if (oldDownloadDir.isEmpty())
         QSettings().remove(QStringLiteral("online/downloadDir"));

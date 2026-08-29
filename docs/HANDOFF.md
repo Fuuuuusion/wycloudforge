@@ -36,6 +36,12 @@ cmd /v:on /c "C:\Users\Fusssssion\AppData\Local\Temp\netease_build\run_ninja1.ba
 - 工作区里的 `build/` 是早期产物,**不是当前在用的**(当前用 temp 目录那个)。
 - `.bat` 里别写中文路径(GBK 代码页会弄坏,报"路径语法不正确");如需自建编译时把源码拷到 ASCII 临时路径。
 
+### 编译 / 测试错误记录
+
+- 2026-08-29:直接调用 `%TEMP%\netease_build` 的 Ninja 时,`g++.exe` 在编译阶段无诊断退出。原因是当前终端没有把 `C:\Qt\Tools\mingw1310_64\bin` 加入 `PATH`;可行方案是使用 `run_ninja1.bat`,或在同一 `cmd` 会话中先加入 `C:\Qt\Tools\Ninja` 与 MinGW bin 后再运行 Ninja。无需重配 Qt。
+- 2026-08-29:`LibraryService.cpp` 把含引号/斜杠的原始正则字符串移到 `Q_OBJECT` 类之前后,AutoMoc 报 `No relevant classes found`,链接时报 `undefined reference to ScanWorker::staticMetaObject/vtable`。原因是 MOC 误解析原始字符串;可行方案是改用普通转义字符串,并确认 AutoMoc 重新生成后再链接。
+- 以后每次编译或测试失败都在本节追加:命令、关键错误、根因、是否属于环境问题、已验证解决方案。现有解决方案失效且需要改变本机配置时先询问用户。
+
 ### 运行(必须沙箱外,否则窗口落在隔离桌面看不到)
 
 ```powershell
@@ -218,6 +224,7 @@ Start-Process $exe -ArgumentList "--folder `"$tmp`"","--db `"$tmp\t.db`"","--pag
 - `DownloadPage` 维护队列和逐首状态;所有歌曲列表统一接入批量模式、复选框和来源相关删除策略。
 - 播放路径固定为永久下载 → 自动缓存 → 在线 URL;清空缓存不会影响永久下载,删除永久下载不会影响收藏、歌单或缓存。
 - 本地歌单仅显示本地导入歌曲或存在有效缓存/永久下载文件的在线歌曲;仅浏览但未产生本地音频的在线记录仍保留在数据库、收藏和自建歌单中,但不出现在本地页及其歌手/专辑详情。搜索页保持原有在线记录展示逻辑。
+- 永久下载路径暂时不可访问时只显示为“未下载”,不再清空 `songs.download_path`;启动和数据库重载会按“歌手 - 歌名”及重名序号重新关联下载目录里的现有文件。清理旧版 `source=0` 下载副本前会把歌单、收藏、最近播放和播放统计迁移到对应在线记录。
 
 ### 启动数据库与卡顿加固
 

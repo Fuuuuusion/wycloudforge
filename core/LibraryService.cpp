@@ -23,6 +23,8 @@
 #include <QDebug>
 #include <QRegularExpression>
 
+#include <algorithm>
+
 namespace core {
 namespace {
 
@@ -55,6 +57,30 @@ bool isPathInside(const QString &path, const QString &directory)
     const QString directoryKey = normalizedFileKey(directory);
     return fileKey == directoryKey
         || fileKey.startsWith(directoryKey + QLatin1Char('/'));
+}
+
+QString safeDownloadPart(QString value)
+{
+    value = value.trimmed();
+    // 不使用原始字符串：该表达式位于 Q_OBJECT 类之前时会触发 Qt MOC 误解析，
+    // 进而漏生成 ScanWorker 的元对象代码。
+    value.replace(QRegularExpression(QStringLiteral("[<>:\"/\\\\|?*]")), QStringLiteral("_"));
+    value.replace(QRegularExpression(QStringLiteral("[\\x00-\\x1F]")), QStringLiteral("_"));
+    while (value.endsWith(QLatin1Char('.')) || value.endsWith(QLatin1Char(' ')))
+        value.chop(1);
+    if (value.isEmpty())
+        value = QStringLiteral("未知");
+    if (value.size() > 80)
+        value = value.left(80).trimmed();
+    return value;
+}
+
+QString downloadBaseName(const QString &titleValue, const QString &artistValue, qint64 onlineId)
+{
+    const QString title = titleValue.isEmpty() ? QStringLiteral("歌曲_%1").arg(onlineId)
+                                                : titleValue;
+    const QString artist = artistValue.isEmpty() ? QStringLiteral("未知歌手") : artistValue;
+    return safeDownloadPart(artist) + QStringLiteral(" - ") + safeDownloadPart(title);
 }
 
 QString coverCacheDir()
@@ -847,29 +873,190 @@ void LibraryService::reloadDatabase()
     emit libraryChanged();
 }
 
-void LibraryService::removeManagedDownloadImports()
+void LibraryService::reconcileManagedDownloads()
 {
     if (!m_db.isOpen())
         return;
 
     const QString managedDownloadDir = SettingsService::onlineDownloadDir();
+    const QDir directory(managedDownloadDir);
+    if (managedDownloadDir.isEmpty() || !directory.exists())
+        return;
+
+    struct DownloadRow {
+        qint64 id = -1;
+        qint64 onlineId = 0;
+        QString title;
+        QString artist;
+        QString storedPath;
+        QString baseKey;
+        bool assigned = false;
+    };
+
+    QList<DownloadRow> rows;
+    QSet<QString> claimedPaths;
+    QSqlQuery songs(m_db);
+    if (!songs.exec(QStringLiteral(
+            "SELECT id,online_id,title,artist,download_path FROM songs "
+            "WHERE source>0 AND online_id>0 ORDER BY id")))
+        return;
+    while (songs.next()) {
+        DownloadRow row;
+        row.id = songs.value(0).toLongLong();
+        row.onlineId = songs.value(1).toLongLong();
+        row.title = songs.value(2).toString();
+        row.artist = songs.value(3).toString();
+        row.storedPath = songs.value(4).toString();
+        row.baseKey = downloadBaseName(row.title, row.artist, row.onlineId).toCaseFolded();
+        row.assigned = !row.storedPath.isEmpty() && QFileInfo(row.storedPath).isFile()
+            && QFileInfo(row.storedPath).size() > 0;
+        if (row.assigned)
+            claimedPaths.insert(normalizedFileKey(row.storedPath));
+        rows.append(row);
+    }
+    songs.finish();
+
+    QHash<QString, QString> exactFiles;
+    QHash<QString, QList<QPair<int, QString>>> numberedFiles;
+    const QRegularExpression numberedSuffix(QStringLiteral(R"(^(.*) \((\d+)\)$)"));
+    const QFileInfoList files = directory.entryInfoList(QDir::Files | QDir::NoDotAndDotDot,
+                                                        QDir::Name | QDir::IgnoreCase);
+    for (const QFileInfo &file : files) {
+        if (!isSupportedFile(file.absoluteFilePath()) || file.size() <= 0)
+            continue;
+        const QString path = QDir::toNativeSeparators(file.absoluteFilePath());
+        const QString completeBase = file.completeBaseName();
+        exactFiles.insert(completeBase.toCaseFolded(), path);
+        const QRegularExpressionMatch match = numberedSuffix.match(completeBase);
+        if (match.hasMatch()) {
+            const int suffix = match.captured(2).toInt();
+            if (suffix >= 2)
+                numberedFiles[match.captured(1).toCaseFolded()].append({ suffix, path });
+        }
+    }
+    for (auto it = numberedFiles.begin(); it != numberedFiles.end(); ++it) {
+        std::sort(it.value().begin(), it.value().end(), [](const auto &left, const auto &right) {
+            return left.first == right.first ? left.second < right.second : left.first < right.first;
+        });
+    }
+
+    const auto assignPath = [this, &claimedPaths](DownloadRow &row, const QString &candidate) {
+        if (candidate.isEmpty() || claimedPaths.contains(normalizedFileKey(candidate)))
+            return false;
+        QSqlQuery update(m_db);
+        update.prepare(QStringLiteral("UPDATE songs SET download_path=? WHERE id=? AND source>0"));
+        update.addBindValue(candidate);
+        update.addBindValue(row.id);
+        if (!update.exec() || update.numRowsAffected() != 1)
+            return false;
+        row.storedPath = candidate;
+        row.assigned = true;
+        claimedPaths.insert(normalizedFileKey(candidate));
+        return true;
+    };
+
+    // 先匹配无序号的精确文件名，避免把标题本身以“(2)”结尾的歌曲误当作重名副本。
+    for (DownloadRow &row : rows) {
+        if (!row.assigned)
+            assignPath(row, exactFiles.value(row.baseKey));
+    }
+    for (DownloadRow &row : rows) {
+        if (row.assigned)
+            continue;
+        const auto candidates = numberedFiles.value(row.baseKey);
+        for (const auto &candidate : candidates) {
+            if (assignPath(row, candidate.second))
+                break;
+        }
+    }
+}
+
+void LibraryService::removeManagedDownloadImports()
+{
+    if (!m_db.isOpen())
+        return;
+
+    // 旧版本可能把应用下载目录里的文件作为 source=0 再次导入。先把文件按
+    // “歌手 - 歌名”规则绑定回在线记录，再清理重复本地行，避免下载关联丢失。
+    reconcileManagedDownloads();
+
+    const QString managedDownloadDir = SettingsService::onlineDownloadDir();
     if (managedDownloadDir.isEmpty())
         return;
 
-    QList<qint64> importedIds;
+    QHash<QString, qint64> onlineIdsByPath;
+    QSqlQuery onlineRows(m_db);
+    if (onlineRows.exec(QStringLiteral(
+            "SELECT id,download_path FROM songs WHERE source>0 AND download_path<>''"))) {
+        while (onlineRows.next())
+            onlineIdsByPath.insert(normalizedFileKey(onlineRows.value(1).toString()),
+                                   onlineRows.value(0).toLongLong());
+    }
+    onlineRows.finish();
+
+    struct ImportedRow {
+        qint64 id = -1;
+        qint64 onlineId = -1;
+    };
+    QList<ImportedRow> importedRows;
     QSqlQuery find(m_db);
     if (!find.exec(QStringLiteral("SELECT id,path FROM songs WHERE source=0")))
         return;
     while (find.next()) {
-        if (isPathInside(find.value(1).toString(), managedDownloadDir))
-            importedIds.append(find.value(0).toLongLong());
+        const QString path = find.value(1).toString();
+        if (isPathInside(path, managedDownloadDir))
+            importedRows.append({ find.value(0).toLongLong(),
+                                  onlineIdsByPath.value(normalizedFileKey(path), -1) });
     }
     find.finish();
-    if (importedIds.isEmpty() || !m_db.transaction())
+    if (importedRows.isEmpty() || !m_db.transaction())
         return;
 
     bool ok = true;
-    for (const qint64 id : importedIds) {
+    for (const ImportedRow &row : importedRows) {
+        if (row.onlineId > 0) {
+            QSqlQuery memberships(m_db);
+            memberships.prepare(QStringLiteral(
+                "INSERT OR IGNORE INTO playlist_songs(playlist_id,song_id,position) "
+                "SELECT playlist_id,?,position FROM playlist_songs WHERE song_id=?"));
+            memberships.addBindValue(row.onlineId);
+            memberships.addBindValue(row.id);
+            ok = memberships.exec();
+
+            QSqlQuery recentValue(m_db);
+            recentValue.prepare(QStringLiteral("SELECT played_ms FROM recent WHERE song_id=?"));
+            recentValue.addBindValue(row.id);
+            if (ok) {
+                ok = recentValue.exec();
+                if (ok && recentValue.next()) {
+                    const qint64 playedMs = recentValue.value(0).toLongLong();
+                    recentValue.finish();
+                    QSqlQuery copyRecent(m_db);
+                    copyRecent.prepare(QStringLiteral(
+                        "INSERT INTO recent(song_id,played_ms) VALUES(?,?) "
+                        "ON CONFLICT(song_id) DO UPDATE SET played_ms=MAX(played_ms,excluded.played_ms)"));
+                    copyRecent.addBindValue(row.onlineId);
+                    copyRecent.addBindValue(playedMs);
+                    ok = copyRecent.exec();
+                }
+            }
+
+            QSqlQuery mergeMetadata(m_db);
+            mergeMetadata.prepare(QStringLiteral(
+                "UPDATE songs SET "
+                "play_count=MAX(play_count,COALESCE((SELECT play_count FROM songs WHERE id=?),0)),"
+                "last_played_ms=MAX(last_played_ms,COALESCE((SELECT last_played_ms FROM songs WHERE id=?),0)),"
+                "cover_path=CASE WHEN cover_path='' THEN COALESCE((SELECT cover_path FROM songs WHERE id=?),'') "
+                "ELSE cover_path END WHERE id=?"));
+            mergeMetadata.addBindValue(row.id);
+            mergeMetadata.addBindValue(row.id);
+            mergeMetadata.addBindValue(row.id);
+            mergeMetadata.addBindValue(row.onlineId);
+            if (ok)
+                ok = mergeMetadata.exec();
+        }
+        if (!ok)
+            break;
         for (const QString &sql : {
                  QStringLiteral("DELETE FROM playlist_songs WHERE song_id=?"),
                  QStringLiteral("DELETE FROM recent WHERE song_id=?"),
@@ -877,7 +1064,7 @@ void LibraryService::removeManagedDownloadImports()
                  QStringLiteral("DELETE FROM songs WHERE id=?") }) {
             QSqlQuery remove(m_db);
             remove.prepare(sql);
-            remove.addBindValue(id);
+            remove.addBindValue(row.id);
             if (!remove.exec()) {
                 ok = false;
                 break;
@@ -970,6 +1157,8 @@ void LibraryService::reloadSongs()
     if (!m_db.isOpen())
         return;
 
+    reconcileManagedDownloads();
+
     // song_cache 是缓存的唯一事实来源。启动时清掉数据库中已经不存在的缓存记录，
     // 同时把旧版本遗留的线上 missing 标记恢复为可用状态。
     QSqlQuery cacheRows(m_db);
@@ -988,18 +1177,8 @@ void LibraryService::reloadSongs()
             clear.exec();
         }
     }
-    QSqlQuery downloadRows(m_db);
-    downloadRows.exec(QStringLiteral("SELECT id,download_path FROM songs WHERE source>0 AND download_path<>''"));
-    while (downloadRows.next()) {
-        const qint64 songId = downloadRows.value(0).toLongLong();
-        const QString path = downloadRows.value(1).toString();
-        if (!QFileInfo::exists(path) || QFileInfo(path).size() <= 0) {
-            QSqlQuery clear(m_db);
-            clear.prepare(QStringLiteral("UPDATE songs SET download_path='' WHERE id=?"));
-            clear.addBindValue(songId);
-            clear.exec();
-        }
-    }
+    // 永久下载路径即使暂时不可访问也必须保留。Song::isDownloaded() 会根据文件
+    // 是否真实存在决定当前状态；路径保留后，磁盘或权限恢复时歌曲会自动重新出现。
     QSqlQuery repair(m_db);
     repair.exec(QStringLiteral("UPDATE songs SET missing=0 WHERE source>0"));
     repair.exec(QStringLiteral("UPDATE songs SET cache_path='' WHERE source=0"));
@@ -1381,24 +1560,6 @@ QString LibraryService::downloadDir() const
     return dir;
 }
 
-namespace {
-
-QString safeDownloadPart(QString value)
-{
-    value = value.trimmed();
-    value.replace(QRegularExpression(QStringLiteral(R"([<>:"/\\|?*])")), QStringLiteral("_"));
-    value.replace(QRegularExpression(QStringLiteral("[\\x00-\\x1F]")), QStringLiteral("_"));
-    while (value.endsWith(QLatin1Char('.')) || value.endsWith(QLatin1Char(' ')))
-        value.chop(1);
-    if (value.isEmpty())
-        value = QStringLiteral("未知");
-    if (value.size() > 80)
-        value = value.left(80).trimmed();
-    return value;
-}
-
-}
-
 QString LibraryService::downloadFilePathFor(const Song &song) const
 {
     if (!song.isOnline() || song.onlineId <= 0)
@@ -1407,10 +1568,7 @@ QString LibraryService::downloadFilePathFor(const Song &song) const
         && QFileInfo(song.downloadPath).size() > 0)
         return song.downloadPath;
 
-    const QString title = song.title.isEmpty() ? QStringLiteral("歌曲_%1").arg(song.onlineId)
-                                               : song.title;
-    const QString artist = song.artist.isEmpty() ? QStringLiteral("未知歌手") : song.artist;
-    const QString base = safeDownloadPart(artist) + QStringLiteral(" - ") + safeDownloadPart(title);
+    const QString base = downloadBaseName(song.title, song.artist, song.onlineId);
     QString path = QDir(downloadDir()).filePath(base + QStringLiteral(".mp3"));
     int suffix = 2;
     while (QFileInfo::exists(path))
