@@ -147,6 +147,7 @@ Start-Process $exe -ArgumentList "--folder `"$tmp`"","--db `"$tmp\t.db`"","--pag
 - 后台扫描连接曾在 `QSqlQuery` / `QSqlDatabase` 句柄仍存活时调用 `removeDatabase()`，退出又只等待 3 秒；现在扫描支持中断，严格先析构查询和连接句柄，再移除连接，退出会等待安全收尾。
 - 主库启动执行 `PRAGMA quick_check`；索引损坏时先把 db/wal/shm 备份到 `db-backups/automatic-*`，再 `REINDEX` 并复检，同时清理悬空 `song_cache` / `playlist_songs`。
 - 数据库恢复现在使用 `FULL` checkpoint 后的毫秒级唯一备份；`REINDEX` 报错后仍以复检结果为准。若确认是 WAL 损坏，会在安全备份后关闭全部连接、丢弃 WAL/SHM 并重新验证已落盘主库。正常退出还会执行 `TRUNCATE` checkpoint。
+- 如果主库本身仍无法通过检查，会从 `NOT INDEXED` 扫描中尽可能迁移歌曲、歌单、歌单关联、缓存和最近播放记录到新库；损坏源文件会随自动备份保留，无法读取的个别行会被跳过并记录警告。
 - 正式应用使用 `QLockFile` 限制为单实例，避免两个播放器进程同时维护同一个 SQLite/WAL；带 `--db` 的隔离测试不受此限制。
 - 播放前重新绑定 Windows 当前默认音频输出；优先使用 `Song::cachePath`，缓存无法解码时清掉失效记录并回退在线地址，播放失败会在播放器来源徽标显示原因。
 - 歌单添加改成事务写入、提交后 membership 回查；成功显示“已添加到…”提示，失败显示具体错误。创建成功留在自建歌单总览，避免详情页与侧栏高亮错位。

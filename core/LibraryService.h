@@ -68,6 +68,7 @@ signals:
 
 private:
     void reloadSongs();
+    bool recoverCorruptDatabase(const QString &backupPath, QString *error);
     void startWorker(const QStringList &folders);
     void onWatchChange(const QString &path);
     void evictCacheIfNeeded();

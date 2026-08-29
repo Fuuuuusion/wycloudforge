@@ -13,6 +13,8 @@
 #include <QFileSystemWatcher>
 #include <QSqlError>
 #include <QSqlQuery>
+#include <QSqlRecord>
+#include <QSet>
 #include <QStandardPaths>
 #include <QThread>
 #include <QTimer>
@@ -103,6 +105,82 @@ void closeDatabaseConnection(QSqlDatabase *database)
     *database = QSqlDatabase();
     if (!connectionName.isEmpty() && QSqlDatabase::contains(connectionName))
         QSqlDatabase::removeDatabase(connectionName);
+}
+
+struct RecoveryRows
+{
+    QList<QVariantList> rows;
+    QString error;
+};
+
+RecoveryRows readRecoveryRows(const QSqlDatabase &database, const QString &sql)
+{
+    RecoveryRows result;
+    QSqlQuery query(database);
+    if (!query.exec(sql)) {
+        result.error = query.lastError().text();
+        return result;
+    }
+    const int columnCount = query.record().count();
+    while (query.next()) {
+        QVariantList row;
+        row.reserve(columnCount);
+        for (int column = 0; column < columnCount; ++column)
+            row.append(query.value(column));
+        result.rows.append(row);
+    }
+    if (query.lastError().isValid())
+        result.error = query.lastError().text();
+    return result;
+}
+
+bool executeRecoverySql(const QSqlDatabase &database, const QString &sql, QString *error)
+{
+    QSqlQuery query(database);
+    if (query.exec(sql))
+        return true;
+    if (error)
+        *error = query.lastError().text();
+    return false;
+}
+
+bool createRecoverySchema(const QSqlDatabase &database, QString *error)
+{
+    const QStringList statements = {
+        QStringLiteral("CREATE TABLE songs(id INTEGER PRIMARY KEY AUTOINCREMENT,path TEXT NOT NULL UNIQUE,title TEXT DEFAULT '',artist TEXT DEFAULT '',album TEXT DEFAULT '',duration_ms INTEGER DEFAULT 0,cover_path TEXT DEFAULT '',has_cover INTEGER DEFAULT 0,missing INTEGER DEFAULT 0,play_count INTEGER DEFAULT 0,last_played_ms INTEGER DEFAULT 0,source INTEGER DEFAULT 0,online_id INTEGER DEFAULT 0,cover_url TEXT DEFAULT '',cache_path TEXT DEFAULT '',album_id INTEGER DEFAULT 0)"),
+        QStringLiteral("CREATE TABLE playlists(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL UNIQUE,cover_path TEXT DEFAULT '',description TEXT DEFAULT '',created_ms INTEGER DEFAULT 0)"),
+        QStringLiteral("CREATE TABLE song_cache(song_id INTEGER PRIMARY KEY,cache_path TEXT NOT NULL,size_bytes INTEGER DEFAULT 0,last_used_ms INTEGER DEFAULT 0)"),
+        QStringLiteral("CREATE TABLE playlist_songs(playlist_id INTEGER NOT NULL,song_id INTEGER NOT NULL,position INTEGER NOT NULL,PRIMARY KEY(playlist_id,song_id))"),
+        QStringLiteral("CREATE TABLE recent(song_id INTEGER PRIMARY KEY,played_ms INTEGER NOT NULL)")
+    };
+    for (const QString &statement : statements) {
+        if (!executeRecoverySql(database, statement, error))
+            return false;
+    }
+    return executeRecoverySql(database, QStringLiteral(
+        "CREATE UNIQUE INDEX idx_songs_source_online ON songs(source, online_id) "
+        "WHERE source>0 AND online_id>0"), error);
+}
+
+template<typename RowWriter>
+bool writeRecoveryRows(const QSqlDatabase &database, const QList<QVariantList> &rows,
+                       const QString &sql, RowWriter &&writer, QString *error)
+{
+    QSqlQuery query(database);
+    for (const QVariantList &row : rows) {
+        query.clear();
+        if (!query.prepare(sql)) {
+            if (error)
+                *error = query.lastError().text();
+            return false;
+        }
+        if (!writer(query, row))
+            continue;
+        if (!query.exec()) {
+            qWarning() << "Skipping unrecoverable database row:" << query.lastError().text();
+        }
+    }
+    return true;
 }
 
 class ScanWorker : public QObject
@@ -294,6 +372,203 @@ QString LibraryService::lastError() const
     return m_db.isValid() ? m_db.lastError().text() : QStringLiteral("invalid db handle");
 }
 
+bool LibraryService::recoverCorruptDatabase(const QString &backupPath, QString *error)
+{
+    if (backupPath.isEmpty()) {
+        if (error)
+            *error = QStringLiteral("安全备份路径为空");
+        return false;
+    }
+
+    // 先从未使用索引的表扫描中尽可能提取用户数据。索引损坏时，NOT INDEXED
+    // 仍有机会读取表本身；读取失败的行会被跳过，而原库始终保留在备份中。
+    const RecoveryRows songs = readRecoveryRows(m_db, QStringLiteral(
+        "SELECT id,path,title,artist,album,duration_ms,cover_path,has_cover,missing,"
+        "play_count,last_played_ms,source,online_id,cover_url,cache_path,album_id "
+        "FROM songs NOT INDEXED ORDER BY rowid"));
+    const RecoveryRows playlists = readRecoveryRows(m_db, QStringLiteral(
+        "SELECT id,name,cover_path,description,created_ms FROM playlists NOT INDEXED ORDER BY rowid"));
+    const RecoveryRows caches = readRecoveryRows(m_db, QStringLiteral(
+        "SELECT song_id,cache_path,size_bytes,last_used_ms FROM song_cache NOT INDEXED ORDER BY rowid"));
+    const RecoveryRows memberships = readRecoveryRows(m_db, QStringLiteral(
+        "SELECT playlist_id,song_id,position FROM playlist_songs NOT INDEXED ORDER BY rowid"));
+    const RecoveryRows recent = readRecoveryRows(m_db, QStringLiteral(
+        "SELECT song_id,played_ms FROM recent NOT INDEXED ORDER BY rowid"));
+
+    const auto reportReadError = [](const QString &table, const RecoveryRows &result) {
+        if (!result.error.isEmpty())
+            qWarning() << "Partial database recovery for" << table << ":" << result.error
+                       << "rows:" << result.rows.size();
+    };
+    reportReadError(QStringLiteral("songs"), songs);
+    reportReadError(QStringLiteral("playlists"), playlists);
+    reportReadError(QStringLiteral("song_cache"), caches);
+    reportReadError(QStringLiteral("playlist_songs"), memberships);
+    reportReadError(QStringLiteral("recent"), recent);
+
+    const QString recoveredPath = m_dbPath + QStringLiteral(".recovered-")
+        + QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss-zzz"));
+    const QString connectionName = QStringLiteral("recovery_%1").arg(quintptr(this));
+    QSqlDatabase recovered = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+    recovered.setDatabaseName(recoveredPath);
+    if (!recovered.open()) {
+        if (error)
+            *error = recovered.lastError().text();
+        recovered = QSqlDatabase();
+        QSqlDatabase::removeDatabase(connectionName);
+        return false;
+    }
+    {
+        QSqlQuery pragma(recovered);
+        if (!pragma.exec(QStringLiteral("PRAGMA synchronous=FULL"))) {
+            if (error)
+                *error = pragma.lastError().text();
+            recovered.close();
+            recovered = QSqlDatabase();
+            QSqlDatabase::removeDatabase(connectionName);
+            QFile::remove(recoveredPath);
+            return false;
+        }
+    }
+    QString recoveryError;
+    if (!createRecoverySchema(recovered, &recoveryError)) {
+        if (error)
+            *error = recoveryError;
+        recovered.close();
+        recovered = QSqlDatabase();
+        QSqlDatabase::removeDatabase(connectionName);
+        QFile::remove(recoveredPath);
+        return false;
+    }
+
+    if (!executeRecoverySql(recovered,
+                            QStringLiteral("INSERT INTO playlists(id,name,created_ms) VALUES(1,'我喜欢的音乐',0)"),
+                            &recoveryError)) {
+        if (error)
+            *error = recoveryError;
+        recovered.close();
+        recovered = QSqlDatabase();
+        QSqlDatabase::removeDatabase(connectionName);
+        QFile::remove(recoveredPath);
+        return false;
+    }
+
+    if (!executeRecoverySql(recovered, QStringLiteral("BEGIN"), &recoveryError)) {
+        if (error)
+            *error = recoveryError;
+        recovered.close();
+        recovered = QSqlDatabase();
+        QSqlDatabase::removeDatabase(connectionName);
+        QFile::remove(recoveredPath);
+        return false;
+    }
+    QSet<QString> paths;
+    QSet<QString> onlineKeys;
+    const bool songsWritten = writeRecoveryRows(recovered, songs.rows, QStringLiteral(
+        "INSERT OR IGNORE INTO songs(id,path,title,artist,album,duration_ms,cover_path,has_cover,missing,"
+        "play_count,last_played_ms,source,online_id,cover_url,cache_path,album_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"),
+        [&paths, &onlineKeys](QSqlQuery &query, const QVariantList &row) {
+            if (row.size() != 16)
+                return false;
+            const QString path = row.at(1).toString();
+            if (path.isEmpty() || paths.contains(path))
+                return false;
+            const int source = row.at(11).toInt();
+            const qint64 onlineId = row.at(12).toLongLong();
+            const QString onlineKey = QStringLiteral("%1:%2").arg(source).arg(onlineId);
+            if (source > 0 && onlineId > 0 && onlineKeys.contains(onlineKey))
+                return false;
+            paths.insert(path);
+            if (source > 0 && onlineId > 0)
+                onlineKeys.insert(onlineKey);
+            for (const QVariant &value : row)
+                query.addBindValue(value);
+            return true;
+        }, &recoveryError);
+    const bool playlistsWritten = writeRecoveryRows(recovered, playlists.rows, QStringLiteral(
+        "INSERT OR IGNORE INTO playlists(id,name,cover_path,description,created_ms) VALUES(?,?,?,?,?)"),
+        [](QSqlQuery &query, const QVariantList &row) {
+            if (row.size() != 5 || row.at(1).toString().isEmpty())
+                return false;
+            for (const QVariant &value : row)
+                query.addBindValue(value);
+            return true;
+        }, &recoveryError);
+    const bool membershipsWritten = writeRecoveryRows(recovered, memberships.rows, QStringLiteral(
+        "INSERT OR IGNORE INTO playlist_songs(playlist_id,song_id,position) VALUES(?,?,?)"),
+        [](QSqlQuery &query, const QVariantList &row) {
+            if (row.size() != 3)
+                return false;
+            for (const QVariant &value : row)
+                query.addBindValue(value);
+            return true;
+        }, &recoveryError);
+    const bool cachesWritten = writeRecoveryRows(recovered, caches.rows, QStringLiteral(
+        "INSERT OR REPLACE INTO song_cache(song_id,cache_path,size_bytes,last_used_ms) VALUES(?,?,?,?)"),
+        [](QSqlQuery &query, const QVariantList &row) {
+            if (row.size() != 4 || row.at(1).toString().isEmpty())
+                return false;
+            for (const QVariant &value : row)
+                query.addBindValue(value);
+            return true;
+        }, &recoveryError);
+    const bool recentWritten = writeRecoveryRows(recovered, recent.rows, QStringLiteral(
+        "INSERT OR REPLACE INTO recent(song_id,played_ms) VALUES(?,?)"),
+        [](QSqlQuery &query, const QVariantList &row) {
+            if (row.size() != 2)
+                return false;
+            for (const QVariant &value : row)
+                query.addBindValue(value);
+            return true;
+        }, &recoveryError);
+    const bool committed = songsWritten && playlistsWritten && membershipsWritten && cachesWritten
+        && recentWritten && executeRecoverySql(recovered, QStringLiteral("COMMIT"), &recoveryError);
+    if (!committed) {
+        QSqlQuery rollback(recovered);
+        rollback.exec(QStringLiteral("ROLLBACK"));
+        if (error)
+            *error = recoveryError;
+        recovered.close();
+        recovered = QSqlDatabase();
+        QSqlDatabase::removeDatabase(connectionName);
+        QFile::remove(recoveredPath);
+        return false;
+    }
+    recovered.close();
+    recovered = QSqlDatabase();
+    QSqlDatabase::removeDatabase(connectionName);
+
+    closeDatabaseConnection(&m_db);
+    const QString corruptDb = backupPath + QStringLiteral("/corrupt-library.db");
+    const QString corruptWal = backupPath + QStringLiteral("/corrupt-library.db-wal");
+    const QString corruptShm = backupPath + QStringLiteral("/corrupt-library.db-shm");
+    const auto moveAside = [](const QString &source, const QString &destination) {
+        return !QFileInfo::exists(source) || QFile::rename(source, destination);
+    };
+    if (!moveAside(m_dbPath, corruptDb)
+        || !moveAside(m_dbPath + QStringLiteral("-wal"), corruptWal)
+        || !moveAside(m_dbPath + QStringLiteral("-shm"), corruptShm)
+        || !QFile::rename(recoveredPath, m_dbPath)) {
+        if (QFileInfo::exists(corruptDb) && !QFileInfo::exists(m_dbPath))
+            QFile::rename(corruptDb, m_dbPath);
+        if (QFileInfo::exists(corruptWal) && !QFileInfo::exists(m_dbPath + QStringLiteral("-wal")))
+            QFile::rename(corruptWal, m_dbPath + QStringLiteral("-wal"));
+        if (QFileInfo::exists(corruptShm) && !QFileInfo::exists(m_dbPath + QStringLiteral("-shm")))
+            QFile::rename(corruptShm, m_dbPath + QStringLiteral("-shm"));
+        QFile::remove(recoveredPath);
+        if (error)
+            *error = QStringLiteral("无法替换损坏数据库文件");
+        openConfiguredDatabase(&m_db, m_dbPath, &m_lastError);
+        return false;
+    }
+    if (!openConfiguredDatabase(&m_db, m_dbPath, &m_lastError)) {
+        if (error)
+            *error = m_lastError;
+        return false;
+    }
+    return true;
+}
+
 bool LibraryService::openDatabase()
 {
     m_lastError.clear();
@@ -355,9 +630,19 @@ bool LibraryService::openDatabase()
             }
             integrityError = databaseIntegrityError(m_db);
             if (!integrityError.isEmpty()) {
-                m_lastError = QStringLiteral("数据库完整性检查失败：%1；备份：%2")
-                                  .arg(integrityError, backupPath);
-                return false;
+                QString recoveryError;
+                if (!recoverCorruptDatabase(backupPath, &recoveryError)) {
+                    m_lastError = QStringLiteral("数据库重建失败：%1；备份：%2")
+                                      .arg(recoveryError.isEmpty() ? integrityError : recoveryError, backupPath);
+                    return false;
+                }
+                integrityError = databaseIntegrityError(m_db);
+                if (!integrityError.isEmpty()) {
+                    m_lastError = QStringLiteral("数据库重建后完整性检查失败：%1；备份：%2")
+                                      .arg(integrityError, backupPath);
+                    return false;
+                }
+                qWarning() << "Recovered database by rebuilding readable rows; backup:" << backupPath;
             }
             qWarning() << "Recovered database by discarding corrupt WAL; backup:" << backupPath
                        << "checkpoint:" << checkpointError << "reindex:" << repairError;
