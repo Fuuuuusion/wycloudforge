@@ -130,7 +130,6 @@ void RecommendPage::buildDaily(const QJsonArray &arr)
         const QString path = m_lib->songCoverCachePath(song);
         if (QFileInfo::exists(path) && QFileInfo(path).size() > 0) {
             m_lib->setSongCoverPath(song.id, path);
-            updateDailySongCover(song.id, path);
             continue;
         }
         const qint64 songId = song.id;
@@ -138,25 +137,8 @@ void RecommendPage::buildDaily(const QJsonArray &arr)
             if (!ok || !m_lib)
                 return;
             m_lib->setSongCoverPath(songId, path);
-            updateDailySongCover(songId, path);
         });
     }
-}
-
-void RecommendPage::updateDailySongCover(qint64 songId, const QString &path)
-{
-    if (!m_list || path.isEmpty() || !QFileInfo::exists(path))
-        return;
-    auto songs = m_list->songs();
-    bool changed = false;
-    for (core::Song &song : songs) {
-        if (song.id == songId && song.coverPath != path) {
-            song.coverPath = path;
-            changed = true;
-        }
-    }
-    if (changed)
-        m_list->setSongs(songs);
 }
 
 void RecommendPage::buildPlaylists(const QJsonArray &arr)

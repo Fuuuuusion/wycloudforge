@@ -56,6 +56,7 @@ private:
     void openOnlinePlaylist(qint64 id, const QString &name);
     void hydrateOnlineCovers(const QList<core::Song> &songs);
     void ensureOnlineCovers(const QList<core::Song> &songs);
+    void startOnlineCoverDownloads();
     void openAccount();
     void openSettings();
     void openPlaylistEditor(int playlistId);
@@ -67,9 +68,7 @@ private:
     void refreshAllPages();
     void restoreOnlineSession();
     void onCurrentSongChanged(const core::Song &song, int index);
-    void enrichLocalMetadata(const QList<core::Song> &songs);
     void enrichLocalSong(const core::Song &song);
-    void processMetadataQueue();
     void searchLocalMetadata(const core::Song &song);
     void resolveLocalMetadataMatch(const core::Song &song, const QJsonArray &items, bool exactHash);
     void refreshCurrentSongMetadata(qint64 songId);
@@ -113,10 +112,11 @@ private:
     bool m_restoredLastSong = false;
     bool m_apiReady = false;
     QSet<QString> m_metadataAttempted;
-    QSet<QString> m_metadataQueued;
-    QList<core::Song> m_metadataQueue;
     QSet<qint64> m_onlineCoverAttempted;
     QSet<qint64> m_onlineCoverDetailsAttempted;
+    QList<core::Song> m_onlineCoverQueue;
+    int m_onlineCoverDownloadsActive = 0;
+    bool m_onlineCoverDetailsInFlight = false;
     QTimer m_libraryRefreshTimer{ this };
-    QTimer m_metadataTimer{ this };
+    QTimer m_coverRefreshTimer{ this };
 };

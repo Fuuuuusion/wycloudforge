@@ -72,6 +72,7 @@ signals:
     void scanProgress(int scanned, int total);
     void scanFinished(int added, int removed);
     void libraryChanged();
+    void songCoverChanged(qint64 songId);
     void cacheChanged();
 
 private:

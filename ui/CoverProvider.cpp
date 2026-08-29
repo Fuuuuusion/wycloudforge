@@ -1,6 +1,7 @@
 #include "CoverProvider.h"
 
 #include <QFileInfo>
+#include <QImageReader>
 #include <QPainter>
 #include <QPainterPath>
 
@@ -58,7 +59,13 @@ QPixmap CoverProvider::coverFor(const core::Song &song, int size, qreal radius)
 
     QPixmap result;
     if (!song.coverPath.isEmpty() && QFileInfo::exists(song.coverPath)) {
-        QPixmap raw(song.coverPath);
+        QImageReader reader(song.coverPath);
+        QSize decodedSize = reader.size();
+        if (decodedSize.isValid()) {
+            decodedSize.scale(size, size, Qt::KeepAspectRatioByExpanding);
+            reader.setScaledSize(decodedSize);
+        }
+        const QPixmap raw = QPixmap::fromImage(reader.read());
         if (!raw.isNull())
             result = rounded(scaledToCover(raw, size), radius);
     }

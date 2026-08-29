@@ -2,6 +2,7 @@
 
 #include <QFile>
 #include <QFileInfo>
+#include <QDateTime>
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QNetworkAccessManager>
@@ -310,7 +311,9 @@ void NeteaseApiClient::comments(qint64 id, int offset, int limit, OkFn ok, ErrFn
 
 void NeteaseApiClient::qrKey(StringFn ok, ErrFn err)
 {
-    get(QStringLiteral("/login/qr/key"), QUrlQuery(),
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("timestamp"), QString::number(QDateTime::currentMSecsSinceEpoch()));
+    get(QStringLiteral("/login/qr/key"), q,
         [ok](const QJsonObject &obj) { ok(obj.value(QStringLiteral("data")).toObject().value(QStringLiteral("unikey")).toString()); }, err);
 }
 
@@ -319,6 +322,7 @@ void NeteaseApiClient::qrCreate(const QString &key, StringFn ok, ErrFn err)
     QUrlQuery q;
     q.addQueryItem(QStringLiteral("key"), key);
     q.addQueryItem(QStringLiteral("qrimg"), QStringLiteral("true"));
+    q.addQueryItem(QStringLiteral("timestamp"), QString::number(QDateTime::currentMSecsSinceEpoch()));
     get(QStringLiteral("/login/qr/create"), q,
         [ok](const QJsonObject &obj) { ok(obj.value(QStringLiteral("data")).toObject().value(QStringLiteral("qrimg")).toString()); }, err);
 }
@@ -327,17 +331,22 @@ void NeteaseApiClient::qrCheck(const QString &key, OkFn ok, ErrFn err)
 {
     QUrlQuery q;
     q.addQueryItem(QStringLiteral("key"), key);
+    q.addQueryItem(QStringLiteral("timestamp"), QString::number(QDateTime::currentMSecsSinceEpoch()));
     get(QStringLiteral("/login/qr/check"), q, ok, err);
 }
 
 void NeteaseApiClient::loginStatus(OkFn ok, ErrFn err)
 {
-    get(QStringLiteral("/login/status"), QUrlQuery(), ok, err);
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("timestamp"), QString::number(QDateTime::currentMSecsSinceEpoch()));
+    get(QStringLiteral("/login/status"), q, ok, err);
 }
 
 void NeteaseApiClient::logout(OkFn ok, ErrFn err)
 {
-    get(QStringLiteral("/logout"), QUrlQuery(), ok, err);
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("timestamp"), QString::number(QDateTime::currentMSecsSinceEpoch()));
+    get(QStringLiteral("/logout"), q, ok, err);
 }
 
 void NeteaseApiClient::userPlaylists(qint64 uid, JsonArrayFn ok, ErrFn err)

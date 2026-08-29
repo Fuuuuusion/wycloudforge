@@ -13,6 +13,13 @@ class QVBoxLayout;
 namespace ui {
 
 class SongListView;
+}
+
+namespace core {
+class LibraryService;
+}
+
+namespace ui {
 
 class LibraryPage : public QWidget
 {
@@ -21,6 +28,7 @@ public:
     explicit LibraryPage(QWidget *parent = nullptr);
 
     void setSongs(const QList<core::Song> &songs, qint64 playingId);
+    void refreshCovers(core::LibraryService *library);
     QList<core::Song> currentSongs() const;
     void setPlaylistMenuItems(const QList<QPair<int, QString>> &items);
 

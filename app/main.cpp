@@ -7,11 +7,56 @@
 #include <QDir>
 #include <QFile>
 #include <QLockFile>
-#include <QMessageBox>
 #include <QPalette>
 #include <QStandardPaths>
 #include <QtCore/qtenvironmentvariables.h>
 #include <QTimer>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+
+namespace {
+
+#ifdef Q_OS_WIN
+struct WindowSearch
+{
+    DWORD processId = 0;
+    HWND window = nullptr;
+};
+
+BOOL CALLBACK findProcessWindow(HWND window, LPARAM parameter)
+{
+    auto *search = reinterpret_cast<WindowSearch *>(parameter);
+    DWORD processId = 0;
+    GetWindowThreadProcessId(window, &processId);
+    if (processId != search->processId || GetWindow(window, GW_OWNER) != nullptr
+        || !IsWindowVisible(window) || GetWindowTextLengthW(window) <= 0)
+        return TRUE;
+    search->window = window;
+    return FALSE;
+}
+
+void activateExistingInstance(qint64 processId)
+{
+    if (processId <= 0)
+        return;
+    WindowSearch search;
+    search.processId = DWORD(processId);
+    EnumWindows(findProcessWindow, reinterpret_cast<LPARAM>(&search));
+    if (!search.window)
+        return;
+    ShowWindowAsync(search.window, IsIconic(search.window) ? SW_RESTORE : SW_SHOW);
+    BringWindowToTop(search.window);
+    SetForegroundWindow(search.window);
+}
+#else
+void activateExistingInstance(qint64)
+{
+}
+#endif
+
+} // namespace
 
 int main(int argc, char *argv[])
 {
@@ -22,6 +67,22 @@ int main(int argc, char *argv[])
     QApplication::setOrganizationName(QStringLiteral("NeteaseClone"));
     QApplication::setApplicationName(QStringLiteral("NeteaseClone"));
     QApplication::setApplicationDisplayName(QStringLiteral("仿网易云播放器"));
+
+    // 尽可能早地完成单实例判断。第二次启动无需加载主题、字体和播放器界面，
+    // 只负责唤醒已有窗口后立即退出。
+    const QStringList args = app.arguments();
+    const bool isolatedTestRun = args.contains(QStringLiteral("--db"));
+    const QString appDataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QDir().mkpath(appDataDir);
+    QLockFile instanceLock(appDataDir + QStringLiteral("/NeteaseClone.lock"));
+    if (!isolatedTestRun && !instanceLock.tryLock(100)) {
+        qint64 ownerProcessId = 0;
+        QString ownerHost;
+        QString ownerApplication;
+        if (instanceLock.getLockInfo(&ownerProcessId, &ownerHost, &ownerApplication))
+            activateExistingInstance(ownerProcessId);
+        return 0;
+    }
 
     // Fusion 样式:与 QSS 完全兼容,避免 Windows 原生样式导致的"灰框"回退
     app.setStyle(QStringLiteral("Fusion"));
@@ -47,17 +108,6 @@ int main(int argc, char *argv[])
     QFile qss(QStringLiteral(":/theme.qss"));
     if (qss.open(QIODevice::ReadOnly | QIODevice::Text))
         app.setStyleSheet(QString::fromUtf8(qss.readAll()));
-
-    const QStringList args = app.arguments();
-    const bool isolatedTestRun = args.contains(QStringLiteral("--db"));
-    const QString appDataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    QDir().mkpath(appDataDir);
-    QLockFile instanceLock(appDataDir + QStringLiteral("/NeteaseClone.lock"));
-    if (!isolatedTestRun && !instanceLock.tryLock(100)) {
-        QMessageBox::information(nullptr, QStringLiteral("仿网易云播放器"),
-                                 QStringLiteral("应用已经在运行，请使用现有窗口。"));
-        return 0;
-    }
 
     QStringList folders = core::SettingsService::musicFolders();
     int startPage = -1;

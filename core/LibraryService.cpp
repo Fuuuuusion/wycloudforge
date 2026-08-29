@@ -11,6 +11,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QFileSystemWatcher>
+#include <QHash>
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QSqlRecord>
@@ -33,6 +34,16 @@ const QStringList kSupportedSuffixes = { QStringLiteral("mp3"), QStringLiteral("
 bool isSupportedFile(const QString &path)
 {
     return kSupportedSuffixes.contains(QFileInfo(path).suffix().toLower());
+}
+
+QString normalizedFileKey(const QString &path)
+{
+    const QString clean = QDir::cleanPath(path);
+#ifdef Q_OS_WIN
+    return clean.toCaseFolded();
+#else
+    return clean;
+#endif
 }
 
 QString coverCacheDir()
@@ -153,7 +164,7 @@ bool executeRecoverySql(const QSqlDatabase &database, const QString &sql, QStrin
 bool createRecoverySchema(const QSqlDatabase &database, QString *error)
 {
     const QStringList statements = {
-        QStringLiteral("CREATE TABLE songs(id INTEGER PRIMARY KEY AUTOINCREMENT,path TEXT NOT NULL UNIQUE,title TEXT DEFAULT '',artist TEXT DEFAULT '',album TEXT DEFAULT '',duration_ms INTEGER DEFAULT 0,cover_path TEXT DEFAULT '',has_cover INTEGER DEFAULT 0,missing INTEGER DEFAULT 0,play_count INTEGER DEFAULT 0,last_played_ms INTEGER DEFAULT 0,source INTEGER DEFAULT 0,online_id INTEGER DEFAULT 0,cover_url TEXT DEFAULT '',cache_path TEXT DEFAULT '',album_id INTEGER DEFAULT 0,download_path TEXT DEFAULT '')"),
+        QStringLiteral("CREATE TABLE songs(id INTEGER PRIMARY KEY AUTOINCREMENT,path TEXT NOT NULL UNIQUE,title TEXT DEFAULT '',artist TEXT DEFAULT '',album TEXT DEFAULT '',duration_ms INTEGER DEFAULT 0,cover_path TEXT DEFAULT '',has_cover INTEGER DEFAULT 0,missing INTEGER DEFAULT 0,play_count INTEGER DEFAULT 0,last_played_ms INTEGER DEFAULT 0,source INTEGER DEFAULT 0,online_id INTEGER DEFAULT 0,cover_url TEXT DEFAULT '',cache_path TEXT DEFAULT '',album_id INTEGER DEFAULT 0,download_path TEXT DEFAULT '',file_mtime_ms INTEGER DEFAULT 0,file_size INTEGER DEFAULT 0)"),
         QStringLiteral("CREATE TABLE playlists(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL UNIQUE,cover_path TEXT DEFAULT '',description TEXT DEFAULT '',created_ms INTEGER DEFAULT 0)"),
         QStringLiteral("CREATE TABLE song_cache(song_id INTEGER PRIMARY KEY,cache_path TEXT NOT NULL,size_bytes INTEGER DEFAULT 0,last_used_ms INTEGER DEFAULT 0)"),
         QStringLiteral("CREATE TABLE playlist_songs(playlist_id INTEGER NOT NULL,song_id INTEGER NOT NULL,position INTEGER NOT NULL,PRIMARY KEY(playlist_id,song_id))"),
@@ -210,20 +221,21 @@ public slots:
                     q.exec(QStringLiteral("PRAGMA journal_mode=WAL"));
                     q.exec(QStringLiteral("PRAGMA synchronous=FULL"));
 
-                    int total = 0;
-                    for (const QString &folder : folders) {
-                        if (QThread::currentThread()->isInterruptionRequested())
-                            break;
-                        QDirIterator it(folder, QDir::Files, QDirIterator::Subdirectories);
-                        while (it.hasNext()) {
-                            if (QThread::currentThread()->isInterruptionRequested())
-                                break;
-                            it.next();
-                            if (isSupportedFile(it.filePath()))
-                                ++total;
+                    struct Fingerprint {
+                        qint64 modifiedMs = 0;
+                        qint64 size = 0;
+                    };
+                    QHash<QString, Fingerprint> knownFiles;
+                    QSqlQuery known(db);
+                    if (known.exec(QStringLiteral(
+                            "SELECT path,file_mtime_ms,file_size FROM songs WHERE source=0"))) {
+                        while (known.next()) {
+                            knownFiles.insert(normalizedFileKey(known.value(0).toString()),
+                                              { known.value(1).toLongLong(), known.value(2).toLongLong() });
                         }
                     }
-                    emit progress(0, qMax(1, total));
+                    known.finish();
+                    const bool transactionStarted = db.transaction();
 
                     int done = 0;
                     for (const QString &folder : folders) {
@@ -236,6 +248,35 @@ public slots:
                             const QString path = it.next();
                             if (!isSupportedFile(path))
                                 continue;
+                            const QFileInfo fileInfo(path);
+                            const qint64 modifiedMs = fileInfo.lastModified().toMSecsSinceEpoch();
+                            const qint64 fileSize = fileInfo.size();
+                            const auto knownIt = knownFiles.constFind(normalizedFileKey(path));
+                            const bool unchanged = knownIt != knownFiles.constEnd()
+                                && knownIt->modifiedMs == modifiedMs && knownIt->size == fileSize;
+                            if (unchanged) {
+                                ++done;
+                                if (done % 25 == 0)
+                                    emit progress(done, done);
+                                continue;
+                            }
+                            const bool legacyFingerprint = knownIt != knownFiles.constEnd()
+                                && knownIt->modifiedMs == 0 && knownIt->size == 0;
+                            if (legacyFingerprint) {
+                                // 旧库首次升级只补文件指纹，保留已经读取好的标签；之后仅在
+                                // 大小或修改时间发生变化时才重新调用 TagLib。
+                                QSqlQuery unchanged(db);
+                                unchanged.prepare(QStringLiteral(
+                                    "UPDATE songs SET missing=0,file_mtime_ms=?,file_size=? WHERE path=?"));
+                                unchanged.addBindValue(modifiedMs);
+                                unchanged.addBindValue(fileSize);
+                                unchanged.addBindValue(path);
+                                unchanged.exec();
+                                ++done;
+                                if (done % 25 == 0)
+                                    emit progress(done, done);
+                                continue;
+                            }
                             const TagInfo info = TagReader::read(path);
                             QString coverPath;
                             if (info.hasCover()) {
@@ -253,13 +294,14 @@ public slots:
                             }
                             QSqlQuery ins(db);
                             ins.prepare(QStringLiteral(
-                                "INSERT INTO songs(path,title,artist,album,duration_ms,cover_path,has_cover,missing) "
-                                "VALUES(?,?,?,?,?,?,?,0) "
+                                "INSERT INTO songs(path,title,artist,album,duration_ms,cover_path,has_cover,missing,file_mtime_ms,file_size) "
+                                "VALUES(?,?,?,?,?,?,?,0,?,?) "
                                 "ON CONFLICT(path) DO UPDATE SET title=excluded.title,artist=excluded.artist,"
                                 "album=excluded.album,duration_ms=excluded.duration_ms,"
                                 // 保留此前从网易云获取的封面;文件本身有内嵌封面时则以新封面为准。
                                 "cover_path=CASE WHEN excluded.cover_path <> '' THEN excluded.cover_path ELSE songs.cover_path END,"
-                                "has_cover=CASE WHEN excluded.cover_path <> '' THEN excluded.has_cover ELSE songs.has_cover END,missing=0"));
+                                "has_cover=CASE WHEN excluded.cover_path <> '' THEN excluded.has_cover ELSE songs.has_cover END,"
+                                "missing=0,file_mtime_ms=excluded.file_mtime_ms,file_size=excluded.file_size"));
                             ins.addBindValue(path);
                             ins.addBindValue(info.title);
                             ins.addBindValue(info.artist);
@@ -267,11 +309,13 @@ public slots:
                             ins.addBindValue(info.durationMs);
                             ins.addBindValue(coverPath);
                             ins.addBindValue(info.hasCover() ? 1 : 0);
+                            ins.addBindValue(modifiedMs);
+                            ins.addBindValue(fileSize);
                             if (ins.exec())
                                 ++added;
                             ++done;
                             if (done % 25 == 0)
-                                emit progress(done, qMax(1, total));
+                                emit progress(done, done);
                         }
                     }
 
@@ -299,6 +343,13 @@ public slots:
                                     ++removed;
                             }
                         }
+                    }
+
+                    if (transactionStarted) {
+                        if (QThread::currentThread()->isInterruptionRequested())
+                            db.rollback();
+                        else if (!db.commit())
+                            qWarning() << "Music scan commit failed:" << db.lastError().text();
                     }
 
                     for (const QString &folder : folders) {
@@ -703,6 +754,8 @@ bool LibraryService::openDatabase()
     if (!cols.contains(QStringLiteral("cache_path"))) addCol(QStringLiteral("cache_path"), QStringLiteral("TEXT DEFAULT ''"));
     if (!cols.contains(QStringLiteral("album_id"))) addCol(QStringLiteral("album_id"), QStringLiteral("INTEGER DEFAULT 0"));
     if (!cols.contains(QStringLiteral("download_path"))) addCol(QStringLiteral("download_path"), QStringLiteral("TEXT DEFAULT ''"));
+    if (!cols.contains(QStringLiteral("file_mtime_ms"))) addCol(QStringLiteral("file_mtime_ms"), QStringLiteral("INTEGER DEFAULT 0"));
+    if (!cols.contains(QStringLiteral("file_size"))) addCol(QStringLiteral("file_size"), QStringLiteral("INTEGER DEFAULT 0"));
 
     q.exec(QStringLiteral(
         "CREATE TABLE IF NOT EXISTS playlists("
@@ -1074,20 +1127,24 @@ void LibraryService::fillMissingSongMetadata(qint64 songId, const QString &artis
 
 void LibraryService::setSongCoverPath(qint64 songId, const QString &path)
 {
-    if (!m_db.isOpen())
+    if (!m_db.isOpen() || songId <= 0 || path.isEmpty())
+        return;
+    const Song current = songById(songId);
+    if (current.id <= 0 || current.coverPath == path)
         return;
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral("UPDATE songs SET cover_path=?,has_cover=1 WHERE id=?"));
     q.addBindValue(path);
     q.addBindValue(songId);
-    q.exec();
+    if (!q.exec())
+        return;
     for (Song &s : m_songs) {
         if (s.id == songId) {
             s.coverPath = path;
             break;
         }
     }
-    emit libraryChanged();
+    emit songCoverChanged(songId);
 }
 
 QString LibraryService::cacheDir() const

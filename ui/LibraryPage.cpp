@@ -1,5 +1,6 @@
 #include "LibraryPage.h"
 
+#include "core/LibraryService.h"
 #include "core/SearchService.h"
 #include "ui/CoverCard.h"
 #include "ui/CoverProvider.h"
@@ -90,8 +91,10 @@ LibraryPage::LibraryPage(QWidget *parent)
         m_songList->setDownloadActionMode(id == 3 ? SongListView::DeleteDownloadAction
                                                   : SongListView::DownloadAction);
         applyFilter();
-        rebuildArtists();
-        rebuildAlbums();
+        if (m_stack->currentIndex() == 1)
+            rebuildArtists();
+        else if (m_stack->currentIndex() == 2)
+            rebuildAlbums();
     });
 
     m_stack = new QStackedWidget(this);
@@ -131,7 +134,14 @@ LibraryPage::LibraryPage(QWidget *parent)
 
     layout->addWidget(m_stack, 1);
 
-    connect(group, &QButtonGroup::idClicked, m_stack, &QStackedWidget::setCurrentIndex);
+    connect(group, &QButtonGroup::idClicked, this, [this](int id) {
+        m_stack->setCurrentIndex(id);
+        // 歌手和专辑卡片按需构建，应用启动时不读取不可见页面的所有封面。
+        if (id == 1)
+            rebuildArtists();
+        else if (id == 2)
+            rebuildAlbums();
+    });
     connect(m_songList, &SongListView::playRequested, this, [this](int row) {
         // 歌曲列表可能经过“本地与缓存/在线/已缓存”过滤，行号必须对应当前视图。
         emit playRequested(m_filtered, row);
@@ -160,13 +170,36 @@ void LibraryPage::setSongs(const QList<core::Song> &songs, qint64 playingId)
     m_songs = songs;
     m_playingId = playingId;
     applyFilter();
-    rebuildArtists();
-    rebuildAlbums();
+    if (m_stack->currentIndex() == 1)
+        rebuildArtists();
+    else if (m_stack->currentIndex() == 2)
+        rebuildAlbums();
 }
 
 QList<core::Song> LibraryPage::currentSongs() const
 {
     return m_filtered;
+}
+
+void LibraryPage::refreshCovers(core::LibraryService *library)
+{
+    if (!library)
+        return;
+    bool changed = false;
+    for (core::Song &song : m_songs) {
+        const core::Song stored = library->songById(song.id);
+        if (stored.id > 0 && stored.coverPath != song.coverPath) {
+            song.coverPath = stored.coverPath;
+            changed = true;
+        }
+    }
+    if (!changed)
+        return;
+    applyFilter();
+    if (m_stack->currentIndex() == 1)
+        rebuildArtists();
+    else if (m_stack->currentIndex() == 2)
+        rebuildAlbums();
 }
 
 void LibraryPage::setPlaylistMenuItems(const QList<QPair<int, QString>> &items)
@@ -201,12 +234,10 @@ void LibraryPage::rebuildArtists()
         const auto &a = artists[i];
         auto *card = new CoverCard;
         card->setFixedCardSize(120, 120);
-        QPixmap cover = a.coverPath.isEmpty() ? QPixmap() : QPixmap(a.coverPath);
-        if (cover.isNull())
-            cover = CoverProvider::placeholder(a.name, 120, 60);
-        else
-            cover = cover.scaled(120, 120, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
-        card->setCover(cover);
+        core::Song coverSong;
+        coverSong.coverPath = a.coverPath;
+        coverSong.title = a.name;
+        card->setCover(CoverProvider::coverFor(coverSong, 120, 60));
         card->setRound(true);
         card->setText(a.name, QStringLiteral("%1 首").arg(a.count));
         connect(card, &CoverCard::clicked, this, [this, name = a.name] {
@@ -227,12 +258,10 @@ void LibraryPage::rebuildAlbums()
     for (int i = 0; i < albums.size(); ++i) {
         const auto &a = albums[i];
         auto *card = new CoverCard;
-        QPixmap cover = a.coverPath.isEmpty() ? QPixmap() : QPixmap(a.coverPath);
-        if (cover.isNull())
-            cover = CoverProvider::placeholder(a.name, 150, 8);
-        else
-            cover = cover.scaled(150, 150, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
-        card->setCover(cover);
+        core::Song coverSong;
+        coverSong.coverPath = a.coverPath;
+        coverSong.title = a.name;
+        card->setCover(CoverProvider::coverFor(coverSong, 150, 8));
         card->setText(a.name, a.artist);
         connect(card, &CoverCard::clicked, this, [this, name = a.name, artist = a.artist] {
             emit albumClicked(name, artist);
