@@ -40,6 +40,51 @@ test('keeps large QQ music id as text', () => {
   assert.equal(profile.userId, '9223372036854775808123');
 });
 
+test('normalizes WeChat profile and cloud playlists without narrowing musicid', () => {
+  const raw = {
+    code: 0,
+    data: {
+      creator: {
+        uin: 0,
+        uin_web: '1234567890123456789',
+        nick: '微信昵称',
+        headpic: 'https://example.test/wechat-avatar.jpg',
+      },
+      mydiss: {
+        list: [{
+          dissid: '9223372036854775808124',
+          title: '微信账号歌单',
+          picurl: 'https://example.test/playlist.jpg',
+        }],
+      },
+    },
+  };
+  assert.deepEqual(contract.profilePayload(raw, '1234567890123456789'), {
+    userId: '1234567890123456789',
+    nickname: '微信昵称',
+    avatarUrl: 'https://example.test/wechat-avatar.jpg',
+  });
+  assert.deepEqual(contract.collectPlaylists(raw), [{
+    remoteId: '9223372036854775808124',
+    name: '微信账号歌单',
+    coverUrl: 'https://example.test/playlist.jpg',
+  }]);
+});
+
+test('normalizes current QQ new-song response used by recommendation fallback', () => {
+  const songs = contract.collectSongs({ new_song: { data: { songlist: [{
+    mid: '003CURRENTSONGMID',
+    name: '新歌推荐',
+    interval: 201,
+    singer: [{ mid: '002CURRENTARTIST', name: '推荐歌手' }],
+    album: { mid: '004CURRENTALBUM', name: '推荐专辑' },
+  }] } } });
+  assert.equal(songs.length, 1);
+  assert.equal(songs[0].remoteId, '003CURRENTSONGMID');
+  assert.equal(songs[0].durationMs, 201000);
+  assert.equal(songs[0].artist, '推荐歌手');
+});
+
 test('normalizes playlist, album and artist identities as text', () => {
   const playlists = contract.collectPlaylists({ data: {
     list: [{ dissid: '9223372036854775808124', dissname: '测试歌单', imgurl: 'https://example.test/p.jpg' }],

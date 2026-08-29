@@ -221,19 +221,14 @@ function lyricPayload(value) {
 }
 
 function profilePayload(value, fallbackUserId = '') {
-  let userId = String(fallbackUserId || '');
-  let nickname = '';
-  let avatarUrl = '';
-  const seen = new Set();
-  function visit(node) {
-    if (!node || typeof node !== 'object' || seen.has(node)) return;
-    seen.add(node);
-    if (!userId) userId = firstString(node, ['uin', 'musicid', 'userId', 'userid', 'id']);
-    if (!nickname) nickname = firstString(node, ['nickname', 'nick', 'name', 'creator_name']);
-    if (!avatarUrl) avatarUrl = firstString(node, ['avatarUrl', 'avatar', 'headpic', 'picurl']);
-    Object.values(node).forEach(visit);
-  }
-  visit(value);
+  const profile = findObject(value, (node) => [
+    'nickname', 'nick', 'creator_name', 'headpic', 'avatarUrl', 'uin_web', 'encrypt_uin',
+  ].some((key) => Object.prototype.hasOwnProperty.call(node, key))) || {};
+  const userId = String(fallbackUserId || '') || firstString(profile, [
+    'uin_web', 'musicid', 'userId', 'userid', 'uin',
+  ]);
+  const nickname = firstString(profile, ['nickname', 'nick', 'creator_name', 'name']);
+  const avatarUrl = firstString(profile, ['avatarUrl', 'avatar', 'headpic', 'picurl']);
   return { userId, nickname: nickname || 'QQ音乐用户', avatarUrl };
 }
 

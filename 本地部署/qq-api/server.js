@@ -12,6 +12,7 @@ const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT || 3200);
 const SERVICE = 'wycloudforge-qq-wrapper';
 const ATTEMPT_TTL_MS = 5 * 60 * 1000;
+const UPSTREAM_TIMEOUT_MS = 15000;
 const attempts = new Map();
 
 function send(response, status, payload) {
@@ -57,14 +58,74 @@ function cookieValue(cookie, names) {
   return '';
 }
 
-async function validateCredential(credential, loginMethod = '') {
-  const userId = cookieValue(credential, ['qqmusic_uin', 'uin']);
+function accountUserId(credential, fallback = '') {
+  return (cookieValue(credential, ['qqmusic_uin', 'uin', 'wxuin']) || String(fallback || ''))
+    .replace(/^o/, '');
+}
+
+async function fetchJson(url, options, action) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    if (!response.ok) throw new Error(`${action}失败（HTTP ${response.status}）`);
+    const text = await response.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error(`${action}返回了无效数据`);
+    }
+  } catch (error) {
+    if (error && error.name === 'AbortError') throw new Error(`${action}超时`);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function accountProfile(credential, fallbackUserId = '') {
+  const userId = accountUserId(credential, fallbackUserId);
   if (!credential || !userId) throw new Error('登录凭据缺少 QQ 音乐账号标识');
-  const result = await services.getUserDetail({ uin: userId, cookie: credential });
-  const raw = contract.unwrap(result);
+  const url = new URL('https://c6.y.qq.com/rsc/fcgi-bin/fcg_get_profile_homepage.fcg');
+  Object.entries({
+    _: Date.now(),
+    cv: 4747474,
+    ct: 24,
+    format: 'json',
+    inCharset: 'utf-8',
+    outCharset: 'utf-8',
+    notice: 0,
+    platform: 'yqq.json',
+    needNewCode: 0,
+    uin: userId,
+    g_tk_new_20200303: 0,
+    g_tk: 0,
+    cid: 205360838,
+    userid: userId,
+    reqfrom: 1,
+    reqtype: 0,
+    hostUin: 0,
+    loginUin: userId,
+  }).forEach(([key, value]) => url.searchParams.set(key, String(value)));
+  const raw = await fetchJson(url, {
+    headers: {
+      Cookie: credential,
+      Referer: `https://y.qq.com/portal/profile.html?uin=${encodeURIComponent(userId)}`,
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+    },
+  }, '获取 QQ 音乐账号资料');
+  if (Number(raw.code) !== 0) throw new Error(`QQ 音乐账号资料验证失败（业务码 ${raw.code}）`);
+  return { raw, userId };
+}
+
+async function validateCredential(credential, loginMethod = '') {
+  const { raw, userId } = await accountProfile(credential);
   const profile = contract.profilePayload(raw, userId);
-  if (!profile.userId) throw new Error('QQ 音乐账号资料验证失败');
-  if (!profile.avatarUrl) profile.avatarUrl = `https://q1.qlogo.cn/g?b=qq&nk=${encodeURIComponent(profile.userId)}&s=140`;
+  if (!profile.userId || (!profile.avatarUrl && profile.nickname === 'QQ音乐用户'))
+    throw new Error('QQ 音乐账号资料不完整，请重新登录');
+  const isWechatAccount = Boolean(cookieValue(credential, ['wxuin', 'wx_openid', 'wxopenid']));
+  if (!profile.avatarUrl && !isWechatAccount)
+    profile.avatarUrl = `https://q1.qlogo.cn/g?b=qq&nk=${encodeURIComponent(profile.userId)}&s=140`;
   return { ...profile, loginMethod };
 }
 
@@ -275,16 +336,24 @@ async function artistDetail(body) {
 
 async function accountPlaylists(body) {
   const credential = String(body.credential || '');
-  const userId = cookieValue(credential, ['qqmusic_uin', 'uin'])
-    || String(body.userId || '');
-  if (!userId) throw new Error('QQ 音乐账号标识缺失');
-  const raw = contract.unwrap(await services.getUserPlaylists({
-    uin: userId,
-    offset: Math.max(0, Number(body.offset || 0)),
-    limit: Math.max(1, Math.min(100, Number(body.limit || 50))),
-    cookie: credential,
-  }));
-  return contract.collectPlaylists(raw);
+  const { raw } = await accountProfile(credential, String(body.userId || ''));
+  const offset = Math.max(0, Number(body.offset || 0));
+  const limit = Math.max(1, Math.min(100, Number(body.limit || 50)));
+  return contract.collectPlaylists(raw).slice(offset, offset + limit);
+}
+
+async function recommendSongs(credential) {
+  try {
+    const personalized = contract.collectSongs(
+      contract.unwrap(await services.getDailyRecommend(credential)),
+    );
+    if (personalized.length) return personalized.slice(0, 30);
+  } catch {
+    // QQ 的旧个性化接口会按账号类型和灰度状态失效；继续使用来源内回退。
+  }
+  const fallback = contract.collectSongs(contract.unwrap(await services.getNewSongs(1, 30)));
+  if (!fallback.length) throw new Error('QQ 音乐暂未返回可用推荐歌曲');
+  return fallback.slice(0, 30);
 }
 
 function findText(value, keys) {
@@ -340,8 +409,7 @@ async function route(request, response) {
     return success(response, { items: raw });
   }
   if (url.pathname === '/v1/recommend') {
-    const raw = contract.unwrap(await services.getDailyRecommend(String(body.credential || '')));
-    return success(response, { songs: contract.collectSongs(raw) });
+    return success(response, { songs: await recommendSongs(String(body.credential || '')) });
   }
   return failure(response, 404, 'NOT_FOUND', '接口不存在');
 }

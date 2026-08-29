@@ -285,7 +285,9 @@ a4dcb21  SongListModel 改多列表 + 登录补齐uid/昵称 + QPointer防闪退
 - 更新后的 `tst_playlistcontroller` 首次运行有 12 项初始化失败：`cannot commit transaction - SQL statements in progress`。根因是字符串远端 ID 迁移前的 `PRAGMA wal_checkpoint(FULL)` 查询仍持有结果集，导致 SQLite 拒绝提交后续迁移事务。可行方案：备份并进入迁移事务前显式 `checkpoint.finish()`；测试初始化保留 `QVERIFY2(..., lastError)`，以后数据库打开失败可直接看到原因。该问题不是环境配置缺失。
 - QQ 包装层首轮契约测试 1/3 失败：单首搜索夹具被归一成 3 首。根因是 QQ 原始 JSON 在歌曲、歌手和专辑对象里都使用通用字段 `mid`，递归解析误把歌手/专辑 MID 当作 `songmid`。可行方案：优先只接受 `songmid/song_mid/songMid`；仅当对象同时具备歌曲特征字段时才把裸 `mid` 视为歌曲身份。未知字段继续忽略。该问题不是环境配置缺失。
 - 推荐页接入来源切换后构建失败：`RecommendPage.cpp` 创建并连接 `QButtonGroup` 时只有 `QPushButton` 间接提供的前置声明。根因是缺少完整类型头文件，编译器无法实例化对象或解析 `idClicked`。可行方案：显式包含 `<QButtonGroup>`；以后新增 Qt 控件时不要依赖其他头文件的间接声明。该问题不是环境配置缺失。
-- 新增 `tst_multisourcesupport` 首次运行 2 项 DPAPI 测试失败，`CryptProtectData` 返回 Windows 错误 2；同一执行环境下用 .NET `ProtectedData` 探针也明确报告“当前线程用户上下文未加载用户配置文件”。根因是受限测试进程没有可用的 Windows 用户 DPAPI 配置文件，不是凭据实现或用户项目配置错误。可行方案：保留 DPAPI 实现，在正常桌面用户上下文中重跑凭据测试；服务签名、端口隔离等不依赖 DPAPI 的测试已通过，不能为适配受限测试环境而降级为明文或机器级加密。
+- 新增 `tst_multisourcesupport` 首次运行 2 项 DPAPI 测试失败，`CryptProtectData` 返回 Windows 错误 2；同一执行环境下用 .NET `ProtectedData` 探针也明确报告“当前线程用户上下文未加载用户配置文件”。根因是受限测试进程没有可用的 Windows 用户 DPAPI 配置文件，不是凭据实现或用户项目配置错误。可行方案：保留 DPAPI 实现，在正常桌面用户上下文中重跑凭据测试；服务签名、端口隔离等不依赖 DPAPI 的测试已通过，不能为适配受限测试环境而降级为明文或机器级加密。本轮微信账号修复回归中受限进程再次 `EXIT=1`，切换到桌面用户上下文后 `EXIT=0`，进一步确认该方案有效。
+- 微信账号资料修复的首次端到端验证仍命中了旧版 `/v1/account/playlists`，随后手动启动新服务报 `EADDRINUSE 127.0.0.1:3200`。根因是修改包装层源码前由正式应用启动的 Node 进程仍在运行；Node 不会热重载 `server.js`，所以健康检查虽通过，进程内仍是旧实现。可行方案：用 `Get-NetTCPConnection` 定位 3200 监听 PID，再用 `Win32_Process.CommandLine` 确认它明确指向本项目 `本地部署/qq-api/server.js`，只停止该 PID 后重新启动；不要停止其他 Node 进程。重启后真实微信登录态验证为资料完整、2 个云歌单和 30 首推荐歌曲。
+- 微信账号修复后的首次 Qt 回归测试中，`tst_lrcparser`、`tst_tagreader`、`tst_playlistcontroller`、`tst_multisourcesupport` 均无诊断退出，`tst_playerservice` 未在等待窗口内返回。根因是测试命令误用了不存在的 `C:\Qt\6.8.3\mingw_64\bin`，且不应把涉及共享运行时和音频后端的测试并行启动；本机实际版本为 `C:\Qt\6.11.1\mingw_64\bin`。可行方案：测试命令显式把 `C:\Qt\6.11.1\mingw_64\bin` 和 `C:\Qt\Tools\mingw1310_64\bin` 加入 PATH，逐项检查退出码，并为播放器测试设置 `QT_MEDIA_BACKEND=ffmpeg`；不需要重装或修改系统级 Qt 配置。修正后原四项与多源测试均 `EXIT=0`。
 
 ### QQ 多源第二阶段完成项
 
