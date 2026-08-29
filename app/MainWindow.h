@@ -12,6 +12,7 @@
 
 #include <QJsonArray>
 #include <QMainWindow>
+#include <QTimer>
 #include <QSet>
 #include <QStackedWidget>
 
@@ -68,6 +69,7 @@ private:
     void onCurrentSongChanged(const core::Song &song, int index);
     void enrichLocalMetadata(const QList<core::Song> &songs);
     void enrichLocalSong(const core::Song &song);
+    void processMetadataQueue();
     void searchLocalMetadata(const core::Song &song);
     void resolveLocalMetadataMatch(const core::Song &song, const QJsonArray &items, bool exactHash);
     void refreshCurrentSongMetadata(qint64 songId);
@@ -111,5 +113,10 @@ private:
     bool m_restoredLastSong = false;
     bool m_apiReady = false;
     QSet<QString> m_metadataAttempted;
+    QSet<QString> m_metadataQueued;
+    QList<core::Song> m_metadataQueue;
     QSet<qint64> m_onlineCoverAttempted;
+    QSet<qint64> m_onlineCoverDetailsAttempted;
+    QTimer m_libraryRefreshTimer{ this };
+    QTimer m_metadataTimer{ this };
 };

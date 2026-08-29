@@ -275,7 +275,9 @@ void PlayerBar::paintEvent(QPaintEvent *)
 
     // 背底缓存:内容+极光是缓变内容,约 120ms 刷新一次即可,避免每帧高成本模糊
     const qint64 now = m_clock.isValid() ? m_clock.elapsed() : 0;
-    constexpr qint64 kBackdropInterval = 120;
+    // 背景动画仍保持流动，但胶囊背底的截图和高斯模糊不需要每 120ms 重算。
+    // 启动时网络回调密集，较低刷新频率可以避免与列表重建争抢 UI 线程。
+    constexpr qint64 kBackdropInterval = 500;
     if (!m_backdropValid || now - m_backdropMs > kBackdropInterval) {
         const int pad = 30; // 模糊缓冲,避免边缘裁切生硬
         const QSize areaSize(size() + QSize(pad * 2, pad * 2));

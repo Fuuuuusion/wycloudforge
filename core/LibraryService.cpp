@@ -86,16 +86,21 @@ bool openConfiguredDatabase(QSqlDatabase *database, const QString &dbPath, QStri
     database->setDatabaseName(dbPath);
     if (!database->open()) {
         *error = database->lastError().text();
+        database->close();
         return false;
     }
     QSqlQuery pragma(*database);
-    if (!pragma.exec(QStringLiteral("PRAGMA busy_timeout=5000"))
-        || !pragma.exec(QStringLiteral("PRAGMA journal_mode=WAL"))
-        || !pragma.exec(QStringLiteral("PRAGMA synchronous=FULL"))
-        || !pragma.exec(QStringLiteral("PRAGMA wal_autocheckpoint=100"))) {
-        *error = pragma.lastError().text();
-        return false;
-    }
+    // 打开数据库和设置运行参数是两个独立步骤。损坏的 WAL/索引可能让
+    // journal_mode=WAL 报错，但此时数据库句柄仍然可以用于完整性检查和恢复；
+    // 不能把这个可恢复错误直接变成“音乐库无法安全打开”。
+    const auto optionalPragma = [&pragma](const QString &sql) {
+        if (!pragma.exec(sql))
+            qWarning() << "SQLite pragma failed:" << sql << pragma.lastError().text();
+    };
+    optionalPragma(QStringLiteral("PRAGMA busy_timeout=5000"));
+    optionalPragma(QStringLiteral("PRAGMA journal_mode=WAL"));
+    optionalPragma(QStringLiteral("PRAGMA synchronous=FULL"));
+    optionalPragma(QStringLiteral("PRAGMA wal_autocheckpoint=100"));
     return true;
 }
 
@@ -398,6 +403,7 @@ bool LibraryService::recoverCorruptDatabase(const QString &backupPath, QString *
     }
     songsSql += hasDownloadPath ? QStringLiteral(",download_path ") : QStringLiteral(",'' AS download_path ");
     songsSql += QStringLiteral("FROM songs NOT INDEXED ORDER BY rowid");
+    songColumns = QSqlQuery();
     const RecoveryRows songs = readRecoveryRows(m_db, songsSql);
     const RecoveryRows playlists = readRecoveryRows(m_db, QStringLiteral(
         "SELECT id,name,cover_path,description,created_ms FROM playlists NOT INDEXED ORDER BY rowid"));

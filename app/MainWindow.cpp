@@ -23,7 +23,6 @@
 
 #include <QApplication>
 #include <QAbstractScrollArea>
-#include <QCryptographicHash>
 #include <QCursor>
 #include <QCloseEvent>
 #include <QDir>
@@ -57,6 +56,8 @@
 
 namespace {
 constexpr int kResizeBorder = 5;
+constexpr int kOnlineCoverDetailsBatch = 24;
+constexpr int kOnlineCoverDownloadsBatch = 6;
 
 void disableHorizontalScrollbars(QWidget *root)
 {
@@ -123,6 +124,39 @@ MainWindow::MainWindow(QWidget *parent)
     setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
     resize(1280, 800);
     setMinimumSize(940, 600);
+
+    // 封面、缓存和元数据请求可能在启动后集中完成。合并短时间内的库变更，
+    // 避免每张封面都同步重建侧栏和多个歌曲列表。
+    m_libraryRefreshTimer.setSingleShot(true);
+    m_libraryRefreshTimer.setInterval(250);
+    connect(&m_libraryRefreshTimer, &QTimer::timeout, this, [this] {
+        refreshSidebar();
+        refreshLibraryViews();
+        refreshAllPages();
+        if (m_currentSongId > 0) {
+            const core::Song current = m_library.songById(m_currentSongId);
+            if (current.id > 0)
+                m_playerBar->setSong(current, m_playlists.isFavorite(current.id));
+        }
+        if (!m_restoredLastSong) {
+            m_restoredLastSong = true;
+            const QString lastPath = core::SettingsService::lastSongPath();
+            if (!lastPath.isEmpty()) {
+                const auto all = m_library.allSongs();
+                for (int i = 0; i < all.size(); ++i) {
+                    if (QDir::cleanPath(all[i].filePath).compare(QDir::cleanPath(lastPath), Qt::CaseInsensitive) == 0) {
+                        m_player.setPlaylist(all, i);
+                        m_player.seek(core::SettingsService::lastSongPositionMs());
+                        break;
+                    }
+                }
+            }
+        }
+        enrichLocalMetadata(m_library.allSongs());
+    });
+    m_metadataTimer.setSingleShot(false);
+    m_metadataTimer.setInterval(120);
+    connect(&m_metadataTimer, &QTimer::timeout, this, &MainWindow::processMetadataQueue);
 
     const QByteArray geometry = core::SettingsService::windowGeometry();
     if (!geometry.isEmpty())
@@ -448,29 +482,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     // ---------- 音乐库信号 ----------
     connect(&m_library, &core::LibraryService::libraryChanged, this, [this] {
-        refreshSidebar();
-        refreshLibraryViews();
-        refreshAllPages();
-        if (m_currentSongId > 0) {
-            const core::Song current = m_library.songById(m_currentSongId);
-            if (current.id > 0)
-                m_playerBar->setSong(current, m_playlists.isFavorite(current.id));
-        }
-        if (!m_restoredLastSong) {
-            m_restoredLastSong = true;
-            const QString lastPath = core::SettingsService::lastSongPath();
-            if (!lastPath.isEmpty()) {
-                const auto all = m_library.allSongs();
-                for (int i = 0; i < all.size(); ++i) {
-                    if (QDir::cleanPath(all[i].filePath).compare(QDir::cleanPath(lastPath), Qt::CaseInsensitive) == 0) {
-                        m_player.setPlaylist(all, i);
-                        m_player.seek(core::SettingsService::lastSongPositionMs());
-                        break;
-                    }
-                }
-            }
-        }
-        enrichLocalMetadata(m_library.allSongs());
+        m_libraryRefreshTimer.start();
     });
 
     // ---------- 播放列表信号 ----------
@@ -516,7 +528,11 @@ MainWindow::MainWindow(QWidget *parent)
             m_apiClient.setBaseUrl(m_apiService.apiBase());
             restoreOnlineSession();
             enrichLocalMetadata(m_library.allSongs());
-            hydrateOnlineCovers(m_library.allSongs());
+            // 先让首屏和数据库恢复后的本地列表稳定显示，再分批补充历史在线歌曲封面。
+            QTimer::singleShot(1200, this, [this] {
+                if (m_apiReady)
+                    hydrateOnlineCovers(m_library.allSongs());
+            });
         },
         [this](const QString &) {
             m_apiReady = false;
@@ -676,9 +692,12 @@ void MainWindow::openOnlinePlaylist(qint64 id, const QString &name)
 
 void MainWindow::ensureOnlineCovers(const QList<core::Song> &songs)
 {
+    int started = 0;
     for (const core::Song &s : songs) {
         if (!s.isOnline() || s.coverUrl.isEmpty() || s.id <= 0 || m_onlineCoverAttempted.contains(s.id))
             continue;
+        if (started >= kOnlineCoverDownloadsBatch)
+            break;
         const core::Song current = m_library.songById(s.id);
         if (!current.coverPath.isEmpty() && QFileInfo::exists(current.coverPath))
             continue;
@@ -699,6 +718,7 @@ void MainWindow::ensureOnlineCovers(const QList<core::Song> &songs)
                 m_songListPage->refreshCovers(&m_library);
             }
         });
+        ++started;
     }
 }
 
@@ -716,8 +736,9 @@ void MainWindow::hydrateOnlineCovers(const QList<core::Song> &songs)
             continue;
         if (!song.coverUrl.isEmpty()) {
             withCoverUrls.append(song);
-        } else if (!m_onlineCoverAttempted.contains(song.id)) {
-            m_onlineCoverAttempted.insert(song.id);
+        } else if (!m_onlineCoverDetailsAttempted.contains(song.id)
+                   && ids.size() < kOnlineCoverDetailsBatch) {
+            m_onlineCoverDetailsAttempted.insert(song.id);
             ids.append(song.onlineId);
         }
     }
@@ -737,7 +758,6 @@ void MainWindow::hydrateOnlineCovers(const QList<core::Song> &songs)
             detail.downloadPath = stored.downloadPath;
             detail.lyricPath = stored.lyricPath;
             m_library.upsertOnlineSong(detail);
-            m_onlineCoverAttempted.remove(stored.id);
             enriched.append(detail);
         }
         ensureOnlineCovers(enriched);
@@ -967,8 +987,13 @@ void MainWindow::enrichLocalMetadata(const QList<core::Song> &songs)
         const bool hasCover = !song.coverPath.isEmpty() && QFileInfo::exists(song.coverPath);
         if (hasCover && hasUsableSidecarLyrics(song.filePath) && !song.album.isEmpty())
             continue;
-        enrichLocalSong(song);
+        if (!m_metadataAttempted.contains(song.filePath) && !m_metadataQueued.contains(song.filePath)) {
+            m_metadataQueued.insert(song.filePath);
+            m_metadataQueue.append(song);
+        }
     }
+    if (!m_metadataQueue.isEmpty() && !m_metadataTimer.isActive())
+        m_metadataTimer.start();
 }
 
 void MainWindow::enrichLocalSong(const core::Song &song)
@@ -980,23 +1005,20 @@ void MainWindow::enrichLocalSong(const core::Song &song)
         return;
 
     m_metadataAttempted.insert(song.filePath);
+    // 元数据补全不能在 UI 线程读取整首音频并计算 MD5。标题+歌手搜索本身是
+    // 异步请求，按队列节流即可保持启动期间界面可交互。
+    searchLocalMetadata(song);
+}
 
-    QFile file(song.filePath);
-    QCryptographicHash hash(QCryptographicHash::Md5);
-    const bool hashed = file.open(QIODevice::ReadOnly) && hash.addData(&file);
-    const QString md5 = hashed ? QString::fromLatin1(hash.result().toHex()) : QString();
-    if (!md5.isEmpty()) {
-        m_apiClient.matchSong(song.title, song.artist, song.album, song.durationMs, md5,
-                              [this, song](const QJsonArray &items) {
-                                  if (!items.isEmpty())
-                                      resolveLocalMetadataMatch(song, items, true);
-                                  else
-                                      searchLocalMetadata(song);
-                              },
-                              [this, song](const QString &) { searchLocalMetadata(song); });
-    } else {
-        searchLocalMetadata(song);
+void MainWindow::processMetadataQueue()
+{
+    if (m_metadataQueue.isEmpty()) {
+        m_metadataTimer.stop();
+        return;
     }
+    const core::Song song = m_metadataQueue.takeFirst();
+    m_metadataQueued.remove(song.filePath);
+    enrichLocalSong(song);
 }
 
 void MainWindow::searchLocalMetadata(const core::Song &song)
