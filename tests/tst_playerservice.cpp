@@ -1,4 +1,7 @@
 #include "core/PlayerService.h"
+#include "core/MusicSourceRegistry.h"
+#include "core/NeteaseApiClient.h"
+#include "core/QqMusicSource.h"
 
 #include <QTemporaryDir>
 #include <QtTest>
@@ -6,6 +9,54 @@
 using namespace core;
 
 namespace {
+
+template <typename Source>
+class LocalUrlSource final : public Source
+{
+public:
+    using Source::Source;
+
+    void addMedia(const QString &remoteId, const QString &filePath)
+    {
+        m_urls.insert(remoteId, QUrl::fromLocalFile(filePath).toString());
+    }
+
+    void songUrls(const QStringList &ids, MusicSource::JsonArrayFn ok,
+                  MusicSource::ErrFn err = {}) override
+    {
+        QJsonArray result;
+        for (const QString &id : ids) {
+            requests.append(id);
+            if (emptyResponsesRemaining > 0) {
+                --emptyResponsesRemaining;
+                result.append(QJsonObject{
+                    { QStringLiteral("remoteId"), id },
+                    { QStringLiteral("url"), QString() },
+                    { QStringLiteral("error"), QStringLiteral("temporary address failure") }
+                });
+                continue;
+            }
+            const QString url = m_urls.value(id);
+            if (url.isEmpty()) {
+                if (err)
+                    err(QStringLiteral("测试媒体不存在：%1").arg(id));
+                return;
+            }
+            result.append(QJsonObject{
+                { QStringLiteral("remoteId"), id },
+                { QStringLiteral("url"), url }
+            });
+        }
+        if (ok)
+            ok(result);
+    }
+
+    QStringList requests;
+    int emptyResponsesRemaining = 0;
+
+private:
+    QHash<QString, QString> m_urls;
+};
 
 bool writeFile(const QString &path, const QByteArray &bytes)
 {
@@ -59,6 +110,10 @@ private slots:
     void autoAdvanceInOrderMode();
     void repeatOneRestartsCurrentSong();
     void autoAdvanceInShuffleMode();
+    void mixedSourceAutoAdvanceInOrderMode();
+    void mixedSourceRepeatOneMode();
+    void mixedSourceAutoAdvanceInShuffleMode();
+    void onlineUrlRetriesOnce();
     void cachedOnlineSongPlayback();
     void downloadedOnlineSongPlayback();
 };
@@ -216,6 +271,152 @@ void PlayerServiceTest::autoAdvanceInShuffleMode()
         QSKIP("无可用音频输出设备,跳过随机播放验证");
     QVERIFY(QTest::qWaitFor([&player] { return player.currentIndex() != 0; }, 4000));
     QVERIFY(player.currentIndex() >= 0 && player.currentIndex() < songs.size());
+}
+
+void PlayerServiceTest::mixedSourceAutoAdvanceInOrderMode()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString neteasePath = dir.filePath(QStringLiteral("mixed-netease.wav"));
+    const QString qqPath = dir.filePath(QStringLiteral("mixed-qq.wav"));
+    writeWav(neteasePath, 1);
+    writeWav(qqPath, 1);
+
+    LocalUrlSource<NeteaseApiClient> netease;
+    LocalUrlSource<QqMusicSource> qq;
+    netease.addMedia(QStringLiteral("n-order"), neteasePath);
+    qq.addMedia(QStringLiteral("q-order"), qqPath);
+    MusicSourceRegistry registry;
+    registry.registerSource(&netease);
+    registry.registerSource(&qq);
+
+    Song first = MusicSource::makeOnlineSong(SourceId::Netease, QStringLiteral("netease"),
+                                              QStringLiteral("n-order"), QStringLiteral("网易云一"),
+                                              {}, {}, 1000, {});
+    first.id = 201;
+    Song second = MusicSource::makeOnlineSong(SourceId::QqMusic, QStringLiteral("qqmusic"),
+                                               QStringLiteral("q-order"), QStringLiteral("QQ二"),
+                                               {}, {}, 1000, {});
+    second.id = 202;
+
+    QCOMPARE(registry.sourceFor(first), static_cast<MusicSource *>(&netease));
+    QCOMPARE(registry.sourceFor(second), static_cast<MusicSource *>(&qq));
+    PlayerService player;
+    player.setSourceRegistry(&registry);
+    player.setMode(PlayerService::Order);
+    player.setPlaylist({ first, second }, 0);
+    player.play();
+    if (!QTest::qWaitFor([&player] { return player.isPlaying(); }, 4000))
+        QSKIP("无可用音频输出设备,跳过混合来源顺序联播验证");
+    QVERIFY(QTest::qWaitFor([&player] { return player.currentIndex() == 1; }, 4000));
+    QCOMPARE(netease.requests, QStringList{ QStringLiteral("n-order") });
+    QCOMPARE(qq.requests, QStringList{ QStringLiteral("q-order") });
+}
+
+void PlayerServiceTest::mixedSourceRepeatOneMode()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString qqPath = dir.filePath(QStringLiteral("mixed-repeat-qq.wav"));
+    const QString neteasePath = dir.filePath(QStringLiteral("mixed-repeat-netease.wav"));
+    writeWav(qqPath, 1);
+    writeWav(neteasePath, 1);
+
+    LocalUrlSource<NeteaseApiClient> netease;
+    LocalUrlSource<QqMusicSource> qq;
+    qq.addMedia(QStringLiteral("q-repeat"), qqPath);
+    netease.addMedia(QStringLiteral("n-repeat"), neteasePath);
+    MusicSourceRegistry registry;
+    registry.registerSource(&netease);
+    registry.registerSource(&qq);
+
+    Song first = MusicSource::makeOnlineSong(SourceId::QqMusic, QStringLiteral("qqmusic"),
+                                              QStringLiteral("q-repeat"), QStringLiteral("QQ循环"),
+                                              {}, {}, 1000, {});
+    first.id = 211;
+    Song second = MusicSource::makeOnlineSong(SourceId::Netease, QStringLiteral("netease"),
+                                               QStringLiteral("n-repeat"), QStringLiteral("网易云候选"),
+                                               {}, {}, 1000, {});
+    second.id = 212;
+
+    PlayerService player;
+    player.setSourceRegistry(&registry);
+    player.setMode(PlayerService::RepeatOne);
+    player.setPlaylist({ first, second }, 0);
+    player.play();
+    if (!QTest::qWaitFor([&player] { return player.isPlaying(); }, 4000))
+        QSKIP("无可用音频输出设备,跳过混合来源单曲循环验证");
+    QTest::qWait(1500);
+    QCOMPARE(player.currentIndex(), 0);
+    QCOMPARE(qq.requests, QStringList{ QStringLiteral("q-repeat") });
+    QVERIFY(netease.requests.isEmpty());
+}
+
+void PlayerServiceTest::mixedSourceAutoAdvanceInShuffleMode()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    LocalUrlSource<NeteaseApiClient> netease;
+    LocalUrlSource<QqMusicSource> qq;
+    QList<Song> songs;
+    for (int i = 0; i < 3; ++i) {
+        const QString remoteId = QStringLiteral("%1-shuffle-%2")
+                                     .arg(i == 1 ? QStringLiteral("n") : QStringLiteral("q")).arg(i);
+        const QString path = dir.filePath(remoteId + QStringLiteral(".wav"));
+        writeWav(path, 1);
+        const SourceId sourceId = i == 1 ? SourceId::Netease : SourceId::QqMusic;
+        if (sourceId == SourceId::Netease)
+            netease.addMedia(remoteId, path);
+        else
+            qq.addMedia(remoteId, path);
+        Song song = MusicSource::makeOnlineSong(
+            sourceId, sourceId == SourceId::Netease ? QStringLiteral("netease")
+                                                     : QStringLiteral("qqmusic"),
+            remoteId, QStringLiteral("混合随机%1").arg(i), {}, {}, 1000, {});
+        song.id = 221 + i;
+        songs.append(song);
+    }
+    MusicSourceRegistry registry;
+    registry.registerSource(&netease);
+    registry.registerSource(&qq);
+    PlayerService player;
+    player.setSourceRegistry(&registry);
+    player.setMode(PlayerService::Shuffle);
+    player.setPlaylist(songs, 0);
+    player.play();
+    if (!QTest::qWaitFor([&player] { return player.isPlaying(); }, 4000))
+        QSKIP("无可用音频输出设备,跳过混合来源随机联播验证");
+    QVERIFY(QTest::qWaitFor([&player] { return player.currentIndex() != 0; }, 4000));
+    const Song current = player.currentSong();
+    if (current.sourceId() == SourceId::Netease)
+        QVERIFY(netease.requests.contains(current.effectiveRemoteId()));
+    else
+        QVERIFY(qq.requests.contains(current.effectiveRemoteId()));
+}
+
+void PlayerServiceTest::onlineUrlRetriesOnce()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("retry-url.wav"));
+    writeWav(path, 3);
+    LocalUrlSource<QqMusicSource> qq;
+    qq.addMedia(QStringLiteral("q-retry"), path);
+    qq.emptyResponsesRemaining = 1;
+    MusicSourceRegistry registry;
+    registry.registerSource(&qq);
+    Song song = MusicSource::makeOnlineSong(
+        SourceId::QqMusic, QStringLiteral("qqmusic"), QStringLiteral("q-retry"),
+        QStringLiteral("地址重试"), {}, {}, 3000, {});
+    song.id = 231;
+
+    PlayerService player;
+    player.setSourceRegistry(&registry);
+    player.setPlaylist({ song }, 0);
+    player.play();
+    if (!QTest::qWaitFor([&player] { return player.isPlaying(); }, 4000))
+        QSKIP("无可用音频输出设备,跳过在线地址重试验证");
+    QCOMPARE(qq.requests, QStringList({ QStringLiteral("q-retry"), QStringLiteral("q-retry") }));
 }
 
 void PlayerServiceTest::cachedOnlineSongPlayback()

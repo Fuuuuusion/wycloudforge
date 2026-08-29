@@ -1,5 +1,7 @@
 #include "SettingsService.h"
 
+#include "core/CredentialStore.h"
+
 #include <QStandardPaths>
 #include <QSettings>
 
@@ -204,14 +206,18 @@ void SettingsService::setOnlineCacheMaxMB(int mb)
 
 QString SettingsService::onlineCookie()
 {
-    QSettings s;
-    return s.value(QStringLiteral("online/cookie")).toString();
+    CredentialStore::migrateLegacy(QStringLiteral("netease"), QStringLiteral("online/cookie"));
+    return CredentialStore::read(QStringLiteral("netease"));
 }
 
 void SettingsService::setOnlineCookie(const QString &cookie)
 {
-    QSettings s;
-    s.setValue(QStringLiteral("online/cookie"), cookie);
+    if (cookie.isEmpty()) {
+        CredentialStore::remove(QStringLiteral("netease"));
+        QSettings().remove(QStringLiteral("online/cookie"));
+    } else if (CredentialStore::write(QStringLiteral("netease"), cookie)) {
+        QSettings().remove(QStringLiteral("online/cookie"));
+    }
 }
 
 qint64 SettingsService::onlineUid()
@@ -252,26 +258,75 @@ void SettingsService::setOnlineAvatarUrl(const QString &url)
 
 QString SettingsService::qqCookie()
 {
-    QSettings s;
-    return s.value(QStringLiteral("qq/cookie")).toString();
+    CredentialStore::migrateLegacy(QStringLiteral("qqmusic"), QStringLiteral("qq/cookie"));
+    return CredentialStore::read(QStringLiteral("qqmusic"));
 }
 
 void SettingsService::setQqCookie(const QString &cookie)
 {
-    QSettings s;
-    s.setValue(QStringLiteral("qq/cookie"), cookie);
+    if (cookie.isEmpty()) {
+        CredentialStore::remove(QStringLiteral("qqmusic"));
+        QSettings().remove(QStringLiteral("qq/cookie"));
+    } else if (CredentialStore::write(QStringLiteral("qqmusic"), cookie)) {
+        QSettings().remove(QStringLiteral("qq/cookie"));
+    }
+}
+
+QString SettingsService::qqApiBase(const QString &fallback)
+{
+    return QSettings().value(QStringLiteral("qq/apiBase"), fallback).toString();
+}
+
+void SettingsService::setQqApiBase(const QString &url)
+{
+    QSettings().setValue(QStringLiteral("qq/apiBase"), url);
+}
+
+bool SettingsService::qqAutoStart(bool fallback)
+{
+    return QSettings().value(QStringLiteral("qq/autoStart"), fallback).toBool();
+}
+
+void SettingsService::setQqAutoStart(bool on)
+{
+    QSettings().setValue(QStringLiteral("qq/autoStart"), on);
+}
+
+QString SettingsService::qqApiDir()
+{
+    return QSettings().value(QStringLiteral("qq/apiDir")).toString();
+}
+
+void SettingsService::setQqApiDir(const QString &dir)
+{
+    QSettings().setValue(QStringLiteral("qq/apiDir"), dir);
+}
+
+QString SettingsService::qqUserId()
+{
+    QSettings settings;
+    const QString text = settings.value(QStringLiteral("qq/userId")).toString();
+    if (!text.isEmpty())
+        return text;
+    const qint64 legacy = settings.value(QStringLiteral("qq/uid"), 0).toLongLong();
+    return legacy > 0 ? QString::number(legacy) : QString();
+}
+
+void SettingsService::setQqUserId(const QString &uid)
+{
+    QSettings settings;
+    settings.setValue(QStringLiteral("qq/userId"), uid);
+    settings.remove(QStringLiteral("qq/uid"));
 }
 
 qint64 SettingsService::qqUid()
 {
-    QSettings s;
-    return s.value(QStringLiteral("qq/uid"), 0).toLongLong();
+    return qqUserId().toLongLong();
 }
 
 void SettingsService::setQqUid(qint64 uid)
 {
-    QSettings s;
-    s.setValue(QStringLiteral("qq/uid"), uid);
+    setQqUserId(uid > 0 ? QString::number(uid) : QString());
 }
 
 QString SettingsService::qqNickname()
@@ -284,6 +339,37 @@ void SettingsService::setQqNickname(const QString &name)
 {
     QSettings s;
     s.setValue(QStringLiteral("qq/nickname"), name);
+}
+
+QString SettingsService::qqAvatarUrl()
+{
+    const QString value = QSettings().value(QStringLiteral("qq/avatarUrl")).toString();
+    return value.startsWith(QStringLiteral("http://"), Qt::CaseInsensitive)
+            || value.startsWith(QStringLiteral("https://"), Qt::CaseInsensitive)
+        ? QString() : value;
+}
+
+void SettingsService::setQqAvatarUrl(const QString &url)
+{
+    QSettings().setValue(QStringLiteral("qq/avatarUrl"), url);
+}
+
+QString SettingsService::qqAvatarRemoteUrl()
+{
+    QSettings settings;
+    const QString value = settings.value(QStringLiteral("qq/avatarRemoteUrl")).toString();
+    if (!value.isEmpty())
+        return value;
+    // 兼容短暂使用 qq/avatarUrl 保存远程 URL 的开发版本。
+    const QString legacy = settings.value(QStringLiteral("qq/avatarUrl")).toString();
+    return legacy.startsWith(QStringLiteral("http://"), Qt::CaseInsensitive)
+            || legacy.startsWith(QStringLiteral("https://"), Qt::CaseInsensitive)
+        ? legacy : QString();
+}
+
+void SettingsService::setQqAvatarRemoteUrl(const QString &url)
+{
+    QSettings().setValue(QStringLiteral("qq/avatarRemoteUrl"), url);
 }
 
 int SettingsService::avatarSource(int fallback)

@@ -1,0 +1,58 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const test = require('node:test');
+const contract = require('../contract');
+
+test('normalizes fixture and ignores unknown fields', () => {
+  const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/search-response.json'), 'utf8'));
+  const songs = contract.collectSongs(fixture);
+  assert.equal(songs.length, 1);
+  assert.deepEqual(songs[0], {
+    remoteId: '0039MnYb0qxYhV',
+    title: '测试歌曲',
+    artist: '测试歌手',
+    artistRemoteId: '0025NhlN2yWrP4',
+    album: '测试专辑',
+    albumRemoteId: '004DABuD2r4V8n',
+    durationMs: 245000,
+    coverUrl: 'https://y.gtimg.cn/music/photo_new/T002R300x300M000004DABuD2r4V8n.jpg?max_age=2592000',
+  });
+});
+
+test('maps all QQ and WeChat QR states', () => {
+  assert.deepEqual(contract.authState('qq', {}), { state: 'WAITING_SCAN', protocolCode: 66 });
+  assert.deepEqual(contract.authState('qq', { scanned: true }), { state: 'WAITING_CONFIRM', protocolCode: 67 });
+  assert.deepEqual(contract.authState('qq', { isOk: true, session: {} }), { state: 'AUTHORIZED', protocolCode: 0 });
+  assert.deepEqual(contract.authState('qq', { refresh: true }), { state: 'EXPIRED', protocolCode: 65 });
+  assert.deepEqual(contract.authState('qq', { refused: true }), { state: 'REFUSED', protocolCode: 68 });
+  assert.deepEqual(contract.authState('wechat', {}), { state: 'WAITING_SCAN', protocolCode: 408 });
+  assert.deepEqual(contract.authState('wechat', { scanned: true }), { state: 'WAITING_CONFIRM', protocolCode: 404 });
+  assert.deepEqual(contract.authState('wechat', { isOk: true, session: {} }), { state: 'AUTHORIZED', protocolCode: 405 });
+  assert.deepEqual(contract.authState('wechat', { refresh: true }), { state: 'EXPIRED', protocolCode: 402 });
+  assert.deepEqual(contract.authState('wechat', { refused: true }), { state: 'REFUSED', protocolCode: 403 });
+});
+
+test('keeps large QQ music id as text', () => {
+  const profile = contract.profilePayload({ musicid: '9223372036854775808123', nickname: '微信用户' });
+  assert.equal(profile.userId, '9223372036854775808123');
+});
+
+test('normalizes playlist, album and artist identities as text', () => {
+  const playlists = contract.collectPlaylists({ data: {
+    list: [{ dissid: '9223372036854775808124', dissname: '测试歌单', imgurl: 'https://example.test/p.jpg' }],
+  } });
+  assert.deepEqual(playlists, [{
+    remoteId: '9223372036854775808124',
+    name: '测试歌单',
+    coverUrl: 'https://example.test/p.jpg',
+  }]);
+  const album = contract.albumPayload({ albummid: 'ALBUM_MID', albumname: '测试专辑' }, 'ALBUM_MID');
+  assert.equal(album.album.remoteId, 'ALBUM_MID');
+  assert.equal(album.album.name, '测试专辑');
+  const artist = contract.artistPayload({ singer_mid: 'ARTIST_MID', singer_name: '测试歌手' }, 'ARTIST_MID');
+  assert.equal(artist.artist.remoteId, 'ARTIST_MID');
+  assert.equal(artist.artist.name, '测试歌手');
+});

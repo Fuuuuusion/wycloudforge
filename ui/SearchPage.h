@@ -21,6 +21,7 @@ class SongListView;
 
 namespace core {
 class LibraryService;
+class MusicSourceRegistry;
 }
 
 namespace ui {
@@ -32,6 +33,8 @@ public:
     explicit SearchPage(QWidget *parent = nullptr);
 
     void setSourceProvider(core::MusicSource *source, core::LibraryService *library);
+    void setSourceRegistry(core::MusicSourceRegistry *registry);
+    void setOnlineSourceEnabled(core::SourceId sourceId, bool enabled);
     void performSearch(const QList<core::Song> &allSongs, const QString &query);
     void refreshLocalResults(const QList<core::Song> &allSongs);
     void refreshOnlineCovers();
@@ -64,8 +67,11 @@ private:
     int m_onlinePageSize = 30;
     int m_searchGeneration = 0;
     bool m_onlineLoading = false;
-    QSet<qint64> m_albumCoverLookups;
+    QSet<QString> m_albumCoverLookups;
+    QSet<qint64> m_coverDownloads;
+    QSet<int> m_enabledSourceIds;
     core::MusicSource *m_source = nullptr;
+    core::MusicSourceRegistry *m_registry = nullptr;
     core::LibraryService *m_lib = nullptr;
     QLabel *m_onlineHeader = nullptr;
     SongListView *m_onlineList = nullptr;

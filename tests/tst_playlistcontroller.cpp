@@ -1,5 +1,6 @@
 #include "core/LibraryService.h"
 #include "core/LyricsLoader.h"
+#include "core/MusicSource.h"
 #include "core/PlaylistController.h"
 #include "core/SettingsService.h"
 
@@ -27,6 +28,7 @@ private slots:
     void duplicateAddAndOrphanCleanup();
     void downloadedPersistenceAndCacheIsolation();
     void downloadedLyricsSurviveReload();
+    void independentOnlineLyricsSurviveReload();
     void managedDownloadFolderIsNotImported();
     void downloadAssociationsSurviveRestartAndRepair();
     void localAvailabilityClassification();
@@ -339,6 +341,37 @@ void PlaylistControllerTest::downloadedLyricsSurviveReload()
     current = m_library->songById(songId);
     QCOMPARE(QDir::cleanPath(current.lyricPath), QDir::cleanPath(lyricPath));
     QCOMPARE(LyricsLoader::load(current).first().text, QStringLiteral("persisted"));
+}
+
+void PlaylistControllerTest::independentOnlineLyricsSurviveReload()
+{
+    Song online = MusicSource::makeOnlineSong(
+        SourceId::QqMusic, QStringLiteral("qqmusic"), QStringLiteral("LYRIC_MID"),
+        QStringLiteral("独立歌词"), QStringLiteral("测试歌手"), {}, 180000, {});
+    const qint64 songId = m_library->upsertOnlineSong(online);
+    QVERIFY(songId > 0);
+    online.id = songId;
+    const QString lyricPath = m_library->lyricCachePathFor(online);
+    QVERIFY(!lyricPath.isEmpty());
+    Song writable = online;
+    writable.lyricPath = lyricPath;
+    QVERIFY(LyricsLoader::saveSidecar(writable, QStringLiteral("[00:01.00]cached lyric\n")));
+    m_library->setSongLyricPath(songId, lyricPath);
+
+    Song current = m_library->songById(songId);
+    QCOMPARE(QDir::cleanPath(current.lyricPath), QDir::cleanPath(lyricPath));
+    QCOMPARE(LyricsLoader::load(current).first().text, QStringLiteral("cached lyric"));
+    QVERIFY(!current.isLocallyAvailable());
+
+    m_library->reloadDatabase();
+    current = m_library->songById(songId);
+    QCOMPARE(QDir::cleanPath(current.lyricPath), QDir::cleanPath(lyricPath));
+    QCOMPARE(LyricsLoader::load(current).first().text, QStringLiteral("cached lyric"));
+    QVERIFY(!current.isLocallyAvailable());
+
+    m_library->clearCache();
+    QVERIFY(QFileInfo::exists(lyricPath));
+    QCOMPARE(QDir::cleanPath(m_library->songById(songId).lyricPath), QDir::cleanPath(lyricPath));
 }
 
 void PlaylistControllerTest::managedDownloadFolderIsNotImported()

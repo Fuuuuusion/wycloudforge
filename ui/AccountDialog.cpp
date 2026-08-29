@@ -1,12 +1,17 @@
 #include "AccountDialog.h"
 
 #include "core/MusicSource.h"
+#include "core/CredentialStore.h"
+#include "core/QqApiService.h"
+#include "core/QqMusicSource.h"
 #include "core/SettingsService.h"
 #include "ui/LoginDialog.h"
+#include "ui/QqLoginDialog.h"
 
 #include <QHBoxLayout>
 #include <QJsonObject>
 #include <QLabel>
+#include <QMessageBox>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPushButton>
@@ -47,9 +52,12 @@ QLabel *avatarLabel(const QString &path, const QString &nickname, int size, QWid
 }
 }
 
-AccountDialog::AccountDialog(core::MusicSource *netease, QWidget *parent)
+AccountDialog::AccountDialog(core::MusicSource *netease, core::QqMusicSource *qq,
+                             core::QqApiService *qqService, QWidget *parent)
     : QDialog(parent)
     , m_netease(netease)
+    , m_qq(qq)
+    , m_qqService(qqService)
 {
     setWindowTitle(QStringLiteral("账号中心"));
     setObjectName("accountDialog");
@@ -84,22 +92,28 @@ AccountDialog::AccountDialog(core::MusicSource *netease, QWidget *parent)
     neL->addWidget(neBtn);
     layout->addWidget(neRow);
 
-    // QQ音乐(预留)
+    // QQ音乐：QQ 与微信扫码共用同一账号槽位。
+    const bool qqLoggedIn = !core::SettingsService::qqUserId().isEmpty();
     auto *qqRow = new QWidget(this);
     auto *qqL = new QHBoxLayout(qqRow);
     qqL->setContentsMargins(0, 0, 0, 0);
     qqL->setSpacing(10);
-    qqL->addWidget(avatarLabel(QString(), QStringLiteral("Q"), 40, qqRow));
+    qqL->addWidget(avatarLabel(core::SettingsService::qqAvatarUrl(),
+                               core::SettingsService::qqNickname(), 40, qqRow));
     auto *qqInfo = new QVBoxLayout;
-    auto *qqName = new QLabel(QStringLiteral("未接入"), qqRow);
+    auto *qqName = new QLabel(qqLoggedIn ? core::SettingsService::qqNickname()
+                                         : QStringLiteral("未登录"), qqRow);
     qqName->setProperty("class", "accountName");
-    auto *qqStatus = new QLabel(QStringLiteral("QQ音乐 · 后续接入"), qqRow);
+    auto *qqStatus = new QLabel(qqLoggedIn ? QStringLiteral("已登录 · QQ音乐")
+                                           : QStringLiteral("QQ音乐 · QQ/微信扫码"), qqRow);
     qqStatus->setProperty("class", "accountSub");
     qqInfo->addWidget(qqName);
     qqInfo->addWidget(qqStatus);
     qqL->addLayout(qqInfo, 1);
-    auto *qqBtn = new QPushButton(QStringLiteral("未接入"), qqRow);
-    qqBtn->setEnabled(false);
+    auto *qqBtn = new QPushButton(qqLoggedIn ? QStringLiteral("退出登录")
+                                             : QStringLiteral("登录"), qqRow);
+    connect(qqBtn, &QPushButton::clicked, this,
+            qqLoggedIn ? &AccountDialog::logoutQq : &AccountDialog::loginQq);
     qqL->addWidget(qqBtn);
     layout->addWidget(qqRow);
 
@@ -133,6 +147,39 @@ void AccountDialog::logoutNetease()
     core::SettingsService::setOnlineAvatarUrl(QString());
     if (m_netease)
         m_netease->setCookie(QString());
+    emit accountStateChanged();
+    accept();
+}
+
+void AccountDialog::loginQq()
+{
+    if (!m_qq || !m_qqService)
+        return;
+    setEnabled(false);
+    m_qqService->ensureRunning([this] {
+        setEnabled(true);
+        QqLoginDialog dialog(m_qq, this);
+        if (dialog.exec() == QDialog::Accepted) {
+            emit accountStateChanged();
+            accept();
+        }
+    }, [this](const QString &message) {
+        setEnabled(true);
+        QMessageBox::information(this, QStringLiteral("QQ 音乐服务"), message);
+    });
+}
+
+void AccountDialog::logoutQq()
+{
+    if (m_qq)
+        m_qq->logout([](const QJsonObject &) {}, [](const QString &) {});
+    core::CredentialStore::remove(QStringLiteral("qqmusic"));
+    core::SettingsService::setQqUserId(QString());
+    core::SettingsService::setQqNickname(QString());
+    core::SettingsService::setQqAvatarUrl(QString());
+    core::SettingsService::setQqAvatarRemoteUrl(QString());
+    if (m_qq)
+        m_qq->setCookie(QString());
     emit accountStateChanged();
     accept();
 }

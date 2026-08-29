@@ -25,6 +25,7 @@
 #include <QAbstractScrollArea>
 #include <QCursor>
 #include <QCloseEvent>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QEvent>
 #include <QFile>
@@ -41,6 +42,7 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QShortcut>
+#include <QStandardPaths>
 #include <QStackedWidget>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -187,6 +189,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_downloadPage = new ui::DownloadPage(this);
 
     m_sourceRegistry.registerSource(&m_apiClient);
+    m_sourceRegistry.registerSource(&m_qqClient);
     m_player.setSourceProvider(&m_apiClient);
     m_player.setSourceRegistry(&m_sourceRegistry);
     m_player.setLibrary(&m_library);
@@ -194,10 +197,16 @@ MainWindow::MainWindow(QWidget *parent)
     m_downloads.setSourceRegistry(&m_sourceRegistry);
     m_downloads.setLibrary(&m_library);
     m_search->setSourceProvider(&m_apiClient, &m_library);
+    m_search->setSourceRegistry(&m_sourceRegistry);
+    m_search->setOnlineSourceEnabled(core::SourceId::QqMusic, false);
     m_playing->setSourceProvider(&m_apiClient);
     m_playing->setSourceRegistry(&m_sourceRegistry);
+    m_playing->setLibrary(&m_library);
     m_recommend->setSourceProvider(&m_apiClient, &m_library);
+    m_recommend->setSourceRegistry(&m_sourceRegistry);
     m_apiClient.setCookie(core::SettingsService::onlineCookie());
+    m_qqClient.setBaseUrl(core::SettingsService::qqApiBase());
+    m_qqClient.setCookie(core::SettingsService::qqCookie());
 
     m_stack = new QStackedWidget(this);
     m_stack->setObjectName("contentStack");
@@ -252,6 +261,18 @@ MainWindow::MainWindow(QWidget *parent)
         }
         m_search->performSearch(m_library.allSongs(), text);
         showPage(6);
+        if (m_qqApiReady)
+            return;
+        m_qqApiService.ensureRunning([this, text] {
+            m_qqApiReady = true;
+            m_search->setOnlineSourceEnabled(core::SourceId::QqMusic, true);
+            m_qqClient.setBaseUrl(m_qqApiService.apiBase());
+            if (m_searchQuery == text)
+                m_search->performSearch(m_library.allSongs(), text);
+        }, [this](const QString &) {
+            m_qqApiReady = false;
+            m_search->setOnlineSourceEnabled(core::SourceId::QqMusic, false);
+        });
     });
 
     // ---------- 侧边栏 ----------
@@ -336,8 +357,25 @@ MainWindow::MainWindow(QWidget *parent)
 
     // ---------- 推荐页 ----------
     connect(m_recommend, &ui::RecommendPage::playRequested, this, &MainWindow::playSongs);
-    connect(m_recommend, &ui::RecommendPage::openPlaylistRequested, this, &MainWindow::openOnlinePlaylist);
+    connect(m_recommend, &ui::RecommendPage::openPlaylistRequested, this,
+            [this](int sourceId, const QString &remoteId, const QString &name) {
+        openOnlinePlaylist(static_cast<core::SourceId>(sourceId), remoteId, name);
+    });
     connect(m_recommend, &ui::RecommendPage::loginRequested, this, &MainWindow::openAccount);
+    connect(m_recommend, &ui::RecommendPage::sourceActivationRequested, this, [this](int sourceId) {
+        if (sourceId != int(core::SourceId::QqMusic))
+            return;
+        m_qqApiService.ensureRunning([this] {
+            m_qqApiReady = true;
+            m_search->setOnlineSourceEnabled(core::SourceId::QqMusic, true);
+            m_qqClient.setBaseUrl(m_qqApiService.apiBase());
+            restoreQqSession();
+            m_recommend->setActiveSource(core::SourceId::QqMusic);
+        }, [this](const QString &) {
+            m_qqApiReady = false;
+            m_search->setOnlineSourceEnabled(core::SourceId::QqMusic, false);
+        });
+    });
     connect(m_recommend, &ui::RecommendPage::heartRequested, this, [this](int row) {
         const core::Song song = m_recommend->currentSongs().value(row);
         if (song.id > 0)
@@ -553,6 +591,23 @@ MainWindow::MainWindow(QWidget *parent)
             m_apiReady = false;
             m_recommend->refresh();
         });
+
+    // QQ 服务不阻塞首屏；只有存在保存账号时才在首屏稳定后按需启动并验证。
+    if (!core::SettingsService::qqCookie().isEmpty()
+        || !core::SettingsService::qqUserId().isEmpty()) {
+        QTimer::singleShot(2200, this, [this] {
+            m_qqApiService.ensureRunning([this] {
+                m_qqApiReady = true;
+                m_search->setOnlineSourceEnabled(core::SourceId::QqMusic, true);
+                m_qqClient.setBaseUrl(m_qqApiService.apiBase());
+                restoreQqSession();
+            }, [this](const QString &) {
+                // 临时不可用时保留本地账号展示，不影响网易云和本地曲库。
+                m_qqApiReady = false;
+                m_search->setOnlineSourceEnabled(core::SourceId::QqMusic, false);
+            });
+        });
+    }
 }
 
 void MainWindow::showPage(int pageId)
@@ -677,13 +732,20 @@ void MainWindow::openLocalAlbum(const QString &album, const QString &artist)
     showPage(4);
 }
 
-void MainWindow::openOnlinePlaylist(qint64 id, const QString &name)
+void MainWindow::openOnlinePlaylist(core::SourceId sourceId, const QString &remoteId,
+                                    const QString &name)
 {
-    auto showTracks = [this, id, name](const QString &coverPath) {
-        m_apiClient.playlistTracks(id, [this, name, coverPath](const QJsonArray &arr) {
+    core::MusicSource *source = m_sourceRegistry.source(sourceId);
+    if (!source || remoteId.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("在线歌单"),
+                                 QStringLiteral("对应音乐来源当前不可用"));
+        return;
+    }
+    auto showTracks = [this, source, remoteId, name](const QString &coverPath) {
+        source->playlistTracks(remoteId, [this, source, name, coverPath](const QJsonArray &arr) {
             QList<core::Song> songs;
             for (const QJsonValue &v : arr) {
-                core::Song s = m_apiClient.songFromJson(v.toObject());
+                core::Song s = source->songFromJson(v.toObject());
                 s.id = m_library.upsertOnlineSong(s);
                 if (s.id > 0) {
                     const core::Song stored = m_library.songById(s.id);
@@ -707,17 +769,19 @@ void MainWindow::openOnlinePlaylist(qint64 id, const QString &name)
         });
     };
 
-    m_apiClient.playlistDetail(id, [this, id, showTracks](const QJsonObject &playlist) {
+    source->playlistDetail(remoteId, [this, sourceId, remoteId, source, showTracks](const QJsonObject &playlist) {
         QString coverUrl = playlist.value(QStringLiteral("coverImgUrl")).toString();
         if (coverUrl.isEmpty())
             coverUrl = playlist.value(QStringLiteral("picUrl")).toString();
-        const QString coverPath = m_library.playlistCoverCachePath(id);
+        if (coverUrl.isEmpty())
+            coverUrl = playlist.value(QStringLiteral("coverUrl")).toString();
+        const QString coverPath = m_library.playlistCoverCachePath(sourceId, remoteId);
         if (QFileInfo::exists(coverPath) && QFileInfo(coverPath).size() > 0) {
             showTracks(coverPath);
             return;
         }
         if (!coverUrl.isEmpty()) {
-            m_apiClient.downloadToFile(QUrl(coverUrl), coverPath, [showTracks, coverPath](bool ok) {
+            source->downloadToFile(QUrl(coverUrl), coverPath, [showTracks, coverPath](bool ok) {
                 showTracks(ok ? coverPath : QString());
             });
         } else {
@@ -761,9 +825,14 @@ void MainWindow::startOnlineCoverDownloads()
             m_library.setSongCoverPath(song.id, path);
             continue;
         }
+        core::MusicSource *source = m_sourceRegistry.sourceFor(song);
+        if (!source) {
+            m_onlineCoverAttempted.remove(song.id);
+            continue;
+        }
         ++m_onlineCoverDownloadsActive;
-        m_apiClient.downloadToFile(QUrl(song.coverUrl), path,
-                                   [this, id = song.id, path](bool ok) {
+        source->downloadToFile(QUrl(song.coverUrl), path,
+                               [this, id = song.id, path](bool ok) {
             if (ok)
                 m_library.setSongCoverPath(id, path);
             m_onlineCoverDownloadsActive = qMax(0, m_onlineCoverDownloadsActive - 1);
@@ -827,12 +896,63 @@ void MainWindow::hydrateOnlineCovers(const QList<core::Song> &songs)
 
 void MainWindow::openAccount()
 {
-    ui::AccountDialog dlg(&m_apiClient, this);
+    ui::AccountDialog dlg(&m_apiClient, &m_qqClient, &m_qqApiService, this);
     connect(&dlg, &ui::AccountDialog::accountStateChanged, this, [this] {
+        cacheQqAvatar(QString());
         m_accountPanel->refresh();
         m_recommend->refresh();
     });
     dlg.exec();
+}
+
+void MainWindow::restoreQqSession()
+{
+    const QString credential = core::SettingsService::qqCookie();
+    if (credential.isEmpty()) {
+        m_qqClient.setCookie(QString());
+        m_accountPanel->refresh();
+        return;
+    }
+    m_qqClient.setCookie(credential);
+    m_qqClient.validateCredential(credential, QStringLiteral("saved"),
+        [this](const QJsonObject &profile) {
+            const QString userId = profile.value(QStringLiteral("userId")).toVariant().toString();
+            if (userId.isEmpty())
+                return;
+            core::SettingsService::setQqUserId(userId);
+            core::SettingsService::setQqNickname(profile.value(QStringLiteral("nickname")).toString());
+            const QString avatarUrl = profile.value(QStringLiteral("avatarUrl")).toString();
+            core::SettingsService::setQqAvatarRemoteUrl(avatarUrl);
+            cacheQqAvatar(avatarUrl);
+            m_accountPanel->refresh();
+        }, [this](const QString &) {
+            // 网络或上游错误不视为凭据过期；保留本地账号，等待下次验证。
+            m_accountPanel->refresh();
+        });
+}
+
+void MainWindow::cacheQqAvatar(const QString &remoteUrl)
+{
+    const QString url = remoteUrl.isEmpty() ? core::SettingsService::qqAvatarRemoteUrl() : remoteUrl;
+    if (url.isEmpty())
+        return;
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+        + QStringLiteral("/accounts");
+    QDir().mkpath(dir);
+    const QString avatarKey = QString::fromLatin1(
+        QCryptographicHash::hash(url.toUtf8(), QCryptographicHash::Sha1).toHex());
+    const QString path = dir + QStringLiteral("/qq-avatar-%1.png").arg(avatarKey);
+    if (QFileInfo::exists(path) && QFileInfo(path).size() > 0) {
+        core::SettingsService::setQqAvatarUrl(path);
+        m_accountPanel->refresh();
+        return;
+    }
+    m_qqClient.downloadToFile(QUrl(url), path, [this, path](bool ok) {
+        if (!ok)
+            return;
+        core::SettingsService::setQqAvatarUrl(path);
+        m_accountPanel->refresh();
+    });
 }
 
 void MainWindow::openSettings()

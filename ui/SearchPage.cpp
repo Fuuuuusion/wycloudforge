@@ -4,6 +4,7 @@
 #include "ui/SongListView.h"
 
 #include "core/LibraryService.h"
+#include "core/MusicSourceRegistry.h"
 
 #include <QButtonGroup>
 #include <QFileInfo>
@@ -15,6 +16,8 @@
 #include <QStackedWidget>
 #include <QUrl>
 #include <QVBoxLayout>
+
+#include <memory>
 
 namespace ui {
 namespace {
@@ -146,6 +149,21 @@ void SearchPage::setSourceProvider(core::MusicSource *source, core::LibraryServi
 {
     m_source = source;
     m_lib = library;
+    if (source)
+        m_enabledSourceIds.insert(int(source->sourceId()));
+}
+
+void SearchPage::setSourceRegistry(core::MusicSourceRegistry *registry)
+{
+    m_registry = registry;
+}
+
+void SearchPage::setOnlineSourceEnabled(core::SourceId sourceId, bool enabled)
+{
+    if (enabled)
+        m_enabledSourceIds.insert(int(sourceId));
+    else
+        m_enabledSourceIds.remove(int(sourceId));
 }
 
 void SearchPage::performSearch(const QList<core::Song> &allSongs, const QString &query)
@@ -162,7 +180,7 @@ void SearchPage::performSearch(const QList<core::Song> &allSongs, const QString 
     refreshLocalResults(allSongs);
 
     // 在线结果
-    if (m_source && m_lib && !m_query.isEmpty())
+    if ((m_source || m_registry) && m_lib && !m_query.isEmpty())
         loadOnlinePage(0);
 
     while (QLayoutItem *item = m_artistLayout->takeAt(0)) {
@@ -213,23 +231,72 @@ void SearchPage::refreshLocalResults(const QList<core::Song> &allSongs)
 
 void SearchPage::loadOnlinePage(int offset)
 {
-    if (!m_source || !m_lib || m_query.isEmpty() || m_onlineLoading)
+    if ((!m_source && !m_registry) || !m_lib || m_query.isEmpty() || m_onlineLoading)
         return;
     const int generation = m_searchGeneration;
     m_onlineLoading = true;
     m_onlineMore->setEnabled(false);
     m_onlineMore->setText(QStringLiteral("加载中…"));
-    m_source->searchSongsPage(m_query, m_onlinePageSize, offset,
-                              [this, generation, offset](const QJsonArray &arr) {
+    QList<core::MusicSource *> sources = m_registry ? m_registry->onlineSources()
+                                                    : QList<core::MusicSource *>{ m_source };
+    sources.removeAll(nullptr);
+    for (auto it = sources.begin(); it != sources.end();) {
+        if (!m_enabledSourceIds.contains(int((*it)->sourceId())))
+            it = sources.erase(it);
+        else
+            ++it;
+    }
+    if (sources.isEmpty()) {
+        m_onlineLoading = false;
+        return;
+    }
+    auto pending = std::make_shared<int>(sources.size());
+    auto hasMore = std::make_shared<bool>(false);
+    if (offset == 0)
+        m_onlineSongs.clear();
+    const auto renderResults = [this, generation, offset, hasMore](bool finished) {
         if (generation != m_searchGeneration)
             return;
-        if (offset == 0)
-            m_onlineSongs.clear();
+        m_onlineList->setSongs(m_onlineSongs);
+        QStringList labels;
+        QSet<int> seenSources;
+        for (const core::Song &song : m_onlineSongs)
+            seenSources.insert(song.source);
+        if (seenSources.contains(int(core::SourceId::Netease))) labels.append(QStringLiteral("网易云"));
+        if (seenSources.contains(int(core::SourceId::QqMusic))) labels.append(QStringLiteral("QQ音乐"));
+        m_onlineHeader->setText(QStringLiteral("在线结果(%1) · %2 首")
+                                    .arg(labels.isEmpty() ? QStringLiteral("暂无可用来源") : labels.join(QLatin1Char('/')))
+                                    .arg(m_onlineSongs.size()));
+        m_onlineHeader->setVisible(!m_onlineSongs.isEmpty());
+        if (finished) {
+            m_onlineOffset = offset;
+            m_onlineLoading = false;
+            m_onlineMore->setVisible(*hasMore);
+            m_onlineMore->setEnabled(true);
+            m_onlineMore->setText(QStringLiteral("加载更多"));
+        }
+        for (const core::Song &song : m_onlineSongs)
+            ensureCover(song);
+    };
+    const auto finishSource = [this, generation, pending, renderResults] {
+        if (generation != m_searchGeneration)
+            return;
+        const bool finished = --(*pending) == 0;
+        // 每个来源独立完成时立即展示其结果；离线或响应慢的来源不能让
+        // 已返回的网易云/QQ 结果一直停留在“加载中”的空页面。
+        renderResults(finished);
+    };
+    for (core::MusicSource *source : sources) {
+        source->searchSongsPage(m_query, m_onlinePageSize, offset,
+                              [this, source, generation, hasMore, finishSource](const QJsonArray &arr) {
+        if (generation != m_searchGeneration)
+            return;
+        *hasMore = *hasMore || arr.size() >= m_onlinePageSize;
         for (const QJsonValue &v : arr) {
-            const core::Song s0 = m_source->songFromJson(v.toObject());
+            const core::Song s0 = source->songFromJson(v.toObject());
             bool duplicate = false;
             for (const core::Song &existing : m_onlineSongs) {
-                if (existing.onlineId == s0.onlineId) {
+                if (existing.stableIdentity() == s0.stableIdentity()) {
                     duplicate = true;
                     break;
                 }
@@ -247,24 +314,13 @@ void SearchPage::loadOnlinePage(int offset)
             }
             m_onlineSongs.append(s);
         }
-        m_onlineOffset = offset;
-        m_onlineLoading = false;
-        m_onlineList->setSongs(m_onlineSongs);
-        m_onlineHeader->setText(QStringLiteral("在线结果(%1) · %2 首")
-                                    .arg(m_source->sourceName()).arg(m_onlineSongs.size()));
-        m_onlineHeader->setVisible(!m_onlineSongs.isEmpty());
-        m_onlineMore->setVisible(arr.size() >= m_onlinePageSize);
-        m_onlineMore->setEnabled(true);
-        m_onlineMore->setText(QStringLiteral("加载更多"));
-        for (const core::Song &s : m_onlineSongs)
-            ensureCover(s);
-    }, [this, generation](const QString &) {
+        finishSource();
+    }, [this, generation, finishSource](const QString &) {
         if (generation != m_searchGeneration)
             return;
-        m_onlineLoading = false;
-        m_onlineMore->setEnabled(true);
-        m_onlineMore->setText(QStringLiteral("加载更多"));
+        finishSource();
     });
+    }
 }
 
 void SearchPage::refreshOnlineCovers()
@@ -299,18 +355,21 @@ void SearchPage::setPlaylistMenuItems(const QList<QPair<int, QString>> &items)
 
 void SearchPage::ensureCover(const core::Song &song)
 {
-    if (!song.isOnline() || song.id <= 0 || !m_source || !m_lib)
+    core::MusicSource *source = m_registry ? m_registry->sourceFor(song) : m_source;
+    if (!song.isOnline() || song.id <= 0 || !source || !m_lib)
         return;
-    if (song.coverUrl.isEmpty() && song.albumId > 0 && !m_albumCoverLookups.contains(song.albumId)) {
-        m_albumCoverLookups.insert(song.albumId);
-        const qint64 albumId = song.albumId;
-        m_source->albumDetail(albumId, [this, albumId](const QJsonObject &obj) {
+    const QString albumIdentity = QStringLiteral("%1:%2").arg(song.source).arg(song.effectiveAlbumRemoteId());
+    if (song.coverUrl.isEmpty() && !song.effectiveAlbumRemoteId().isEmpty()
+        && !m_albumCoverLookups.contains(albumIdentity)) {
+        m_albumCoverLookups.insert(albumIdentity);
+        const QString albumId = song.effectiveAlbumRemoteId();
+        source->albumDetail(albumId, [this, albumId, sourceId = song.source](const QJsonObject &obj) {
             const QString coverUrl = obj.value(QStringLiteral("album")).toObject()
                                          .value(QStringLiteral("picUrl")).toString();
             if (coverUrl.isEmpty())
                 return;
             for (core::Song &item : m_onlineSongs) {
-                if (item.albumId != albumId || !item.coverUrl.isEmpty())
+                if (item.source != sourceId || item.effectiveAlbumRemoteId() != albumId || !item.coverUrl.isEmpty())
                     continue;
                 item.coverUrl = coverUrl;
                 m_lib->upsertOnlineSong(item);
@@ -331,9 +390,13 @@ void SearchPage::ensureCover(const core::Song &song)
         m_lib->setSongCoverPath(song.id, path);
         return;
     }
+    if (m_coverDownloads.contains(song.id))
+        return;
+    m_coverDownloads.insert(song.id);
     const QUrl url(song.coverUrl);
     const qint64 id = song.id;
-    m_source->downloadToFile(url, path, [this, id, path](bool ok) {
+    source->downloadToFile(url, path, [this, id, path](bool ok) {
+        m_coverDownloads.remove(id);
         if (ok && m_lib) {
             setOnlineCover(id, path);
             m_lib->setSongCoverPath(id, path);

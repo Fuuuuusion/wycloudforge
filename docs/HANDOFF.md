@@ -204,7 +204,7 @@ Start-Process $exe -ArgumentList "--folder `"$tmp`"","--db `"$tmp\t.db`"","--pag
 
 - 侧边栏四导航:**推荐 / 收藏(红心)/ 本地歌单(含导入)/ 自建歌单**。自建歌单 = "自建歌单"行 + 右侧"＋"(悬浮提示"创建歌单",**无文字按钮**),列表只列自建歌单(过滤 id=1 红心歌单),可改名/换封面/写简介。
 - 搜索页、正在播放页**不占主导航**(经顶部搜索框、播放栏歌词键/点封面进入)。
-- 左下角账号面板(头像+昵称+设置入口),点账号弹 `AccountDialog`(网易云真登录/退出,QQ 占位);**设置键也从标题栏挪到左下角**,标题栏只留最小/最大/关闭 + 搜索框。
+- 左下角账号面板(头像+昵称+设置入口),点账号弹 `AccountDialog`(网易云与 QQ 音乐登录/退出);**设置键也从标题栏挪到左下角**,标题栏只留最小/最大/关闭 + 搜索框。
 
 ---
 
@@ -212,7 +212,7 @@ Start-Process $exe -ArgumentList "--folder `"$tmp`"","--db `"$tmp\t.db`"","--pag
 
 ### 架构分层(稳定)
 
-- `core`:`ApiService`(探测/自拉起 API)、`NeteaseApiClient`(HTTP+JSON,含搜索/歌曲/URL/歌词/专辑/歌手/歌单/评论/登录/QR/收藏/流式下载)、`LibraryService`(多文件夹递归扫描+QFileSystemWatcher 增量+拖拽导入+`ON CONFLICT(path) DO UPDATE`,缓存/下载路径持久化)、`PlayerService`(QMediaPlayer+QAudioOutput,永久下载→自动缓存→在线 URL)、`DownloadService`(下载队列、进度、取消、失败与重试)、`PlaylistController`(SQLite 歌单,含封面/简介)、`LyricsLoader/LrcParser`(行级同步,编码识别)、`TagReader`(TagLib+wchar_t,加密容器短路)、`SearchService`、`SettingsService`、`MusicSource.h`。
+- `core`:`ApiService/QqApiService`(两来源独立探测与自拉起)、`NeteaseApiClient/QqMusicSource`(统一来源接口)、`MusicSourceRegistry`(按歌曲来源路由)、`CredentialStore`(Windows DPAPI)、`LibraryService`(多文件夹递归扫描+QFileSystemWatcher 增量+拖拽导入+缓存/下载/封面/LRC 管理)、`PlayerService`(QMediaPlayer+QAudioOutput,永久下载→自动缓存→在线 URL)、`DownloadService`(下载队列、进度、取消、失败与重试)、`PlaylistController`(SQLite 歌单,含封面/简介)、`LyricsLoader/LrcParser`(行级同步,编码识别)、`TagReader`、`SearchService`、`SettingsService`。
 - `ui`:主窗口栈(0-6)、`AuroraBackground`(固定背景)、`TitleBar`、`SideBar`、`PlayerBar`、`AccountPanel/AccountDialog`、`LibraryPage/FavoritesPage/RecommendPage/SelfPlaylistsPage/SongListPage/OnlinePage/SearchPage/PlayingPage`、`SongListView/SongListModel`、`LyricWidget`、`LoginDialog`、`SettingsDialog`、`PlaylistEditDialog`、`LyricEditorDialog`、`CommentsDialog`(入口已从正在播放页移除)、`CoverProvider/CoverCard`、`ProgressSlider`。
 - 测试:`tests/` 有 LRC/tagreader/歌单/播放器单测(ctest),需保持通过。
 
@@ -263,7 +263,7 @@ a4dcb21  SongListModel 改多列表 + 登录补齐uid/昵称 + QPointer防闪退
 
 1. **扫码登录端到端仍需真人验证**:启动恢复现会用 `/login/status` 校验 cookie，并兼容 `data.profile` / `data.account`;但新扫码流程仍需用户实测。
 2. **.mgg/.mflac 解密播放未做**:能入库显示,`PlayerService` 无法解码;须 mgg→flac/mp3 解密,来源须合法。
-3. **QQ 音乐未实现**:仅账号占位;后续 `QqMusicSource`。
+3. **QQ/微信扫码仍需真人端到端验收**:`QqMusicSource`、独立包装服务、并发搜索、推荐/只读云歌单、播放/下载/歌词/封面及双扫码状态机均已实现并通过契约测试；仍需用户分别用手机 QQ 和微信完成扫码、确认、重启恢复及微信未绑定账号场景。
 4. **"样子"这首 ogg 未补封面**(用户可能想要)。
 5. **windeployqt 打包免安装目录**:未在本轮验证。
 6. **`.mgg` 在 `--screenshot` 下扫描会崩**:截图验证避开带 `.mgg` 的目录,或正常模式验收。
@@ -283,3 +283,14 @@ a4dcb21  SongListModel 改多列表 + 登录补齐uid/昵称 + QPointer防闪退
 - 构建 `NeteaseClone` 失败：`ui/OnlinePage.cpp:289` 把强类型 `core::SourceId` 与整数 `1` 直接比较。根因是第一阶段将来源 ID 从裸 `int` 升级为 `enum class SourceId` 后，旧页面条件判断未同步。可行方案：改为 `core::SourceId::Netease`，后续新代码禁止使用来源魔法数字。该问题不是环境配置缺失。
 - 直接从 PowerShell 调用 Ninja 构建 `tst_playlistcontroller` 失败：编译命令退出但没有任何 C++ 诊断。根因是该启动方式没有把 `C:\Qt\Tools\mingw1310_64\bin` 放入 `PATH`，MinGW `cc1plus` 在当前机器上会静默失败。可行方案：使用 `cmd` 构建脚本并显式设置 Ninja/MinGW `PATH`；不要把这类无诊断退出误判为源码错误。
 - 更新后的 `tst_playlistcontroller` 首次运行有 12 项初始化失败：`cannot commit transaction - SQL statements in progress`。根因是字符串远端 ID 迁移前的 `PRAGMA wal_checkpoint(FULL)` 查询仍持有结果集，导致 SQLite 拒绝提交后续迁移事务。可行方案：备份并进入迁移事务前显式 `checkpoint.finish()`；测试初始化保留 `QVERIFY2(..., lastError)`，以后数据库打开失败可直接看到原因。该问题不是环境配置缺失。
+- QQ 包装层首轮契约测试 1/3 失败：单首搜索夹具被归一成 3 首。根因是 QQ 原始 JSON 在歌曲、歌手和专辑对象里都使用通用字段 `mid`，递归解析误把歌手/专辑 MID 当作 `songmid`。可行方案：优先只接受 `songmid/song_mid/songMid`；仅当对象同时具备歌曲特征字段时才把裸 `mid` 视为歌曲身份。未知字段继续忽略。该问题不是环境配置缺失。
+- 推荐页接入来源切换后构建失败：`RecommendPage.cpp` 创建并连接 `QButtonGroup` 时只有 `QPushButton` 间接提供的前置声明。根因是缺少完整类型头文件，编译器无法实例化对象或解析 `idClicked`。可行方案：显式包含 `<QButtonGroup>`；以后新增 Qt 控件时不要依赖其他头文件的间接声明。该问题不是环境配置缺失。
+- 新增 `tst_multisourcesupport` 首次运行 2 项 DPAPI 测试失败，`CryptProtectData` 返回 Windows 错误 2；同一执行环境下用 .NET `ProtectedData` 探针也明确报告“当前线程用户上下文未加载用户配置文件”。根因是受限测试进程没有可用的 Windows 用户 DPAPI 配置文件，不是凭据实现或用户项目配置错误。可行方案：保留 DPAPI 实现，在正常桌面用户上下文中重跑凭据测试；服务签名、端口隔离等不依赖 DPAPI 的测试已通过，不能为适配受限测试环境而降级为明文或机器级加密。
+
+### QQ 多源第二阶段完成项
+
+- 本地 `@sansenjian/qq-music-api@2.6.0` 包装服务固定依赖与 lockfile，绑定 `127.0.0.1:3200`，返回稳定 `{ok,data,error}` 契约；服务签名验证通过前 QQ 搜索不会启用。
+- QQ/微信双扫码统一状态机，扫码后保留二维码直到手机确认；切换方式、关窗和退出会取消任务并丢弃迟到回调，手动 Cookie 仅作为高级故障回退。
+- 网易云与 QQ 凭据均迁移到 Windows DPAPI；QQ 账号、头像缓存、推荐缓存、音频、封面与 LRC 均按来源隔离。
+- 搜索按来源并发且增量展示，QQ 离线不会拖住网易云；QQ 推荐歌曲和只读云歌单、字符串歌单 ID、专辑/歌手详情、播放、下载和歌词已接入来源注册表。
+- 新增自动化覆盖 DPAPI 回读/迁移、错误服务签名、服务离线隔离、QQ 字符串身份、独立 LRC 重启恢复，以及网易云/QQ 混合队列的顺序、单曲循环和随机联播。

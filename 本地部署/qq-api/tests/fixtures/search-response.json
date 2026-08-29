@@ -1,0 +1,17 @@
+{
+  "code": 0,
+  "data": {
+    "song": {
+      "list": [
+        {
+          "songmid": "0039MnYb0qxYhV",
+          "songname": "测试歌曲",
+          "interval": 245,
+          "singer": [{ "mid": "0025NhlN2yWrP4", "name": "测试歌手", "unknown": "ignored" }],
+          "album": { "mid": "004DABuD2r4V8n", "name": "测试专辑" },
+          "future_field": { "kept_out_of_ui": true }
+        }
+      ]
+    }
+  }
+}

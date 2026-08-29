@@ -4,6 +4,7 @@
 #include "ui/LyricWidget.h"
 
 #include "core/LyricsLoader.h"
+#include "core/LibraryService.h"
 #include "core/MusicSource.h"
 #include "core/MusicSourceRegistry.h"
 
@@ -124,7 +125,8 @@ void PlayingPage::loadLyricsFor(const core::Song &song)
     core::MusicSource *source = m_registry ? m_registry->sourceFor(song) : m_source;
     if (song.hasRemoteIdentity() && source) {
         const QPointer<PlayingPage> guard(this);
-        source->lyric(song.effectiveRemoteId(), [guard, requestGeneration](const QString &lrc, const QString &tlyrc,
+        source->lyric(song.effectiveRemoteId(), [guard, requestGeneration, song](const QString &lrc,
+                                                                 const QString &tlyrc,
                                                                  const QString &romalrc) {
             if (!guard || requestGeneration != guard->m_lyricRequestGeneration)
                 return;
@@ -134,6 +136,13 @@ void PlayingPage::loadLyricsFor(const core::Song &song)
             guard->m_lrc = onlineLyrics;
             guard->m_tlyrc = core::LrcParser::parseBytes(tlyrc.toUtf8());
             guard->m_romalrc = core::LrcParser::parseBytes(romalrc.toUtf8());
+            if (guard->m_library && song.id > 0) {
+                const QString path = guard->m_library->lyricCachePathFor(song);
+                core::Song cachedSong = song;
+                cachedSong.lyricPath = path;
+                if (!path.isEmpty() && core::LyricsLoader::saveSidecar(cachedSong, lrc))
+                    guard->m_library->setSongLyricPath(song.id, path);
+            }
             guard->applyLyricMode();
         });
     }

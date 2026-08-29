@@ -8,6 +8,7 @@
 namespace core {
 class MusicSource;
 class MusicSourceRegistry;
+class LibraryService;
 }
 
 class QButtonGroup;
@@ -28,6 +29,7 @@ public:
     void setLyrics(const QList<core::LyricLine> &lines);
     void setSourceProvider(core::MusicSource *source);
     void setSourceRegistry(core::MusicSourceRegistry *registry);
+    void setLibrary(core::LibraryService *library) { m_library = library; }
     void loadLyricsFor(const core::Song &song);
     void setPosition(qint64 ms);
     void setLyricFontSize(int px);
@@ -48,6 +50,7 @@ private:
     QButtonGroup *m_modeGroup = nullptr;
     core::MusicSource *m_source = nullptr;
     core::MusicSourceRegistry *m_registry = nullptr;
+    core::LibraryService *m_library = nullptr;
     QList<core::LyricLine> m_lrc;
     QList<core::LyricLine> m_tlyrc;
     QList<core::LyricLine> m_romalrc;

@@ -65,6 +65,7 @@ private:
     bool ensureAudioOutput();
     bool retryInvalidDownloadedFile();
     bool retryInvalidCache();
+    bool retryInvalidRemoteSource();
     void advanceAfterEndOfMedia();
     void buildShuffleOrder();
     void alignShuffleToCurrent();
@@ -90,6 +91,7 @@ private:
     bool m_pendingAutoPlay = false;
     bool m_usingCachedSource = false;
     bool m_cacheRetryAttempted = false;
+    bool m_urlRetryAttempted = false;
     bool m_usingDownloadedSource = false;
     QSet<qint64> m_coverSaveInFlight;
     int m_endOfMediaToken = -1;

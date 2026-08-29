@@ -54,13 +54,25 @@ public:
     static QString onlineAvatarUrl();
     static void setOnlineAvatarUrl(const QString &url);
 
-    // QQ音乐(预留)
+    // QQ音乐
     static QString qqCookie();
     static void setQqCookie(const QString &cookie);
+    static QString qqApiBase(const QString &fallback = QStringLiteral("http://127.0.0.1:3200"));
+    static void setQqApiBase(const QString &url);
+    static bool qqAutoStart(bool fallback = true);
+    static void setQqAutoStart(bool on);
+    static QString qqApiDir();
+    static void setQqApiDir(const QString &dir);
+    static QString qqUserId();
+    static void setQqUserId(const QString &uid);
     static qint64 qqUid();
     static void setQqUid(qint64 uid);
     static QString qqNickname();
     static void setQqNickname(const QString &name);
+    static QString qqAvatarUrl();
+    static void setQqAvatarUrl(const QString &url);
+    static QString qqAvatarRemoteUrl();
+    static void setQqAvatarRemoteUrl(const QString &url);
 
     // 头像来源:0 网易云 / 1 QQ音乐 / 2 本地上传
     static int avatarSource(int fallback = 0);

@@ -5,6 +5,8 @@
 #include "core/LibraryService.h"
 #include "core/NeteaseApiClient.h"
 #include "core/MusicSourceRegistry.h"
+#include "core/QqApiService.h"
+#include "core/QqMusicSource.h"
 #include "core/PlayerService.h"
 #include "core/PlaylistController.h"
 #include "core/SettingsService.h"
@@ -56,7 +58,8 @@ private:
     void openAlbum(const QString &album, const QString &artist);
     void openLocalArtist(const QString &artist);
     void openLocalAlbum(const QString &album, const QString &artist);
-    void openOnlinePlaylist(qint64 id, const QString &name);
+    void openOnlinePlaylist(core::SourceId sourceId, const QString &remoteId,
+                            const QString &name);
     void hydrateOnlineCovers(const QList<core::Song> &songs);
     void ensureOnlineCovers(const QList<core::Song> &songs);
     void startOnlineCoverDownloads();
@@ -70,6 +73,8 @@ private:
     void refreshLibraryViews();
     void refreshAllPages();
     void restoreOnlineSession();
+    void restoreQqSession();
+    void cacheQqAvatar(const QString &remoteUrl);
     void onCurrentSongChanged(const core::Song &song, int index);
     void enrichLocalSong(const core::Song &song);
     void searchLocalMetadata(const core::Song &song);
@@ -90,6 +95,8 @@ private:
     core::LibraryService m_library{ this };
     core::ApiService m_apiService{ this };
     core::NeteaseApiClient m_apiClient{ this };
+    core::QqApiService m_qqApiService{ this };
+    core::QqMusicSource m_qqClient{ this };
     core::MusicSourceRegistry m_sourceRegistry;
     core::PlaylistController m_playlists{ this };
     core::PlayerService m_player{ this };
@@ -115,6 +122,7 @@ private:
     QString m_searchQuery;
     bool m_restoredLastSong = false;
     bool m_apiReady = false;
+    bool m_qqApiReady = false;
     QSet<QString> m_metadataAttempted;
     QSet<qint64> m_onlineCoverAttempted;
     QSet<qint64> m_onlineCoverDetailsAttempted;

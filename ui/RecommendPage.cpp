@@ -2,11 +2,13 @@
 
 #include "core/LibraryService.h"
 #include "core/MusicSource.h"
+#include "core/MusicSourceRegistry.h"
 #include "core/SettingsService.h"
 #include "ui/CoverCard.h"
 #include "ui/CoverProvider.h"
 #include "ui/SongListView.h"
 
+#include <QButtonGroup>
 #include <QFile>
 #include <QFileInfo>
 #include <QHBoxLayout>
@@ -29,9 +31,30 @@ RecommendPage::RecommendPage(QWidget *parent)
     layout->setContentsMargins(28, 24, 28, 24);
     layout->setSpacing(12);
 
+    auto *titleRow = new QHBoxLayout;
     auto *title = new QLabel(QStringLiteral("推荐"), this);
     title->setProperty("class", "pageTitle");
-    layout->addWidget(title);
+    titleRow->addWidget(title);
+    titleRow->addStretch(1);
+    auto *neteaseButton = new QPushButton(QStringLiteral("网易云"), this);
+    auto *qqButton = new QPushButton(QStringLiteral("QQ音乐"), this);
+    neteaseButton->setCheckable(true);
+    qqButton->setCheckable(true);
+    neteaseButton->setChecked(true);
+    auto *sourceGroup = new QButtonGroup(this);
+    sourceGroup->setExclusive(true);
+    sourceGroup->addButton(neteaseButton, int(core::SourceId::Netease));
+    sourceGroup->addButton(qqButton, int(core::SourceId::QqMusic));
+    titleRow->addWidget(neteaseButton);
+    titleRow->addWidget(qqButton);
+    layout->addLayout(titleRow);
+    connect(sourceGroup, &QButtonGroup::idClicked, this, [this](int sourceId) {
+        // QQ 服务是按需启动的；由主窗口确认独立服务可用后再切换，避免
+        // 点击时先向未监听的 3200 端口发请求。网易云可直接切换。
+        if (sourceId != int(core::SourceId::QqMusic))
+            setActiveSource(static_cast<core::SourceId>(sourceId));
+        emit sourceActivationRequested(sourceId);
+    });
 
     m_emptyLabel = new QLabel(this);
     m_emptyLabel->setProperty("class", "pageSub");
@@ -69,24 +92,55 @@ void RecommendPage::setSourceProvider(core::MusicSource *source, core::LibrarySe
     m_lib = library;
 }
 
+void RecommendPage::setSourceRegistry(core::MusicSourceRegistry *registry)
+{
+    m_registry = registry;
+}
+
+void RecommendPage::setActiveSource(core::SourceId sourceId)
+{
+    if (m_registry) {
+        if (core::MusicSource *source = m_registry->source(sourceId))
+            m_source = source;
+    }
+    refresh();
+}
+
 void RecommendPage::refresh()
 {
     // 启动时先展示上次成功获取的内容，避免登录校验和 API 自启动期间整页空白。
     // 在线请求完成后会用最新结果无缝替换缓存。
-    loadCache();
-    const bool loggedIn = core::SettingsService::onlineUid() > 0;
+    core::MusicSource *source = m_source;
+    if (!source)
+        return;
+    const int generation = ++m_requestGeneration;
+    loadCache(source);
+    const bool loggedIn = source->sourceId() == core::SourceId::Netease
+        ? core::SettingsService::onlineUid() > 0
+        : !core::SettingsService::qqUserId().isEmpty();
     if (!loggedIn || !m_source)
         return;
-    m_source->recommendSongs([this](const QJsonArray &songs) {
-        buildDaily(songs);
-        m_source->topPlaylists(QString(), 0, [this, songs](const QJsonArray &pls) {
-            buildPlaylists(pls);
-            saveCache(songs, pls);
-        }, [this, songs](const QString &) {
-            saveCache(songs, QJsonArray());
-        });
-    }, [this](const QString &) {
-        loadCache();
+    source->recommendSongs([this, source, generation](const QJsonArray &songs) {
+        if (generation != m_requestGeneration || source != m_source)
+            return;
+        buildDaily(songs, source);
+        const auto playlistsReady = [this, source, songs, generation](const QJsonArray &pls) {
+            if (generation != m_requestGeneration || source != m_source)
+                return;
+            buildPlaylists(pls, source);
+            saveCache(songs, pls, source);
+        };
+        const auto playlistsFailed = [this, source, songs, generation](const QString &) {
+            if (generation == m_requestGeneration && source == m_source)
+                saveCache(songs, QJsonArray(), source);
+        };
+        if (source->sourceId() == core::SourceId::QqMusic)
+            source->userPlaylists(core::SettingsService::qqUserId(), playlistsReady, playlistsFailed);
+        else
+            source->topPlaylists(QString(), 0, playlistsReady, playlistsFailed);
+    }, [this, source, generation](const QString &) {
+        if (generation == m_requestGeneration && source == m_source)
+            loadCache(source);
     });
 }
 
@@ -100,11 +154,11 @@ void RecommendPage::setPlaylistMenuItems(const QList<QPair<int, QString>> &items
     m_list->setPlaylistMenuItems(items);
 }
 
-void RecommendPage::buildDaily(const QJsonArray &arr)
+void RecommendPage::buildDaily(const QJsonArray &arr, core::MusicSource *source)
 {
     QList<core::Song> songs;
     for (const QJsonValue &v : arr) {
-        core::Song s = m_source ? m_source->songFromJson(v.toObject()) : core::Song();
+        core::Song s = source ? source->songFromJson(v.toObject()) : core::Song();
         if (m_lib && s.isOnline()) {
             s.id = m_lib->upsertOnlineSong(s);
             if (s.id > 0) {
@@ -122,7 +176,7 @@ void RecommendPage::buildDaily(const QJsonArray &arr)
     m_list->setVisible(true);
 
     for (const core::Song &song : songs) {
-        if (!song.isOnline() || song.id <= 0 || song.coverUrl.isEmpty() || !m_source || !m_lib)
+        if (!song.isOnline() || song.id <= 0 || song.coverUrl.isEmpty() || !source || !m_lib)
             continue;
         const core::Song stored = m_lib->songById(song.id);
         if (!stored.coverPath.isEmpty() && QFileInfo::exists(stored.coverPath))
@@ -133,7 +187,7 @@ void RecommendPage::buildDaily(const QJsonArray &arr)
             continue;
         }
         const qint64 songId = song.id;
-        m_source->downloadToFile(QUrl(song.coverUrl), path, [this, songId, path](bool ok) {
+        source->downloadToFile(QUrl(song.coverUrl), path, [this, songId, path](bool ok) {
             if (!ok || !m_lib)
                 return;
             m_lib->setSongCoverPath(songId, path);
@@ -141,7 +195,7 @@ void RecommendPage::buildDaily(const QJsonArray &arr)
     }
 }
 
-void RecommendPage::buildPlaylists(const QJsonArray &arr)
+void RecommendPage::buildPlaylists(const QJsonArray &arr, core::MusicSource *source)
 {
     while (QLayoutItem *item = m_playlistRow->takeAt(0)) {
         delete item->widget();
@@ -152,28 +206,37 @@ void RecommendPage::buildPlaylists(const QJsonArray &arr)
         if (shown >= 6)
             break;
         const QJsonObject o = v.toObject();
-        const qint64 id = o.value(QStringLiteral("id")).toVariant().toLongLong();
+        QString remoteId = o.value(QStringLiteral("remoteId")).toVariant().toString();
+        if (remoteId.isEmpty())
+            remoteId = o.value(QStringLiteral("id")).toVariant().toString();
+        if (remoteId.isEmpty())
+            continue;
         const QString name = o.value(QStringLiteral("name")).toString();
         auto *card = new CoverCard(this);
         card->setFixedCardSize(132, 116);
         card->setCover(CoverProvider::placeholder(name.left(1), 116, 6));
         card->setText(name, QStringLiteral("歌单"));
-        connect(card, &CoverCard::clicked, this, [this, id, name] { emit openPlaylistRequested(id, name); });
+        const int sourceId = int(source->sourceId());
+        connect(card, &CoverCard::clicked, this, [this, sourceId, remoteId, name] {
+            emit openPlaylistRequested(sourceId, remoteId, name);
+        });
         m_playlistRow->insertWidget(m_playlistRow->count() - 1, card);
         ++shown;
         // 异步下载封面
         QString pic = o.value(QStringLiteral("picUrl")).toString();
         if (pic.isEmpty())
             pic = o.value(QStringLiteral("coverImgUrl")).toString();
+        if (pic.isEmpty())
+            pic = o.value(QStringLiteral("coverUrl")).toString();
         if (m_lib && !pic.isEmpty()) {
-            const QString path = m_lib->playlistCoverCachePath(id);
+            const QString path = m_lib->playlistCoverCachePath(source->sourceId(), remoteId);
             if (QFileInfo::exists(path) && QFileInfo(path).size() > 0) {
                 QPixmap pm(path);
                 if (!pm.isNull())
                     card->setCover(pm.scaled(116, 116, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation));
             } else {
                 const QPointer<CoverCard> guard(card);
-                m_source->downloadToFile(QUrl(pic), path, [guard, path](bool ok) {
+                source->downloadToFile(QUrl(pic), path, [guard, path](bool ok) {
                     if (!ok || !guard)
                         return;
                     QPixmap pm(path);
@@ -185,28 +248,37 @@ void RecommendPage::buildPlaylists(const QJsonArray &arr)
     }
 }
 
-void RecommendPage::saveCache(const QJsonArray &songs, const QJsonArray &playlists)
+void RecommendPage::saveCache(const QJsonArray &songs, const QJsonArray &playlists,
+                              core::MusicSource *source)
 {
     QJsonObject root;
     root.insert(QStringLiteral("songs"), songs);
     root.insert(QStringLiteral("playlists"), playlists);
-    QFile f(core::SettingsService::recommendCachePath());
+    QFile f(cachePath(source ? source->sourceId() : core::SourceId::Netease));
     if (f.open(QIODevice::WriteOnly | QIODevice::Text))
         f.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
 }
 
-void RecommendPage::loadCache()
+void RecommendPage::loadCache(core::MusicSource *source)
 {
-    QFile f(core::SettingsService::recommendCachePath());
+    QFile f(cachePath(source ? source->sourceId() : core::SourceId::Netease));
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
         showEmpty();
         return;
     }
     const QJsonObject root = QJsonDocument::fromJson(f.readAll()).object();
-    buildDaily(root.value(QStringLiteral("songs")).toArray());
-    buildPlaylists(root.value(QStringLiteral("playlists")).toArray());
+    buildDaily(root.value(QStringLiteral("songs")).toArray(), source);
+    buildPlaylists(root.value(QStringLiteral("playlists")).toArray(), source);
     if (root.isEmpty())
         showEmpty();
+}
+
+QString RecommendPage::cachePath(core::SourceId sourceId) const
+{
+    const QString base = core::SettingsService::recommendCachePath();
+    if (sourceId == core::SourceId::Netease)
+        return base;
+    return QFileInfo(base).absolutePath() + QStringLiteral("/recommend-qq.json");
 }
 
 void RecommendPage::showEmpty()

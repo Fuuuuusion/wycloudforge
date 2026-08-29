@@ -99,8 +99,9 @@ void AccountPanel::refresh()
     if (src == 0 && core::SettingsService::onlineUid() > 0) {
         nickname = core::SettingsService::onlineNickname();
         avatarPath = core::SettingsService::onlineAvatarUrl();
-    } else if (src == 1 && core::SettingsService::qqUid() > 0) {
+    } else if (src == 1 && !core::SettingsService::qqUserId().isEmpty()) {
         nickname = core::SettingsService::qqNickname();
+        avatarPath = core::SettingsService::qqAvatarUrl();
     } else if (src == 2) {
         avatarPath = core::SettingsService::avatarUploadPath();
     }

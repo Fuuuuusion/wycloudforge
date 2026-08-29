@@ -58,11 +58,13 @@ PlayerService::PlayerService(QObject *parent)
             });
         }
         if (status == QMediaPlayer::InvalidMedia
-            && !retryInvalidDownloadedFile() && !retryInvalidCache())
+            && !retryInvalidDownloadedFile() && !retryInvalidCache()
+            && !retryInvalidRemoteSource())
             emit errorOccurred(QStringLiteral("媒体无法解码或播放源已失效"));
     });
     connect(&m_player, &QMediaPlayer::errorOccurred, this, [this](QMediaPlayer::Error, const QString &err) {
-        if (!retryInvalidDownloadedFile() && !retryInvalidCache())
+        if (!retryInvalidDownloadedFile() && !retryInvalidCache()
+            && !retryInvalidRemoteSource())
             emit errorOccurred(err.isEmpty() ? QStringLiteral("播放失败") : err);
     });
 }
@@ -228,6 +230,8 @@ void PlayerService::loadCurrent(bool autoPlay, bool allowCached, bool resetCache
     ++m_loadToken;
     if (resetCacheRetry)
         m_cacheRetryAttempted = false;
+    if (resetCacheRetry)
+        m_urlRetryAttempted = false;
     m_currentUrl.clear();
     m_pendingAutoPlay = autoPlay;
     m_usingCachedSource = false;
@@ -281,11 +285,24 @@ void PlayerService::loadCurrent(bool autoPlay, bool allowCached, bool resetCache
                                if (token != m_loadToken)
                                    return;
                                QString url;
+                               QString addressError;
                                if (!arr.isEmpty())
                                    url = arr.first().toObject().value(QStringLiteral("url")).toString();
+                               if (!arr.isEmpty())
+                                   addressError = arr.first().toObject().value(QStringLiteral("error")).toString();
                                if (url.isEmpty()) {
+                                   if (!m_urlRetryAttempted) {
+                                       m_urlRetryAttempted = true;
+                                       const bool autoPlay = m_pendingAutoPlay;
+                                       QTimer::singleShot(0, this, [this, autoPlay] {
+                                           loadCurrent(autoPlay, false, false);
+                                       });
+                                       return;
+                                   }
                                    m_pendingAutoPlay = false;
-                                   emit errorOccurred(QStringLiteral("歌曲不可用(可能受版权/VIP 限制)"));
+                                   emit errorOccurred(addressError.isEmpty()
+                                       ? QStringLiteral("歌曲不可用(可能受版权/VIP、地区或 DRM 限制)")
+                                       : addressError);
                                    QTimer::singleShot(0, this, [this] { next(); });
                                    return;
                                }
@@ -297,6 +314,14 @@ void PlayerService::loadCurrent(bool autoPlay, bool allowCached, bool resetCache
                            [this, token](const QString &err) {
                                if (token != m_loadToken)
                                    return;
+                               if (!m_urlRetryAttempted) {
+                                   m_urlRetryAttempted = true;
+                                   const bool autoPlay = m_pendingAutoPlay;
+                                   QTimer::singleShot(0, this, [this, autoPlay] {
+                                       loadCurrent(autoPlay, false, false);
+                                   });
+                                   return;
+                               }
                                m_pendingAutoPlay = false;
                                emit errorOccurred(QStringLiteral("获取播放地址失败:%1").arg(err));
                                QTimer::singleShot(0, this, [this] { next(); });
@@ -356,6 +381,21 @@ bool PlayerService::retryInvalidCache()
     m_playlist[m_index].cachePath.clear();
     if (m_lib)
         m_lib->invalidateSongCache(songId);
+    QTimer::singleShot(0, this, [this, autoPlay] {
+        loadCurrent(autoPlay, false, false);
+    });
+    return true;
+}
+
+bool PlayerService::retryInvalidRemoteSource()
+{
+    if (m_urlRetryAttempted || m_currentUrl.isEmpty() || m_usingCachedSource
+        || m_usingDownloadedSource || m_index < 0 || m_index >= m_playlist.size()
+        || !m_playlist[m_index].hasRemoteIdentity())
+        return false;
+    m_urlRetryAttempted = true;
+    const bool autoPlay = m_pendingAutoPlay
+        || m_player.playbackState() == QMediaPlayer::PlayingState;
     QTimer::singleShot(0, this, [this, autoPlay] {
         loadCurrent(autoPlay, false, false);
     });

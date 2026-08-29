@@ -3,6 +3,7 @@ set(NETECLONE_TESTS
     tst_tagreader
     tst_playlistcontroller
     tst_playerservice
+    tst_multisourcesupport
 )
 
 get_filename_component(NETECLONE_QT_BIN_DIR "${Qt6_DIR}/../../../bin" ABSOLUTE)

@@ -134,6 +134,13 @@ void LoginDialog::poll()
             }
             self->m_source->setCookie(cookie);
             core::SettingsService::setOnlineCookie(cookie);
+            if (core::SettingsService::onlineCookie() != cookie) {
+                self->m_source->setCookie(QString());
+                self->m_statusLabel->setText(
+                    QStringLiteral("无法用 Windows DPAPI 安全保存登录凭据，请检查用户配置文件"));
+                self->m_refreshButton->show();
+                return;
+            }
             self->m_statusLabel->setText(QStringLiteral("授权成功，正在同步账号信息…"));
             // 网易云偶尔会在 803 后延迟数秒才让 /login/status 读到新会话。
             // 给服务端足够的同步时间，避免用户已经确认却被立即判为登录失败。

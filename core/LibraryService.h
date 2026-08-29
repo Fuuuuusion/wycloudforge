@@ -45,7 +45,10 @@ public:
     void fillMissingSongMetadata(qint64 songId, const QString &artist, const QString &album);
     void setSongCoverPath(qint64 songId, const QString &path);
     QString songCoverCachePath(const Song &song) const;
+    QString playlistCoverCachePath(SourceId sourceId, const QString &playlistRemoteId) const;
     QString playlistCoverCachePath(qint64 playlistId) const;
+    QString lyricCachePathFor(const Song &song) const;
+    void setSongLyricPath(qint64 songId, const QString &path);
 
     // 播放缓存
     QString cacheDir() const;
@@ -84,6 +87,7 @@ private:
     void startWorker(const QStringList &folders);
     void onWatchChange(const QString &path);
     void evictCacheIfNeeded();
+    void refreshLyricPath(Song &song) const;
 
     QString m_dbPath;
     QSqlDatabase m_db;

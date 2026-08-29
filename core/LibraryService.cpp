@@ -1304,7 +1304,7 @@ void LibraryService::reloadSongs()
             s.remoteId = QString::number(s.onlineId);
         if (s.albumRemoteId.isEmpty() && s.albumId > 0)
             s.albumRemoteId = QString::number(s.albumId);
-        s.lyricPath = LyricsLoader::existingSidecarPathFor(s);
+        refreshLyricPath(s);
         m_songs.append(s);
     }
 }
@@ -1446,6 +1446,7 @@ qint64 LibraryService::upsertOnlineSong(const Song &song)
     }
     Song copy = song;
     copy.id = id;
+    refreshLyricPath(copy);
     m_songs.append(copy);
     return id;
 }
@@ -1535,7 +1536,69 @@ QString LibraryService::playlistCoverCachePath(qint64 playlistId) const
 {
     if (playlistId <= 0)
         return {};
-    return coverCacheDir() + QStringLiteral("/playlist_%1.jpg").arg(playlistId);
+    return playlistCoverCachePath(SourceId::Netease, QString::number(playlistId));
+}
+
+QString LibraryService::playlistCoverCachePath(SourceId sourceId,
+                                                const QString &playlistRemoteId) const
+{
+    if (playlistRemoteId.trimmed().isEmpty())
+        return {};
+    // 网易云沿用旧文件名，避免升级后重复下载已有歌单封面。
+    if (sourceId == SourceId::Netease) {
+        bool numeric = false;
+        const qint64 legacyId = playlistRemoteId.toLongLong(&numeric);
+        if (numeric && legacyId > 0)
+            return coverCacheDir() + QStringLiteral("/playlist_%1.jpg").arg(legacyId);
+    }
+    const QByteArray identity = QStringLiteral("%1:%2")
+                                    .arg(int(sourceId)).arg(playlistRemoteId).toUtf8();
+    const QString key = QString::fromLatin1(
+        QCryptographicHash::hash(identity, QCryptographicHash::Sha1).toHex());
+    return coverCacheDir() + QStringLiteral("/playlist_%1_%2.jpg")
+                                 .arg(int(sourceId)).arg(key);
+}
+
+QString LibraryService::lyricCachePathFor(const Song &song) const
+{
+    if (!song.hasRemoteIdentity())
+        return {};
+    const QString root = m_dbPath.isEmpty()
+        ? QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+        : QFileInfo(m_dbPath).absolutePath();
+    const QString dir = root + QStringLiteral("/lyrics");
+    QDir().mkpath(dir);
+    const QString key = QString::fromLatin1(
+        QCryptographicHash::hash(song.stableIdentity().toUtf8(), QCryptographicHash::Sha1).toHex());
+    return dir + QStringLiteral("/song_%1_%2.lrc").arg(song.source).arg(key);
+}
+
+void LibraryService::setSongLyricPath(qint64 songId, const QString &path)
+{
+    const QFileInfo info(path);
+    if (songId <= 0 || !info.isFile() || info.size() <= 0)
+        return;
+    const QString absolutePath = QDir::toNativeSeparators(info.absoluteFilePath());
+    for (Song &song : m_songs) {
+        if (song.id == songId) {
+            song.lyricPath = absolutePath;
+            break;
+        }
+    }
+}
+
+void LibraryService::refreshLyricPath(Song &song) const
+{
+    const QString existing = LyricsLoader::existingSidecarPathFor(song);
+    if (!existing.isEmpty()) {
+        song.lyricPath = existing;
+        return;
+    }
+    const QString cached = lyricCachePathFor(song);
+    if (!cached.isEmpty() && QFileInfo(cached).isFile() && QFileInfo(cached).size() > 0)
+        song.lyricPath = QDir::toNativeSeparators(QFileInfo(cached).absoluteFilePath());
+    else
+        song.lyricPath.clear();
 }
 
 QString LibraryService::cacheFilePathFor(const Song &song) const
@@ -1583,7 +1646,7 @@ void LibraryService::setSongCached(qint64 songId, const QString &path, qint64 si
         if (s.id == songId) {
             s.lyricPath.clear();
             s.cachePath = path;
-            s.lyricPath = LyricsLoader::existingSidecarPathFor(s);
+            refreshLyricPath(s);
             break;
         }
     }
@@ -1623,7 +1686,7 @@ void LibraryService::invalidateSongCache(qint64 songId)
         if (song.id == songId) {
             song.lyricPath.clear();
             song.cachePath.clear();
-            song.lyricPath = LyricsLoader::existingSidecarPathFor(song);
+            refreshLyricPath(song);
         }
     }
     emit cacheChanged();
@@ -1652,7 +1715,7 @@ void LibraryService::clearCache()
     for (Song &s : m_songs) {
         s.lyricPath.clear();
         s.cachePath.clear();
-        s.lyricPath = LyricsLoader::existingSidecarPathFor(s);
+        refreshLyricPath(s);
     }
     emit cacheChanged();
     emit libraryChanged();
@@ -1736,7 +1799,7 @@ bool LibraryService::setSongDownloaded(qint64 songId, const QString &path)
         if (song.id == songId) {
             song.lyricPath.clear();
             song.downloadPath = QDir::toNativeSeparators(QFileInfo(path).absoluteFilePath());
-            song.lyricPath = LyricsLoader::existingSidecarPathFor(song);
+            refreshLyricPath(song);
             found = true;
             break;
         }
@@ -1766,7 +1829,7 @@ bool LibraryService::removeSongDownload(qint64 songId)
         if (song.id == songId) {
             song.lyricPath.clear();
             song.downloadPath.clear();
-            song.lyricPath = LyricsLoader::existingSidecarPathFor(song);
+            refreshLyricPath(song);
             break;
         }
     }

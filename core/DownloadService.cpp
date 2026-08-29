@@ -146,10 +146,19 @@ void DownloadService::resolveUrl(qint64 taskId)
             return;
         }
         QString url;
+        QString addressError;
         if (!array.isEmpty())
             url = array.first().toObject().value(QStringLiteral("url")).toString();
+        if (!array.isEmpty())
+            addressError = array.first().toObject().value(QStringLiteral("error")).toString();
         if (url.isEmpty()) {
-            failTask(taskId, QStringLiteral("歌曲没有可用的下载地址(可能受版权/VIP限制)"));
+            if (m_urlRetryCount++ == 0) {
+                resolveUrl(taskId);
+                return;
+            }
+            failTask(taskId, addressError.isEmpty()
+                ? QStringLiteral("歌曲没有可用的下载地址(可能受版权/VIP、地区或 DRM 限制)")
+                : addressError);
             return;
         }
         beginTransfer(taskId, QUrl(url));

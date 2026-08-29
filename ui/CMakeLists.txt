@@ -35,6 +35,8 @@ add_library(neteclone_ui STATIC
     OnlinePage.cpp
     LoginDialog.h
     LoginDialog.cpp
+    QqLoginDialog.h
+    QqLoginDialog.cpp
     CommentsDialog.h
     CommentsDialog.cpp
     SettingsDialog.h

@@ -9,6 +9,7 @@ class QLabel;
 
 namespace core {
 class MusicSource;
+class MusicSourceRegistry;
 class LibraryService;
 }
 
@@ -23,29 +24,35 @@ public:
     explicit RecommendPage(QWidget *parent = nullptr);
 
     void setSourceProvider(core::MusicSource *source, core::LibraryService *library);
+    void setSourceRegistry(core::MusicSourceRegistry *registry);
+    void setActiveSource(core::SourceId sourceId);
     void refresh();
     QList<core::Song> currentSongs() const;
     void setPlaylistMenuItems(const QList<QPair<int, QString>> &items);
 
 signals:
     void playRequested(const QList<core::Song> &songs, int index);
-    void openPlaylistRequested(qint64 id, const QString &name);
+    void openPlaylistRequested(int sourceId, const QString &remoteId, const QString &name);
     void loginRequested();
     void heartRequested(int row);
     void addToPlaylistRequested(int row, int playlistId);
+    void sourceActivationRequested(int sourceId);
 
 private:
-    void loadCache();
-    void buildDaily(const QJsonArray &songs);
-    void buildPlaylists(const QJsonArray &playlists);
-    void saveCache(const QJsonArray &songs, const QJsonArray &playlists);
+    QString cachePath(core::SourceId sourceId) const;
+    void loadCache(core::MusicSource *source);
+    void buildDaily(const QJsonArray &songs, core::MusicSource *source);
+    void buildPlaylists(const QJsonArray &playlists, core::MusicSource *source);
+    void saveCache(const QJsonArray &songs, const QJsonArray &playlists, core::MusicSource *source);
     void showEmpty();
 
     core::MusicSource *m_source = nullptr;
+    core::MusicSourceRegistry *m_registry = nullptr;
     core::LibraryService *m_lib = nullptr;
     QLabel *m_emptyLabel = nullptr;
     QHBoxLayout *m_playlistRow = nullptr;
     SongListView *m_list = nullptr;
+    int m_requestGeneration = 0;
 };
 
 } // namespace ui
