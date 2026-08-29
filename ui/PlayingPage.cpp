@@ -10,7 +10,6 @@
 #include <QHBoxLayout>
 #include <QFileInfo>
 #include <QLabel>
-#include <QPainter>
 #include <QPushButton>
 #include <QVBoxLayout>
 
@@ -20,9 +19,6 @@ PlayingPage::PlayingPage(QWidget *parent)
     : QWidget(parent)
 {
     setObjectName(QStringLiteral("playingPage"));
-
-    m_backdrop = new QLabel(this);
-    m_backdrop->lower();
 
     m_cover = new QLabel(this);
     m_cover->setFixedSize(320, 320);
@@ -38,8 +34,8 @@ PlayingPage::PlayingPage(QWidget *parent)
     m_editBtn = new QPushButton(QStringLiteral("编辑歌词"), this);
     m_editBtn->setCursor(Qt::PointingHandCursor);
     m_editBtn->setStyleSheet(QStringLiteral(
-        "QPushButton{border:none;border-radius:15px;background:rgba(255,255,255,0.08);color:#C8C8D0;padding:5px 16px;}"
-        "QPushButton:hover{background:rgba(236,65,65,0.16);color:#FF5A5A;}"));
+        "QPushButton{border:none;border-radius:15px;background:#1B1B24;color:#C8C8D0;padding:5px 16px;}"
+        "QPushButton:hover{background:#2A2A36;color:#FF5A5A;}"));
     connect(m_editBtn, &QPushButton::clicked, this, &PlayingPage::editLyricsRequested);
 
     m_modeGroup = new QButtonGroup(this);
@@ -53,10 +49,10 @@ PlayingPage::PlayingPage(QWidget *parent)
         btn->setCheckable(true);
         btn->setCursor(Qt::PointingHandCursor);
         btn->setStyleSheet(QStringLiteral(
-            "QPushButton{border:none;background:rgba(255,255,255,0.06);color:#9A9AA5;"
+            "QPushButton{border:none;background:#1B1B24;color:#9A9AA5;"
             "font-size:12px;padding:4px 14px;border-radius:999px;}"
-            "QPushButton:hover{background:rgba(255,255,255,0.1);color:#E8E8E8;}"
-            "QPushButton:checked{background:rgba(236,65,65,0.18);color:#EC4141;font-weight:600;}"));
+            "QPushButton:hover{background:#2A2A36;color:#E8E8E8;}"
+            "QPushButton:checked{background:#3A2024;color:#EC4141;font-weight:600;}"));
         m_modeGroup->addButton(btn, i);
         modeRow->addWidget(btn);
     }
@@ -93,7 +89,6 @@ void PlayingPage::setSong(const core::Song &song, const QPixmap &cover)
     m_cover->setPixmap(m_coverPix);
     m_title->setText(song.title.isEmpty() ? QFileInfo(song.filePath).completeBaseName() : song.title);
     m_artist->setText(song.artist.isEmpty() ? QStringLiteral("未知歌手") : song.artist);
-    updateBackdrop();
 }
 
 void PlayingPage::setLyrics(const QList<core::LyricLine> &lines)
@@ -149,41 +144,6 @@ void PlayingPage::setPosition(qint64 ms)
 void PlayingPage::setLyricFontSize(int px)
 {
     m_lyric->setFontSize(px);
-}
-
-void PlayingPage::resizeEvent(QResizeEvent *event)
-{
-    m_backdrop->setGeometry(rect());
-    updateBackdrop();
-    QWidget::resizeEvent(event);
-}
-
-void PlayingPage::updateBackdrop()
-{
-    if (m_coverPix.isNull())
-        return;
-    const QSize size = m_backdrop->size();
-    if (size.isEmpty())
-        return;
-    const QPixmap blurred = CoverProvider::blur(m_coverPix.scaled(size, Qt::KeepAspectRatioByExpanding,
-                                                                  Qt::SmoothTransformation),
-                                                36, size);
-    QImage faded(size, QImage::Format_ARGB32_Premultiplied);
-    faded.fill(Qt::transparent);
-    QPainter p(&faded);
-    p.drawPixmap(faded.rect(), blurred);
-    p.fillRect(faded.rect(), QColor(10, 10, 16, 150));
-    p.setCompositionMode(QPainter::CompositionMode_DestinationIn);
-    const QPointF center = faded.rect().center();
-    const qreal radius = qMax(faded.width(), faded.height()) * 0.72;
-    QRadialGradient mask(center, radius);
-    mask.setColorAt(0.0, QColor(255, 255, 255, 238));
-    mask.setColorAt(0.58, QColor(255, 255, 255, 220));
-    mask.setColorAt(0.82, QColor(255, 255, 255, 112));
-    mask.setColorAt(1.0, QColor(255, 255, 255, 0));
-    p.fillRect(faded.rect(), mask);
-    p.end();
-    m_backdrop->setPixmap(QPixmap::fromImage(faded));
 }
 
 } // namespace ui

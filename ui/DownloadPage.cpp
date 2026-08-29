@@ -13,9 +13,9 @@ QPushButton *makeButton(const QString &text, QWidget *parent)
     auto *button = new QPushButton(text, parent);
     button->setCursor(Qt::PointingHandCursor);
     button->setStyleSheet(QStringLiteral(
-        "QPushButton{border:none;background:rgba(255,255,255,0.07);color:#C8C8D0;"
+        "QPushButton{border:none;background:#1B1B24;color:#C8C8D0;"
         "padding:6px 14px;border-radius:15px;font-size:12px;}"
-        "QPushButton:hover{background:rgba(236,65,65,0.18);color:#EC4141;}"));
+        "QPushButton:hover{background:#3A2024;color:#EC4141;}"));
     return button;
 }
 
@@ -65,7 +65,7 @@ void DownloadPage::setTasks(const QList<core::DownloadService::Task> &tasks)
     for (const auto &task : tasks) {
         auto *row = new QWidget(this);
         row->setStyleSheet(QStringLiteral(
-            "QWidget{background:rgba(255,255,255,0.045);border-radius:10px;}"));
+            "QWidget{background:#16161E;border-radius:10px;}"));
         auto *rowLayout = new QHBoxLayout(row);
         rowLayout->setContentsMargins(14, 10, 10, 10);
         rowLayout->setSpacing(10);

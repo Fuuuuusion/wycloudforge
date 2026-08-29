@@ -12,7 +12,7 @@
 
 ## 1) 项目概况与技术栈
 
-Windows 桌面音乐播放器,仿网易云(经典红 + 深色极光主题),本地 + 在线双模式,完全可离线。
+Windows 桌面音乐播放器,仿网易云(经典红 + 固定深色主题),本地 + 在线双模式,完全可离线。
 
 - Qt 6.11.1(Widgets / Multimedia / Svg / Sql / Network)+ C++17 + CMake 3.30 + Ninja + MinGW 13(g++)
 - TagLib 2.3.1(vcpkg `taglib:x64-mingw-dynamic`,运行时依赖 `C:\vcpkg\installed\x64-mingw-dynamic`)
@@ -61,6 +61,7 @@ Start-Process $exe -ArgumentList "--folder `"$tmp`"","--db `"$tmp\t.db`"","--pag
 
 - **不要**在带 `.mgg` 的扫描目录上用 `--screenshot`(曾触发 `0xC0000002`);正常模式(不带 screenshot)扫 `.mgg` 稳定。
 - 高分屏(150%)下 `grab()` 会放大,勿据此误判布局溢出。
+- 当前界面已移除极光背景、渐变、动效、毛玻璃、阴影和播放器背底截图;仅保留固定深色面板与网易云红色强调色。
 
 ### 数据库
 
@@ -166,9 +167,9 @@ Start-Process $exe -ArgumentList "--folder `"$tmp`"","--db `"$tmp\t.db`"","--pag
 
 ### 视觉/主题(硬性)
 
-- 深色极光背景(`ui/AuroraBackground`:QTimer ~30ms + 多组 QLinearGradient 缓慢流动)。
-- **全局无任何 1px 分隔线**;分区靠间距/留白/半透明层次;分区背景连续、一体。
-- **底部悬浮玻璃胶囊播放器**(不可拖动、位置固定),iOS 质感 = backdrop-filter + 半透明 + 饱和度/亮度 + 白色渐变膜 + 边缘高光 + 投影 + 斜向反光;**已去掉胶囊白色顶部高光线**。
+- 固定深色背景(`ui/AuroraBackground` 仅保留静态底色),全局无任何 1px 分隔线。
+- 分区使用固定深色面板与网易云红色强调色;不使用渐变、透明玻璃、阴影或动态视觉效果。
+- **底部播放器**保持位置固定,使用固定深色背景;不再抓取背底、不再模糊或叠加玻璃高光。
 - **横向滚动条彻底禁用**(所有 QAbstractScrollArea 后代 + 全局 QSS 高度归零)。
 - 主色 `#EC4141`、悬停 `#F04A4A`、正文 `#E8E8E8/#9A9AA5/#6E6E7A`、页面底深黑 `#12121A`、卡片/侧栏/播放器 `rgba(255,255,255,0.05)`、阴影加深、字体 Microsoft YaHei UI;数值以 `design/tokens.json` 为准,偏差 >2px 不通过。
 - 图标自绘 SVG(`ui/SvgIcon.h::makeSvgIcon`),替换即换 `resources/icons/`。
@@ -193,12 +194,12 @@ Start-Process $exe -ArgumentList "--folder `"$tmp`"","--db `"$tmp\t.db`"","--pag
 ### 架构分层(稳定)
 
 - `core`:`ApiService`(探测/自拉起 API)、`NeteaseApiClient`(HTTP+JSON,含搜索/歌曲/URL/歌词/专辑/歌手/歌单/评论/登录/QR/收藏/流式下载)、`LibraryService`(多文件夹递归扫描+QFileSystemWatcher 增量+拖拽导入+`ON CONFLICT(path) DO UPDATE`,缓存/下载路径持久化)、`PlayerService`(QMediaPlayer+QAudioOutput,永久下载→自动缓存→在线 URL)、`DownloadService`(下载队列、进度、取消、失败与重试)、`PlaylistController`(SQLite 歌单,含封面/简介)、`LyricsLoader/LrcParser`(行级同步,编码识别)、`TagReader`(TagLib+wchar_t,加密容器短路)、`SearchService`、`SettingsService`、`MusicSource.h`。
-- `ui`:主窗口栈(0-6)、`AuroraBackground`、`TitleBar`、`SideBar`、`PlayerBar`(胶囊)、`AccountPanel/AccountDialog`、`LibraryPage/FavoritesPage/RecommendPage/SelfPlaylistsPage/SongListPage/OnlinePage/SearchPage/PlayingPage`、`SongListView/SongListModel`、`LyricWidget`、`LoginDialog`、`SettingsDialog`、`PlaylistEditDialog`、`LyricEditorDialog`、`CommentsDialog`(入口已从正在播放页移除)、`CoverProvider/CoverCard`、`ProgressSlider`。
+- `ui`:主窗口栈(0-6)、`AuroraBackground`(固定背景)、`TitleBar`、`SideBar`、`PlayerBar`、`AccountPanel/AccountDialog`、`LibraryPage/FavoritesPage/RecommendPage/SelfPlaylistsPage/SongListPage/OnlinePage/SearchPage/PlayingPage`、`SongListView/SongListModel`、`LyricWidget`、`LoginDialog`、`SettingsDialog`、`PlaylistEditDialog`、`LyricEditorDialog`、`CommentsDialog`(入口已从正在播放页移除)、`CoverProvider/CoverCard`、`ProgressSlider`。
 - 测试:`tests/` 有 LRC/tagreader/歌单/播放器单测(ctest),需保持通过。
 
 ### 已实现功能
 
-- 本地:多文件夹扫描、拖拽导入、缺失标记、封面(内嵌→cover.jpg/png→首字渐变色占位)、缩略图缓存;播放/暂停/上下首/拖动进度/音量/静音;列表循环/单曲循环/随机;记住最后曲目与进度。
+- 本地:多文件夹扫描、拖拽导入、缺失标记、封面(内嵌→cover.jpg/png→首字纯色占位)、缩略图缓存;播放/暂停/上下首/拖动进度/音量/静音;列表循环/单曲循环/随机;记住最后曲目与进度。
 - 在线:搜索/播放/歌词(含翻译)/专辑歌手详情/歌单广场/排行榜/每日推荐/私人FM/评论(接口保留、UI 入口移除)/扫码登录/我的歌单/红心;在线歌曲并入 `songs` 表,按 `source/online_id` 区分;**最近听过缓存到磁盘**(`song_cache` + LRU,默认 200 首/2GB,可一键清空),断网可回听;来源标记(云图标/离线角标/失效灰)+ 来源过滤(全部/在线/已缓存)。
 - 永久下载: `songs.download_path` 与在线身份、收藏、歌单关系独立保存;默认目录为 `Music\NeteaseClone Downloads`,可在设置中更改。下载先写临时文件再原子改名,每首任务开始时重新获取 URL,临时链接失效自动重试一次;有效文件启动时校验,外部删除后自动恢复为“未下载”。下载管理页支持逐首进度、取消、失败原因和重试,完成任务从进行中列表移除。
 - 批量操作:所有歌曲列表支持选择后批量收藏/取消收藏、添加到已有或新建歌单、下载;列表行和播放胶囊均显示收藏/下载状态并禁止重复下载。
@@ -216,8 +217,9 @@ Start-Process $exe -ArgumentList "--folder `"$tmp`"","--db `"$tmp\t.db`"","--pag
 ### 启动数据库与卡顿加固
 
 - SQLite 可选运行参数失败不再阻断可恢复数据库;恢复前会安全备份 db/wal/shm,释放所有查询句柄后再重建或替换;已验证索引损坏和 WAL 损坏副本可恢复并通过 `integrity_check`。
-- 库变更 250ms 合并刷新;本地元数据补全改为 120ms 节流队列,不再在 UI 线程读取整首文件计算 MD5;历史在线封面详情每批最多 24 首、同时下载最多 6 张,API 就绪后延迟 1.2 秒补图;播放器胶囊背底重算间隔由 120ms 调到 500ms。
+- 库变更 250ms 合并刷新;本地元数据补全改为 120ms 节流队列,不再在 UI 线程读取整首文件计算 MD5;历史在线封面详情每批最多 24 首、同时下载最多 6 张,API 就绪后延迟 1.2 秒补图。
 - 真实库恢复前的损坏文件保存在 `C:\Users\Fusssssion\AppData\Roaming\NeteaseClone\NeteaseClone\db-backups\manual-before-restore-20260829-143755`;当前库已从 `automatic-20260829-110116-956` 恢复并验证完整性为 `ok`。
+- 界面性能调整:所有视觉动效与毛玻璃路径已删除;播放器使用固定色背景,歌词切换直接定位,避免视觉渲染抢占主线程。
 
 ### 最近 5 个 commit
 
@@ -246,4 +248,4 @@ a4dcb21  SongListModel 改多列表 + 登录补齐uid/昵称 + QPointer防闪退
 
 ## 7) 新模型一句话速查
 
-> 重建:先 `Stop-Process NeteaseClone`,再 `cmd /v:on /c "%TEMP%\netease_build\run_ninja1.bat"`;运行用 require_escalated `Start-Process`;验证用临时 DB + `--page 2 --screenshot` 隔离截图;改完 `git commit` + `git push origin main`。AppData/真实库、GUI 都要沙箱外。别写独立 Qt probe(cc1plus 静默崩),别让 PowerShell 直接调 g++/cmake,别在 .bat 写中文路径。视觉=深色极光+无1px分隔线+底部不可拖毛玻璃胶囊+横向滚动条彻底禁用。版权=不绕过 VIP、不下未授权歌曲。
+> 重建:先 `Stop-Process NeteaseClone`,再 `cmd /v:on /c "%TEMP%\netease_build\run_ninja1.bat"`;运行用 require_escalated `Start-Process`;验证用临时 DB + `--page 2 --screenshot` 隔离截图;改完 `git commit` + `git push origin main`。AppData/真实库、GUI 都要沙箱外。别写独立 Qt probe(cc1plus 静默崩),别让 PowerShell 直接调 g++/cmake,别在 .bat 写中文路径。视觉=固定深色主题+无1px分隔线+固定色播放器+横向滚动条彻底禁用。版权=不绕过 VIP、不下未授权歌曲。

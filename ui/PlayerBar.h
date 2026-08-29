@@ -1,7 +1,5 @@
 #pragma once
 
-#include <QElapsedTimer>
-#include <QPixmap>
 #include <QWidget>
 
 #include "core/Song.h"
@@ -27,9 +25,6 @@ public:
     void setVolume(int volume);
     void setMuted(bool muted);
     void setMode(int mode);
-    // 设定"背后内容源"(通常为内容区 body),用于抓取真实像素做毛玻璃
-    void setBackdropSource(QWidget *widget);
-
 signals:
     void playPauseClicked();
     void prevClicked();
@@ -77,11 +72,6 @@ private:
     int m_volumeValue = 70;
     qint64 m_positionMs = 0;
     qint64 m_durationMs = 0;
-    QElapsedTimer m_clock;
-    QPixmap m_backdrop;
-    bool m_backdropValid = false;
-    qint64 m_backdropMs = 0;
-    QWidget *m_backdropSource = nullptr;
 };
 
 } // namespace ui

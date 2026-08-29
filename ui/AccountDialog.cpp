@@ -29,11 +29,8 @@ QPixmap accountAvatar(const QString &path, const QString &nickname, int size)
     clip.addEllipse(0, 0, size, size);
     p.setClipPath(clip);
     if (src.isNull()) {
-        QLinearGradient g(0, 0, size, size);
-        g.setColorAt(0, QColor(0xEC, 0x41, 0x41));
-        g.setColorAt(1, QColor(0xFF, 0x9A, 0x76));
         p.setPen(Qt::NoPen);
-        p.setBrush(g);
+        p.setBrush(QColor(0xEC, 0x41, 0x41));
         p.drawEllipse(0, 0, size, size);
         p.setPen(Qt::white);
         QFont f(QStringLiteral("Microsoft YaHei UI"), qMax(9, size / 4), QFont::Bold);
@@ -112,8 +109,8 @@ AccountDialog::AccountDialog(core::MusicSource *netease, QWidget *parent)
 
     auto *closeBtn = new QPushButton(QStringLiteral("关闭"), this);
     closeBtn->setStyleSheet(QStringLiteral(
-        "QPushButton{border:none;border-radius:14px;background:rgba(255,255,255,0.10);color:#E8E8E8;padding:7px 22px;}"
-        "QPushButton:hover{background:rgba(255,255,255,0.16);}"));
+        "QPushButton{border:none;border-radius:14px;background:#1B1B24;color:#E8E8E8;padding:7px 22px;}"
+        "QPushButton:hover{background:#2A2A36;}"));
     connect(closeBtn, &QPushButton::clicked, this, &QDialog::accept);
     layout->addWidget(closeBtn, 0, Qt::AlignHCenter);
 }

@@ -15,10 +15,10 @@ namespace ui {
 namespace {
 
 const char kPlaylistStyle[] =
-    "QPushButton{text-align:left;border:none;background:transparent;color:#9A9AA5;"
+    "QPushButton{text-align:left;border:none;background:#0E0E14;color:#9A9AA5;"
     "font-size:14px;padding:6px 10px;border-radius:6px;}"
-    "QPushButton:hover{background:transparent;color:#FF5A5A;}"
-    "QPushButton:checked{background:transparent;color:#EC4141;font-weight:600;}";
+    "QPushButton:hover{background:#1B1B24;color:#FF5A5A;}"
+    "QPushButton:checked{background:#1B1B24;color:#EC4141;font-weight:600;}";
 
 class NavButton : public QPushButton
 {
@@ -90,10 +90,7 @@ protected:
 
         const QRect textRect(left + iconSize + gap, 0, metrics.horizontalAdvance(m_label), height());
         if (active) {
-            QLinearGradient gradient(textRect.topLeft(), textRect.topRight());
-            gradient.setColorAt(0.0, QColor(0xEC, 0x41, 0x41));
-            gradient.setColorAt(1.0, QColor(0xFF, 0x9A, 0x76));
-            painter.setPen(QPen(QBrush(gradient), 1));
+            painter.setPen(QPen(QColor(0xEC, 0x41, 0x41), 1));
         } else {
             painter.setPen(QPen(QColor(0x9A, 0x9A, 0xA5), 1));
         }
@@ -114,7 +111,7 @@ SideBar::SideBar(QWidget *parent)
     setObjectName("sidebar");
     setFixedWidth(200);
     setAttribute(Qt::WA_StyledBackground, true);
-    setStyleSheet(QStringLiteral("QWidget#sidebar{background:transparent;border:none;}"));
+    setStyleSheet(QStringLiteral("QWidget#sidebar{background:#0E0E14;border:none;}"));
 
     m_navGroup = new QButtonGroup(this);
     m_navGroup->setExclusive(true);
@@ -144,8 +141,8 @@ SideBar::SideBar(QWidget *parent)
     plusBtn->setCursor(Qt::PointingHandCursor);
     plusBtn->setToolTip(QStringLiteral("创建歌单"));
     plusBtn->setStyleSheet(QStringLiteral(
-        "QPushButton{border:none;background:transparent;border-radius:11px;}"
-        "QPushButton:hover{background:rgba(255,255,255,0.10);}"));
+        "QPushButton{border:none;background:#0E0E14;border-radius:11px;}"
+        "QPushButton:hover{background:#1B1B24;}"));
     connect(plusBtn, &QPushButton::clicked, this, &SideBar::createPlaylistRequested);
     headLayout->addWidget(plusBtn);
     layout->addWidget(sectionHead);

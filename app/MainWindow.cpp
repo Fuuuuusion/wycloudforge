@@ -219,10 +219,9 @@ MainWindow::MainWindow(QWidget *parent)
     setCentralWidget(central);
 
     m_playerBar->setParent(central);
-    m_playerBar->setBackdropSource(body);
     positionPlayerBar();
     m_playerBar->raise();
-    body->setStyleSheet(QStringLiteral("background: transparent;"));
+    body->setStyleSheet(QStringLiteral("background: #0E0E14;"));
     QTimer::singleShot(0, this, [this] { positionPlayerBar(); });
 
     // ---------- 标题栏 ----------

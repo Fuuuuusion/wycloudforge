@@ -26,14 +26,9 @@ const QColor kText(0xE8, 0xE8, 0xE8);
 const QColor kText2(0x9A, 0x9A, 0xA5);
 const QColor kText3(0x6E, 0x6E, 0x7A);
 const QColor kPrimary(0xEC, 0x41, 0x41);
-const QColor kPrimaryLight(0xFF, 0x9A, 0x76);
-
-QBrush activeTextBrush(const QRectF &rect)
+QBrush activeTextBrush(const QRectF &)
 {
-    QLinearGradient gradient(rect.topLeft(), rect.topRight());
-    gradient.setColorAt(0.0, kPrimary);
-    gradient.setColorAt(1.0, kPrimaryLight);
-    return QBrush(gradient);
+    return QBrush(kPrimary);
 }
 
 QPixmap tintedIcon(const QString &path, int size, const QColor &color)
@@ -280,11 +275,11 @@ SongListView::SongListView(QWidget *parent)
     setColumnWidth(5, 44);
     setColumnWidth(6, 86);
     viewport()->setAutoFillBackground(false);
-    setStyleSheet(QStringLiteral("QTableView{background:transparent;border:none;}"));
+    setStyleSheet(QStringLiteral("QTableView{background:#0E0E14;border:none;}"));
 
     setViewportMargins(0, 42, 0, 0);
     m_batchBar = new QWidget(this);
-    m_batchBar->setStyleSheet(QStringLiteral("QWidget{background:rgba(255,255,255,0.035);border-radius:10px;}"));
+    m_batchBar->setStyleSheet(QStringLiteral("QWidget{background:#16161E;border-radius:10px;}"));
     auto *bar = new QHBoxLayout(m_batchBar);
     bar->setContentsMargins(8, 3, 8, 3);
     bar->setSpacing(6);
@@ -292,10 +287,10 @@ SongListView::SongListView(QWidget *parent)
         auto *button = new QPushButton(text, m_batchBar);
         button->setCursor(Qt::PointingHandCursor);
         button->setStyleSheet(QStringLiteral(
-            "QPushButton{border:none;background:rgba(255,255,255,0.06);color:#C8C8D0;"
+            "QPushButton{border:none;background:#1B1B24;color:#C8C8D0;"
             "padding:5px 11px;border-radius:14px;font-size:12px;}"
-            "QPushButton:hover{background:rgba(236,65,65,0.16);color:#EC4141;}"
-            "QPushButton:disabled{color:#555563;background:rgba(255,255,255,0.025);}"));
+            "QPushButton:hover{background:#3A2024;color:#EC4141;}"
+            "QPushButton:disabled{color:#555563;background:#16161E;}"));
         return button;
     };
     m_batchToggle = makeBarButton(QStringLiteral("批量操作"));

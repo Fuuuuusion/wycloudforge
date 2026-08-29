@@ -25,10 +25,10 @@ QPushButton *makePillButton(const QString &text, QWidget *parent)
     auto *btn = new QPushButton(text, parent);
     btn->setCursor(Qt::PointingHandCursor);
     btn->setStyleSheet(QStringLiteral(
-        "QPushButton{border:none;background:rgba(255,255,255,0.06);color:#9A9AA5;"
+        "QPushButton{border:none;background:#1B1B24;color:#9A9AA5;"
         "font-size:13px;padding:7px 16px;border-radius:999px;}"
-        "QPushButton:hover{background:rgba(255,255,255,0.1);color:#E8E8E8;}"
-        "QPushButton:checked{background:rgba(236,65,65,0.18);color:#EC4141;font-weight:600;}"));
+        "QPushButton:hover{background:#2A2A36;color:#E8E8E8;}"
+        "QPushButton:checked{background:#3A2024;color:#EC4141;font-weight:600;}"));
     return btn;
 }
 
@@ -166,9 +166,9 @@ void OnlinePage::buildRankTab()
     m_topListWidget = new QListWidget(page);
     m_topListWidget->setFixedWidth(220);
     m_topListWidget->setStyleSheet(QStringLiteral(
-        "QListWidget{background:rgba(255,255,255,0.05);border:none;border-radius:10px;}"
+        "QListWidget{background:#16161E;border:none;border-radius:10px;}"
         "QListWidget::item{padding:9px 12px;border-radius:6px;color:#C8C8D0;}"
-        "QListWidget::item:selected{background:rgba(236,65,65,0.16);color:#EC4141;}"));
+        "QListWidget::item:selected{background:#3A2024;color:#EC4141;}"));
     m_rankList = new SongListView;
     layout->addWidget(m_topListWidget);
     layout->addWidget(m_rankList, 1);

@@ -2,7 +2,6 @@
 
 #include <QMouseEvent>
 #include <QPainter>
-#include <QTimer>
 #include <QWheelEvent>
 
 namespace ui {
@@ -21,9 +20,6 @@ LyricWidget::LyricWidget(QWidget *parent)
     : QWidget(parent)
 {
     setCursor(Qt::PointingHandCursor);
-    m_anim = new QTimer(this);
-    m_anim->setInterval(30);
-    connect(m_anim, &QTimer::timeout, this, &LyricWidget::animateStep);
 }
 
 void LyricWidget::setLyrics(const QList<core::LyricLine> &lines, const QList<core::LyricLine> &secondary)
@@ -69,18 +65,6 @@ void LyricWidget::clear()
     update();
 }
 
-void LyricWidget::animateStep()
-{
-    const qreal diff = m_target - m_offset;
-    if (qAbs(diff) < 0.5) {
-        m_offset = m_target;
-        m_anim->stop();
-    } else {
-        m_offset += diff * 0.22;
-    }
-    update();
-}
-
 void LyricWidget::updateTarget()
 {
     if (m_lines.isEmpty()) {
@@ -90,7 +74,8 @@ void LyricWidget::updateTarget()
     const qreal lh = lineHeight();
     const qreal currentCenter = (m_current < 0 ? 0 : m_current) * lh + lh / 2.0;
     m_target = currentCenter - height() / 2.0;
-    m_anim->start();
+    m_offset = m_target;
+    update();
 }
 
 void LyricWidget::paintEvent(QPaintEvent *)

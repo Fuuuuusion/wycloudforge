@@ -48,11 +48,8 @@ QPixmap letterAvatar(const QString &letter, int size)
     pm.fill(Qt::transparent);
     QPainter p(&pm);
     p.setRenderHint(QPainter::Antialiasing);
-    QLinearGradient g(0, 0, size, size);
-    g.setColorAt(0, QColor(0xEC, 0x41, 0x41));
-    g.setColorAt(1, QColor(0xFF, 0x9A, 0x76));
     p.setPen(Qt::NoPen);
-    p.setBrush(g);
+    p.setBrush(QColor(0xEC, 0x41, 0x41));
     p.drawEllipse(0, 0, size, size);
     p.setPen(Qt::white);
     QFont f(QStringLiteral("Microsoft YaHei UI"), qMax(9, size / 4), QFont::Bold);

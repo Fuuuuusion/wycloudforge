@@ -24,9 +24,9 @@ QPushButton *makeResultRow(const QString &text, const QString &sub, QWidget *par
     auto *btn = new QPushButton(parent);
     btn->setCursor(Qt::PointingHandCursor);
     btn->setStyleSheet(QStringLiteral(
-        "QPushButton{background:rgba(255,255,255,0.05);border:none;border-radius:6px;"
+        "QPushButton{background:#1B1B24;border:none;border-radius:6px;"
         "padding:12px 14px;text-align:left;color:#E8E8E8;}"
-        "QPushButton:hover{background:rgba(255,255,255,0.08);}"));
+        "QPushButton:hover{background:#2A2A36;}"));
     btn->setText(sub.isEmpty() ? text : QStringLiteral("%1    %2").arg(text, sub));
     return btn;
 }
@@ -56,10 +56,10 @@ SearchPage::SearchPage(QWidget *parent)
         btn->setCheckable(true);
         btn->setCursor(Qt::PointingHandCursor);
         btn->setStyleSheet(QStringLiteral(
-            "QPushButton{border:none;background:transparent;color:#9A9AA5;font-size:14px;"
+            "QPushButton{border:none;background:#0E0E14;color:#9A9AA5;font-size:14px;"
             "padding:7px 16px;border-radius:999px;}"
-            "QPushButton:hover{background:rgba(255,255,255,0.08);color:#E8E8E8;}"
-            "QPushButton:checked{background:rgba(236,65,65,0.16);color:#EC4141;font-weight:600;}"));
+            "QPushButton:hover{background:#1B1B24;color:#E8E8E8;}"
+            "QPushButton:checked{background:#3A2024;color:#EC4141;font-weight:600;}"));
         group->addButton(btn, i);
         tabLayout->addWidget(btn);
     }
@@ -81,9 +81,9 @@ SearchPage::SearchPage(QWidget *parent)
     m_onlineMore = new QPushButton(QStringLiteral("加载更多"), onlinePage);
     m_onlineMore->setCursor(Qt::PointingHandCursor);
     m_onlineMore->setStyleSheet(QStringLiteral(
-        "QPushButton{border:none;background:rgba(255,255,255,0.06);color:#C8C8D0;"
+        "QPushButton{border:none;background:#1B1B24;color:#C8C8D0;"
         "padding:7px 16px;border-radius:14px;}"
-        "QPushButton:hover{background:rgba(236,65,65,0.16);color:#EC4141;}"));
+        "QPushButton:hover{background:#3A2024;color:#EC4141;}"));
     m_onlineMore->hide();
     onlineLayout->addWidget(m_onlineHeader);
     onlineLayout->addWidget(m_onlineMore, 0, Qt::AlignLeft);

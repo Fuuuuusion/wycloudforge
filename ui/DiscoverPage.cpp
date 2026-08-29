@@ -75,8 +75,8 @@ auto *bannerRow = new QWidget(content);
         banner->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
         banner->setStyleSheet(QStringLiteral(
             "QFrame{border:none;border-radius:10px;background:%1;}"
-            "QLabel{color:white;background:transparent;border:none;}"
-            "QPushButton{border:none;border-radius:16px;background:rgba(255,255,255,0.22);"
+            "QLabel{color:white;border:none;}"
+            "QPushButton{border:none;border-radius:16px;background:#2A2A36;"
             "color:white;padding:7px 18px;font-size:13px;}")
             .arg(gradient));
         auto *l = new QVBoxLayout(banner);
@@ -87,7 +87,7 @@ auto *bannerRow = new QWidget(content);
         t->setStyleSheet(QStringLiteral("font-size:20px;font-weight:700;"));
         auto *s = new QLabel(sub, banner);
         s->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-        s->setStyleSheet(QStringLiteral("font-size:12px;opacity:0.85;"));
+        s->setStyleSheet(QStringLiteral("font-size:12px;color:#E8E8E8;"));
         btn = new QPushButton(btnText, banner);
         btn->setCursor(Qt::PointingHandCursor);
         l->addStretch(1);
@@ -101,11 +101,11 @@ auto *bannerRow = new QWidget(content);
     QPushButton *importBtn = nullptr;
     auto *b1 = makeBanner(QStringLiteral("发现属于你的音乐"), QStringLiteral("随机播放,不期而遇"),
                           QStringLiteral("▶ 立即播放"),
-                          QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #EC4141,stop:1 #FF8A6B)"),
+                          QStringLiteral("#EC4141"),
                           playRandomBtn);
     auto *b2 = makeBanner(QStringLiteral("本地音乐库"), QStringLiteral("导入文件夹,自动整理歌手与专辑"),
                           QStringLiteral("＋ 导入音乐"),
-                          QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #1B1B2A,stop:1 #3A3A5A)"),
+                          QStringLiteral("#1B1B24"),
                           importBtn);
     auto *bannerGrid = new QGridLayout(bannerRow);
     bannerGrid->setContentsMargins(0, 0, 0, 0);

@@ -35,14 +35,9 @@ signals:
     void seekRequested(qint64 ms);
     void editLyricsRequested();
 
-protected:
-    void resizeEvent(QResizeEvent *event) override;
-
 private:
-    void updateBackdrop();
     void applyLyricMode();
 
-    QLabel *m_backdrop = nullptr;
     QLabel *m_cover = nullptr;
     QLabel *m_title = nullptr;
     QLabel *m_artist = nullptr;

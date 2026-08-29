@@ -5,8 +5,6 @@
 #include <QList>
 #include <QWidget>
 
-class QTimer;
-
 namespace ui {
 
 class LyricWidget : public QWidget
@@ -30,7 +28,6 @@ protected:
     void wheelEvent(QWheelEvent *event) override;
 
 private:
-    void animateStep();
     void updateTarget();
     qreal lineHeight() const;
 
@@ -41,7 +38,6 @@ private:
     qreal m_offset = 0;
     qreal m_target = 0;
     qreal m_preview = 0; // 滚轮预览偏移(正值显示下方歌词)
-    QTimer *m_anim = nullptr;
 };
 
 } // namespace ui

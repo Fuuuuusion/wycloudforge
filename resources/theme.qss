@@ -19,9 +19,9 @@ QDialog QLabel {
     color: #E8E8E8;
 }
 
-/* ---------- 标题栏(悬浮玻璃) ---------- */
+/* ---------- 标题栏 ---------- */
 QWidget#titleBar {
-    background: transparent;
+    background: #0E0E14;
 }
 QLabel#brandName {
     font-size: 14px;
@@ -30,7 +30,7 @@ QLabel#brandName {
     color: #E8E8E8;
 }
 QLineEdit#searchEdit {
-    background: rgba(255, 255, 255, 0.08);
+    background: #1B1B24;
     border: none;
     border-radius: 15px;
     padding: 0 12px;
@@ -38,23 +38,23 @@ QLineEdit#searchEdit {
     selection-background-color: #EC4141;
 }
 QLineEdit#searchEdit:focus {
-    background: rgba(255, 255, 255, 0.13);
+    background: #2A2A36;
 }
 QPushButton[class="winBtn"] {
     border: none;
-    background: transparent;
+    background: #0E0E14;
     border-radius: 6px;
     padding: 0;
 }
 QPushButton[class="winBtn"]:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: #1B1B24;
 }
 QPushButton[class="winBtn"]:pressed {
-    background: rgba(255, 255, 255, 0.12);
+    background: #2A2A36;
 }
 QPushButton[class="winClose"] {
     border: none;
-    background: transparent;
+    background: #0E0E14;
     border-radius: 6px;
     padding: 0;
 }
@@ -62,9 +62,9 @@ QPushButton[class="winClose"]:hover {
     background: #EC4141;
 }
 
-/* ---------- 侧栏(悬浮玻璃) ---------- */
+/* ---------- 侧栏 ---------- */
 QWidget#sidebar {
-    background: transparent;
+    background: #0E0E14;
 }
 QLabel[class="sectionTitle"] {
     color: #6E6E7A;
@@ -76,16 +76,16 @@ QPushButton[nav="true"] {
     padding: 8px 10px;
     border: none;
     border-radius: 6px;
-    background: transparent;
+    background: #0E0E14;
     color: #9A9AA5;
     font-size: 15px;
 }
 QPushButton[nav="true"]:hover {
-    background: transparent;
+    background: #1B1B24;
     color: #FF5A5A;
 }
 QPushButton[nav="true"]:checked {
-    background: transparent;
+    background: #1B1B24;
     color: #EC4141;
     font-weight: 600;
 }
@@ -94,15 +94,15 @@ QPushButton[class="playlistBtn"] {
     padding: 7px 10px;
     border: none;
     border-radius: 6px;
-    background: transparent;
+    background: #0E0E14;
     color: #9A9AA5;
 }
 QPushButton[class="playlistBtn"]:hover {
-    background: transparent;
+    background: #1B1B24;
     color: #FF5A5A;
 }
 QPushButton[class="playlistBtn"]:checked {
-    background: transparent;
+    background: #1B1B24;
     color: #EC4141;
     font-weight: 600;
 }
@@ -110,21 +110,21 @@ QPushButton#createPlaylistBtn {
     border: none;
     border-radius: 6px;
     color: #9A9AA5;
-    background: rgba(255, 255, 255, 0.05);
+    background: #1B1B24;
     padding: 7px 10px;
 }
 QPushButton#createPlaylistBtn:hover {
-    background: rgba(236, 65, 65, 0.16);
+    background: #3A2024;
     color: #EC4141;
 }
 
 /* ---------- 内容区 ---------- */
 QStackedWidget#contentStack {
-    background: transparent;
+    background: #0E0E14;
     border: none;
 }
 QScrollArea, QScrollArea > QWidget > QWidget {
-    background: transparent;
+    background: #0E0E14;
     border: none;
 }
 QLabel[class="pageTitle"] {
@@ -142,9 +142,9 @@ QLabel[class="timeLabel"] {
     font-size: 12px;
 }
 
-/* ---------- 底部播放器(胶囊本体自绘) ---------- */
+/* ---------- 底部播放器 ---------- */
 QWidget#playerBar {
-    background: transparent;
+    background: #1B1B24;
 }
 QLabel[class="nowTitle"] {
     font-size: 14px;
@@ -157,18 +157,18 @@ QLabel[class="nowSub"] {
 QPushButton[class="ctrlBtn"] {
     border: none;
     border-radius: 15px;
-    background: transparent;
+    background: #1B1B24;
     padding: 3px;
     color: #C8C8D0;
 }
 QPushButton[class="ctrlBtn"]:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: #2A2A36;
     color: #E8E8E8;
 }
 QPushButton#playPauseBtn {
     border: none;
     border-radius: 18px;
-    background: rgba(236, 65, 65, 0.92);
+    background: #EC4141;
     padding: 0;
 }
 QPushButton#playPauseBtn:hover {
@@ -180,7 +180,7 @@ QPushButton#playPauseBtn:pressed {
 
 /* ---------- 滚动条 ---------- */
 QScrollBar:vertical {
-    background: transparent;
+    background: #0E0E14;
     width: 8px;
     margin: 0;
 }
@@ -196,33 +196,33 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
     height: 0;
 }
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-    background: transparent;
+    background: #0E0E14;
 }
 QScrollBar:horizontal {
-    background: transparent;
+    background: #0E0E14;
     height: 0px;
     min-height: 0px;
     max-height: 0px;
     margin: 0;
 }
 QScrollBar::handle:horizontal {
-    background: transparent;
+    background: #0E0E14;
     border-radius: 4px;
     min-width: 0px;
 }
 QScrollBar::handle:horizontal:hover {
-    background: transparent;
+    background: #0E0E14;
 }
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
     width: 0;
 }
 QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
-    background: transparent;
+    background: #0E0E14;
 }
 
 /* ---------- 账号区 / 账号对话框 / 歌单编辑 ---------- */
 QWidget#accountPanel {
-    background: transparent;
+    background: #0E0E14;
 }
 QLabel[class="accountName"] {
     color: #E8E8E8;
@@ -241,7 +241,7 @@ QDialog#playlistEditDialog, QDialog#accountDialog {
 }
 QDialog#playlistEditDialog QLineEdit, QDialog#playlistEditDialog QPlainTextEdit,
 QDialog#accountDialog QPushButton {
-    background: rgba(255, 255, 255, 0.06);
+    background: #1B1B24;
     border: none;
     border-radius: 8px;
     color: #E8E8E8;
@@ -249,7 +249,7 @@ QDialog#accountDialog QPushButton {
     selection-background-color: #EC4141;
 }
 QDialog#playlistEditDialog QLineEdit:focus, QDialog#playlistEditDialog QPlainTextEdit:focus {
-    border: 1px solid rgba(236, 65, 65, 0.5);
+    border: 1px solid #EC4141;
 }
 
 /* ---------- 菜单 / 提示 / 对话框 ---------- */
@@ -270,7 +270,7 @@ QMenu::item {
     color: #E8E8E8;
 }
 QMenu::item:selected {
-    background: rgba(255, 255, 255, 0.08);
+    background: #2A2A36;
 }
 QMenu::item:disabled {
     color: #55555F;
@@ -278,12 +278,12 @@ QMenu::item:disabled {
 QDialog QPushButton {
     border: none;
     border-radius: 6px;
-    background: rgba(255, 255, 255, 0.08);
+    background: #1B1B24;
     color: #E8E8E8;
     padding: 6px 18px;
 }
 QDialog QPushButton:hover {
-    background: rgba(236, 65, 65, 0.18);
+    background: #3A2024;
     color: #FF5A5A;
 }
 QDialog QPushButton[class="accent"] {
@@ -295,7 +295,7 @@ QDialog QPushButton[class="accent"]:hover {
     color: #FFFFFF;
 }
 QListWidget {
-    background: rgba(255, 255, 255, 0.05);
+    background: #16161E;
     border: none;
     border-radius: 6px;
     color: #E8E8E8;
@@ -305,7 +305,7 @@ QListWidget::item {
     border-radius: 4px;
 }
 QListWidget::item:selected {
-    background: rgba(236, 65, 65, 0.16);
+    background: #3A2024;
     color: #FF5A5A;
 }
 QPlainTextEdit {

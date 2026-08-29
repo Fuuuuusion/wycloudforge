@@ -27,7 +27,7 @@ CommentsDialog::CommentsDialog(core::MusicSource *source, qint64 songId, const Q
 
     m_list = new QListWidget(this);
     m_list->setStyleSheet(QStringLiteral(
-        "QListWidget{background:rgba(255,255,255,0.04);border:none;border-radius:10px;}"
+        "QListWidget{background:#16161E;border:none;border-radius:10px;}"
         "QListWidget::item{padding:10px;border-radius:6px;}"));
     m_list->setWordWrap(true);
     layout->addWidget(m_list, 1);
@@ -68,4 +68,3 @@ void CommentsDialog::loadMore()
 }
 
 } // namespace ui
-

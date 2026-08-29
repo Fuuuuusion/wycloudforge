@@ -1,6 +1,6 @@
 # 仿网易云播放器(NeteaseClone)
 
-基于 Qt 6 / C++17 的本地音乐播放器,深色极光主题 + 悬浮胶囊播放器,布局参考网易云音乐。完全离线:本地音乐库 + 播放 + 歌词 + 歌单 + 搜索。
+基于 Qt 6 / C++17 的本地音乐播放器,固定深色主题 + 播放器,布局参考网易云音乐。完全离线:本地音乐库 + 播放 + 歌词 + 歌单 + 搜索。
 
 ## 功能
 
@@ -77,8 +77,8 @@ ctest --test-dir build --output-on-failure
 
 - 设计令牌唯一事实来源:`design/tokens.json`
 - HTML 高保真原型(可在浏览器直接打开修改):`design/prototype/index.html`
-- 深色极光背景(浏览器 CSS 动画 / Qt 自绘 `AuroraBackground`),全局无 1px 分隔线,分区靠间距与半透明层次
-- 底部播放器为悬浮毛玻璃胶囊(不可拖动),播放/进度/模式/音量等控件齐全
+- 固定深色背景,全局无 1px 分隔线,分区使用固定色块
+- 底部播放器为固定深色面板(不可拖动),播放/进度/模式/音量等控件齐全
 - 图标全部为自绘 SVG,替换 `design/prototype/assets/` 或 `resources/icons/` 即可
 - Qt 主题由 `resources/theme.qss` 与设计令牌对应
 

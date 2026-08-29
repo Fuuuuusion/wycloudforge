@@ -56,9 +56,9 @@ SongListPage::SongListPage(QWidget *parent)
     m_moreBtn->setText(QStringLiteral("···"));
     m_moreBtn->setCursor(Qt::PointingHandCursor);
     m_moreBtn->setStyleSheet(QStringLiteral(
-        "QToolButton{background:rgba(255,255,255,0.08);border:none;border-radius:18px;"
+        "QToolButton{background:#1B1B24;border:none;border-radius:18px;"
         "padding:4px 14px;color:#C8C8D0;font-size:15px;}"
-        "QToolButton:hover{background:rgba(236,65,65,0.16);color:#FF5A5A;}"));
+        "QToolButton:hover{background:#3A2024;color:#FF5A5A;}"));
     actions->addWidget(m_moreBtn);
     actions->addStretch(1);
     infoLayout->addWidget(m_title);

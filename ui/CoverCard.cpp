@@ -88,15 +88,12 @@ void CoverCard::paintEvent(QPaintEvent *)
     p.setClipping(false);
 
     QRectF textRect(0, m_coverSize + 8, m_cardWidth, 16);
-    QLinearGradient textGradient(0, m_coverSize + 8, m_cardWidth, m_coverSize + 8);
-    textGradient.setColorAt(0.0, kPrimary);
-    textGradient.setColorAt(1.0, QColor(0xFF, 0x9A, 0x76));
-    p.setPen(m_hover ? QPen(QBrush(textGradient), 1) : QPen(kText, 1));
+    p.setPen(m_hover ? QPen(kPrimary, 1) : QPen(kText, 1));
     p.drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter,
                p.fontMetrics().elidedText(m_name, Qt::ElideRight, m_cardWidth));
     if (!m_sub.isEmpty()) {
         QRectF subRect(0, m_coverSize + 25, m_cardWidth, 14);
-        p.setPen(m_hover ? QPen(QBrush(textGradient), 1) : QPen(kSub, 1));
+        p.setPen(m_hover ? QPen(kPrimary, 1) : QPen(kSub, 1));
         QFont f = p.font();
         f.setPointSizeF(f.pointSizeF() - 0.5);
         p.setFont(f);

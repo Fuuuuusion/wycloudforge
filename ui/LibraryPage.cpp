@@ -51,10 +51,10 @@ LibraryPage::LibraryPage(QWidget *parent)
         btn->setCheckable(true);
         btn->setCursor(Qt::PointingHandCursor);
         btn->setStyleSheet(QStringLiteral(
-            "QPushButton{border:none;background:transparent;color:#9A9AA5;font-size:14px;"
+            "QPushButton{border:none;background:#0E0E14;color:#9A9AA5;font-size:14px;"
             "padding:7px 16px;border-radius:999px;}"
-            "QPushButton:hover{background:rgba(255,255,255,0.08);color:#E8E8E8;}"
-            "QPushButton:checked{background:rgba(236,65,65,0.16);color:#EC4141;font-weight:600;}"));
+            "QPushButton:hover{background:#1B1B24;color:#E8E8E8;}"
+            "QPushButton:checked{background:#3A2024;color:#EC4141;font-weight:600;}"));
         group->addButton(btn, i);
         tabLayout->addWidget(btn);
     }
@@ -75,10 +75,10 @@ LibraryPage::LibraryPage(QWidget *parent)
         btn->setCheckable(true);
         btn->setCursor(Qt::PointingHandCursor);
         btn->setStyleSheet(QStringLiteral(
-            "QPushButton{border:none;background:rgba(255,255,255,0.06);color:#9A9AA5;"
+            "QPushButton{border:none;background:#1B1B24;color:#9A9AA5;"
             "font-size:12px;padding:4px 14px;border-radius:999px;}"
-            "QPushButton:hover{background:rgba(255,255,255,0.1);color:#E8E8E8;}"
-            "QPushButton:checked{background:rgba(236,65,65,0.18);color:#EC4141;font-weight:600;}"));
+            "QPushButton:hover{background:#2A2A36;color:#E8E8E8;}"
+            "QPushButton:checked{background:#3A2024;color:#EC4141;font-weight:600;}"));
         filterGroup->addButton(btn, i);
         filterLayout->addWidget(btn);
     }
@@ -149,9 +149,9 @@ QPushButton *LibraryPage::addTopButton(const QString &text, const QString &icon)
     btn->setIconSize(QSize(16, 16));
     btn->setCursor(Qt::PointingHandCursor);
     btn->setStyleSheet(QStringLiteral(
-        "QPushButton{border:none;background:rgba(255,255,255,0.06);color:#9A9AA5;"
+        "QPushButton{border:none;background:#1B1B24;color:#9A9AA5;"
         "padding:5px 14px;border-radius:999px;font-size:12px;}"
-        "QPushButton:hover{background:rgba(236,65,65,0.16);color:#EC4141;}"));
+        "QPushButton:hover{background:#3A2024;color:#EC4141;}"));
     return btn;
 }
 

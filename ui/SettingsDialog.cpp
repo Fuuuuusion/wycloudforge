@@ -45,9 +45,9 @@ SettingsDialog::SettingsDialog(core::ApiService *apiService, core::NeteaseApiCli
 
     m_folderList = new QListWidget(this);
     m_folderList->setStyleSheet(QStringLiteral(
-        "QListWidget{background:rgba(255,255,255,0.05);border:none;border-radius:6px;}"
+        "QListWidget{background:#16161E;border:none;border-radius:6px;}"
         "QListWidget::item{padding:8px;border-radius:4px;}"
-        "QListWidget::item:selected{background:rgba(236,65,65,0.16);color:#FF5A5A;}"));
+        "QListWidget::item:selected{background:#3A2024;color:#FF5A5A;}"));
     layout->addWidget(m_folderList);
 
     auto *folderBtns = new QHBoxLayout;
@@ -102,7 +102,7 @@ SettingsDialog::SettingsDialog(core::ApiService *apiService, core::NeteaseApiCli
     apiRow->addWidget(new QLabel(QStringLiteral("API 地址"), this));
     m_apiBaseEdit = new QLineEdit(core::SettingsService::onlineApiBase(), this);
     m_apiBaseEdit->setStyleSheet(QStringLiteral(
-        "QLineEdit{background:rgba(255,255,255,0.08);border:none;border-radius:6px;padding:6px 10px;color:#E8E8E8;}"));
+        "QLineEdit{background:#1B1B24;border:none;border-radius:6px;padding:6px 10px;color:#E8E8E8;}"));
     apiRow->addWidget(m_apiBaseEdit, 1);
     layout->addLayout(apiRow);
 
@@ -191,7 +191,7 @@ SettingsDialog::SettingsDialog(core::ApiService *apiService, core::NeteaseApiCli
     downloadRow->addWidget(new QLabel(QStringLiteral("保存目录"), this));
     m_downloadDirEdit = new QLineEdit(core::SettingsService::onlineDownloadDir(), this);
     m_downloadDirEdit->setStyleSheet(QStringLiteral(
-        "QLineEdit{background:rgba(255,255,255,0.08);border:none;border-radius:6px;padding:6px 10px;color:#E8E8E8;}"));
+        "QLineEdit{background:#1B1B24;border:none;border-radius:6px;padding:6px 10px;color:#E8E8E8;}"));
     auto *chooseDownloadDir = new QPushButton(QStringLiteral("选择"), this);
     downloadRow->addWidget(m_downloadDirEdit, 1);
     downloadRow->addWidget(chooseDownloadDir);
