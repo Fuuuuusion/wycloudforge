@@ -369,8 +369,8 @@ MainWindow::MainWindow(QWidget *parent)
 
     // ---------- 本地歌单页 ----------
     connect(m_libraryPage, &ui::LibraryPage::playRequested, this, &MainWindow::playSongs);
-    connect(m_libraryPage, &ui::LibraryPage::artistClicked, this, &MainWindow::openArtist);
-    connect(m_libraryPage, &ui::LibraryPage::albumClicked, this, &MainWindow::openAlbum);
+    connect(m_libraryPage, &ui::LibraryPage::artistClicked, this, &MainWindow::openLocalArtist);
+    connect(m_libraryPage, &ui::LibraryPage::albumClicked, this, &MainWindow::openLocalAlbum);
     connect(m_libraryPage, &ui::LibraryPage::heartRequested, this, [this](int row) {
         const core::Song s = m_libraryPage->currentSongs().value(row);
         if (s.id > 0)
@@ -638,12 +638,35 @@ void MainWindow::openArtist(const QString &artist)
     showPage(4);
 }
 
+void MainWindow::openLocalArtist(const QString &artist)
+{
+    QList<core::Song> songs;
+    for (const auto &s : m_library.allSongs())
+        if (s.artist == artist && s.isLocallyAvailable())
+            songs.append(s);
+    m_songListPage->showContent(songs, artist, QStringLiteral("歌手 · %1 首").arg(songs.size()), m_currentSongId, false);
+    m_songListPage->setPlaylistContext(-1);
+    showPage(4);
+}
+
 void MainWindow::openAlbum(const QString &album, const QString &artist)
 {
     QList<core::Song> songs;
     for (const auto &s : m_library.allSongs())
         if (s.album == album && (artist.isEmpty() || s.artist == artist)
             && (!s.isOnline() || s.isCached()))
+            songs.append(s);
+    m_songListPage->showContent(songs, album, QStringLiteral("专辑 · %1 首").arg(songs.size()), m_currentSongId, false);
+    m_songListPage->setPlaylistContext(-1);
+    showPage(4);
+}
+
+void MainWindow::openLocalAlbum(const QString &album, const QString &artist)
+{
+    QList<core::Song> songs;
+    for (const auto &s : m_library.allSongs())
+        if (s.album == album && (artist.isEmpty() || s.artist == artist)
+            && s.isLocallyAvailable())
             songs.append(s);
     m_songListPage->showContent(songs, album, QStringLiteral("专辑 · %1 首").arg(songs.size()), m_currentSongId, false);
     m_songListPage->setPlaylistContext(-1);

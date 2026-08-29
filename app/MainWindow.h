@@ -53,6 +53,8 @@ private:
     void openPlaylist(int playlistId);
     void openArtist(const QString &artist);
     void openAlbum(const QString &album, const QString &artist);
+    void openLocalArtist(const QString &artist);
+    void openLocalAlbum(const QString &album, const QString &artist);
     void openOnlinePlaylist(qint64 id, const QString &name);
     void hydrateOnlineCovers(const QList<core::Song> &songs);
     void ensureOnlineCovers(const QList<core::Song> &songs);

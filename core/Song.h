@@ -29,11 +29,19 @@ struct Song
     qint64 albumId = 0;
 
     bool isOnline() const { return source > 0; }
-    bool isCached() const { return isOnline() && !cachePath.isEmpty(); }
+    bool isCached() const
+    {
+        return isOnline() && !cachePath.isEmpty()
+            && QFileInfo(cachePath).isFile() && QFileInfo(cachePath).size() > 0;
+    }
     bool isDownloaded() const
     {
         return isOnline() && !downloadPath.isEmpty()
             && QFileInfo(downloadPath).isFile() && QFileInfo(downloadPath).size() > 0;
+    }
+    bool isLocallyAvailable() const
+    {
+        return !isOnline() || isCached() || isDownloaded();
     }
     bool operator==(const Song &other) const { return id == other.id && filePath == other.filePath; }
 };

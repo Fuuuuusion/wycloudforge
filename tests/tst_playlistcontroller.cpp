@@ -26,6 +26,7 @@ private slots:
     void duplicateAddAndOrphanCleanup();
     void downloadedPersistenceAndCacheIsolation();
     void managedDownloadFolderIsNotImported();
+    void localAvailabilityClassification();
 
 private:
     QTemporaryDir *m_dir = nullptr;
@@ -348,6 +349,47 @@ void PlaylistControllerTest::managedDownloadFolderIsNotImported()
         QSettings().remove(QStringLiteral("online/downloadDir"));
     else
         SettingsService::setOnlineDownloadDir(oldDownloadDir);
+}
+
+void PlaylistControllerTest::localAvailabilityClassification()
+{
+    Song browsed;
+    browsed.source = 1;
+    browsed.onlineId = 1001;
+    QVERIFY(!browsed.isCached());
+    QVERIFY(!browsed.isDownloaded());
+    QVERIFY(!browsed.isLocallyAvailable());
+
+    const QString cachePath = m_dir->filePath(QStringLiteral("available-cache.mp3"));
+    QFile cache(cachePath);
+    QVERIFY(cache.open(QIODevice::WriteOnly));
+    QVERIFY(cache.write("cache") > 0);
+    cache.close();
+    browsed.cachePath = cachePath;
+    QVERIFY(browsed.isCached());
+    QVERIFY(browsed.isLocallyAvailable());
+
+    Song downloaded;
+    downloaded.source = 1;
+    downloaded.onlineId = 1002;
+    const QString downloadPath = m_dir->filePath(QStringLiteral("available-download.mp3"));
+    QFile download(downloadPath);
+    QVERIFY(download.open(QIODevice::WriteOnly));
+    QVERIFY(download.write("download") > 0);
+    download.close();
+    downloaded.downloadPath = downloadPath;
+    QVERIFY(downloaded.isDownloaded());
+    QVERIFY(downloaded.isLocallyAvailable());
+
+    Song stale = browsed;
+    stale.cachePath = m_dir->filePath(QStringLiteral("missing-cache.mp3"));
+    QVERIFY(!stale.isCached());
+    QVERIFY(!stale.isLocallyAvailable());
+
+    Song local;
+    local.source = 0;
+    local.missing = true;
+    QVERIFY(local.isLocallyAvailable());
 }
 
 QTEST_MAIN(PlaylistControllerTest)

@@ -213,7 +213,7 @@ void LibraryPage::applyFilter()
     for (const core::Song &s : m_songs) {
         const bool online = s.isOnline();
         switch (m_filter) {
-        case 0: m_filtered.append(s); break;
+        case 0: if (s.isLocallyAvailable()) m_filtered.append(s); break;
         case 1: if (!online) m_filtered.append(s); break;
         case 2: if (online && s.isCached() && !s.isDownloaded()) m_filtered.append(s); break;
         case 3: if (online && s.isDownloaded()) m_filtered.append(s); break;
