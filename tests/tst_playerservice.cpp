@@ -56,6 +56,9 @@ class PlayerServiceTest : public QObject
 private slots:
     void playlistNavigation();
     void playPauseAndPosition();
+    void autoAdvanceInOrderMode();
+    void repeatOneRestartsCurrentSong();
+    void autoAdvanceInShuffleMode();
     void cachedOnlineSongPlayback();
     void downloadedOnlineSongPlayback();
 };
@@ -131,6 +134,88 @@ void PlayerServiceTest::playPauseAndPosition()
     QVERIFY(!player.isPlaying());
     player.seek(1000);
     QVERIFY(player.position() >= 900);
+}
+
+void PlayerServiceTest::autoAdvanceInOrderMode()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString p1 = dir.filePath(QStringLiteral("order-a.wav"));
+    const QString p2 = dir.filePath(QStringLiteral("order-b.wav"));
+    writeWav(p1, 1);
+    writeWav(p2, 1);
+
+    Song s1;
+    s1.id = 101;
+    s1.filePath = p1;
+    s1.title = QStringLiteral("顺序一");
+    Song s2;
+    s2.id = 102;
+    s2.filePath = p2;
+    s2.title = QStringLiteral("顺序二");
+
+    PlayerService player;
+    player.setMode(PlayerService::Order);
+    player.setPlaylist({ s1, s2 }, 0);
+    player.play();
+    if (!QTest::qWaitFor([&player] { return player.isPlaying(); }, 4000))
+        QSKIP("无可用音频输出设备,跳过自动联播验证");
+    QVERIFY(QTest::qWaitFor([&player] { return player.currentIndex() == 1; }, 4000));
+    QCOMPARE(player.currentSong().title, QStringLiteral("顺序二"));
+}
+
+void PlayerServiceTest::repeatOneRestartsCurrentSong()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString p1 = dir.filePath(QStringLiteral("repeat-a.wav"));
+    const QString p2 = dir.filePath(QStringLiteral("repeat-b.wav"));
+    writeWav(p1, 1);
+    writeWav(p2, 1);
+
+    Song s1;
+    s1.id = 111;
+    s1.filePath = p1;
+    s1.title = QStringLiteral("循环一");
+    Song s2;
+    s2.id = 112;
+    s2.filePath = p2;
+    s2.title = QStringLiteral("循环二");
+
+    PlayerService player;
+    player.setMode(PlayerService::RepeatOne);
+    player.setPlaylist({ s1, s2 }, 0);
+    player.play();
+    if (!QTest::qWaitFor([&player] { return player.isPlaying(); }, 4000))
+        QSKIP("无可用音频输出设备,跳过单曲循环验证");
+    QTest::qWait(1500);
+    QCOMPARE(player.currentIndex(), 0);
+    QCOMPARE(player.currentSong().title, QStringLiteral("循环一"));
+}
+
+void PlayerServiceTest::autoAdvanceInShuffleMode()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QList<Song> songs;
+    for (int i = 0; i < 3; ++i) {
+        const QString path = dir.filePath(QStringLiteral("shuffle-%1.wav").arg(i));
+        writeWav(path, 1);
+        Song song;
+        song.id = 121 + i;
+        song.filePath = path;
+        song.title = QStringLiteral("随机%1").arg(i + 1);
+        songs.append(song);
+    }
+
+    PlayerService player;
+    player.setMode(PlayerService::Shuffle);
+    player.setPlaylist(songs, 0);
+    player.play();
+    if (!QTest::qWaitFor([&player] { return player.isPlaying(); }, 4000))
+        QSKIP("无可用音频输出设备,跳过随机播放验证");
+    QVERIFY(QTest::qWaitFor([&player] { return player.currentIndex() != 0; }, 4000));
+    QVERIFY(player.currentIndex() >= 0 && player.currentIndex() < songs.size());
 }
 
 void PlayerServiceTest::cachedOnlineSongPlayback()

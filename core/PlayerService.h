@@ -63,7 +63,9 @@ private:
     bool ensureAudioOutput();
     bool retryInvalidDownloadedFile();
     bool retryInvalidCache();
+    void advanceAfterEndOfMedia();
     void buildShuffleOrder();
+    void alignShuffleToCurrent();
     void maybeCacheCurrent(qint64 positionMs);
 
     QMediaPlayer m_player;
@@ -84,6 +86,7 @@ private:
     bool m_usingCachedSource = false;
     bool m_cacheRetryAttempted = false;
     bool m_usingDownloadedSource = false;
+    int m_endOfMediaToken = -1;
 };
 
 } // namespace core

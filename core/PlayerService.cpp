@@ -41,9 +41,20 @@ PlayerService::PlayerService(QObject *parent)
             m_player.play();
         }
         if (status == QMediaPlayer::EndOfMedia) {
-            if (m_mode == RepeatOne)
-                m_player.setPosition(0);
-            next();
+            // 结束状态可能在同一轮事件循环内重复通知。延迟到播放器完成状态切换后
+            // 再处理，并用加载 token 丢弃用户手动切歌产生的过期任务。
+            const int token = m_loadToken;
+            if (m_endOfMediaToken == token)
+                return;
+            m_endOfMediaToken = token;
+            QTimer::singleShot(0, this, [this, token] {
+                if (m_endOfMediaToken != token)
+                    return;
+                m_endOfMediaToken = -1;
+                if (token != m_loadToken)
+                    return;
+                advanceAfterEndOfMedia();
+            });
         }
         if (status == QMediaPlayer::InvalidMedia
             && !retryInvalidDownloadedFile() && !retryInvalidCache())
@@ -65,6 +76,7 @@ void PlayerService::setPlaylist(const QList<Song> &songs, int startIndex)
         startIndex = m_index;
     }
     m_index = qBound(0, startIndex, qMax(0, m_playlist.size() - 1));
+    alignShuffleToCurrent();
     if (m_playlist.isEmpty()) {
         m_player.stop();
         m_pendingAutoPlay = false;
@@ -80,6 +92,7 @@ void PlayerService::playIndex(int index)
         return;
     m_history.append(m_index >= 0 ? m_index : 0);
     m_index = index;
+    alignShuffleToCurrent();
     loadCurrent(true);
 }
 
@@ -122,6 +135,7 @@ void PlayerService::next()
     m_history.append(m_index);
     int nextIndex = -1;
     if (m_mode == Shuffle && m_shuffleOrder.size() == m_playlist.size()) {
+        alignShuffleToCurrent();
         m_shufflePos = (m_shufflePos + 1) % m_shuffleOrder.size();
         nextIndex = m_shuffleOrder[m_shufflePos];
     } else {
@@ -178,6 +192,8 @@ bool PlayerService::muted() const
 void PlayerService::setMode(PlayMode mode)
 {
     m_mode = mode;
+    if (m_mode == Shuffle)
+        alignShuffleToCurrent();
     emit modeChanged(mode);
 }
 
@@ -370,6 +386,36 @@ void PlayerService::buildShuffleOrder()
         std::swap(m_shuffleOrder[i], m_shuffleOrder[j]);
     }
     m_shufflePos = 0;
+}
+
+void PlayerService::alignShuffleToCurrent()
+{
+    if (m_playlist.isEmpty() || m_shuffleOrder.size() != m_playlist.size())
+        return;
+    const int pos = m_shuffleOrder.indexOf(m_index);
+    if (pos >= 0)
+        m_shufflePos = pos;
+}
+
+void PlayerService::advanceAfterEndOfMedia()
+{
+    if (m_playlist.isEmpty() || m_index < 0 || m_index >= m_playlist.size())
+        return;
+
+    if (m_mode == RepeatOne) {
+        if (!ensureAudioOutput()) {
+            m_pendingAutoPlay = false;
+            return;
+        }
+        m_pendingAutoPlay = true;
+        m_player.setPosition(0);
+        m_player.play();
+        return;
+    }
+
+    // Order 是列表循环：按原列表顺序切到下一首，到末尾回到第一首。
+    // Shuffle 则由 next() 使用已经与当前歌曲对齐的随机序列。
+    next();
 }
 
 } // namespace core
