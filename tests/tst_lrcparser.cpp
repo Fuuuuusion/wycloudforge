@@ -1,5 +1,8 @@
 #include "core/LrcParser.h"
+#include "core/LyricsLoader.h"
 
+#include <QFile>
+#include <QTemporaryDir>
 #include <QtTest>
 
 using namespace core;
@@ -16,6 +19,9 @@ private slots:
     void decodeGbk();
     void malformedLinesIgnored();
     void roundTrip();
+    void loadDownloadedOnlineSidecar();
+    void explicitLyricPathTakesPriority();
+    void missingOnlineSidecarIsSafe();
 };
 
 void LrcParserTest::parseBasicLines()
@@ -101,6 +107,77 @@ void LrcParserTest::roundTrip()
     QCOMPARE(reparsed.size(), 2);
     QCOMPARE(reparsed[0].timeMs, qint64(1500));
     QCOMPARE(reparsed[1].text, QStringLiteral("第二句"));
+}
+
+void LrcParserTest::loadDownloadedOnlineSidecar()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString audioPath = dir.filePath(QStringLiteral("downloaded.mp3"));
+    QFile audio(audioPath);
+    QVERIFY(audio.open(QIODevice::WriteOnly));
+    QVERIFY(audio.write("audio") > 0);
+    audio.close();
+
+    const QString lyricPath = LyricsLoader::sidecarPathFor(audioPath);
+    QFile lyric(lyricPath);
+    QVERIFY(lyric.open(QIODevice::WriteOnly));
+    QVERIFY(lyric.write("[00:01.00]\xe4\xb8\x8b\xe8\xbd\xbd\xe6\xad\x8c\xe8\xaf\x8d\n") > 0);
+    lyric.close();
+
+    Song song;
+    song.source = 1;
+    song.onlineId = 1001;
+    song.filePath = QStringLiteral("netease://1001");
+    song.downloadPath = audioPath;
+    QCOMPARE(QDir::cleanPath(LyricsLoader::existingSidecarPathFor(song)), QDir::cleanPath(lyricPath));
+    const auto lines = LyricsLoader::load(song);
+    QCOMPARE(lines.size(), 1);
+    QCOMPARE(lines.first().text, QStringLiteral("下载歌词"));
+}
+
+void LrcParserTest::explicitLyricPathTakesPriority()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString audioPath = dir.filePath(QStringLiteral("cached.mp3"));
+    QFile audio(audioPath);
+    QVERIFY(audio.open(QIODevice::WriteOnly));
+    QVERIFY(audio.write("audio") > 0);
+    audio.close();
+
+    QFile adjacent(LyricsLoader::sidecarPathFor(audioPath));
+    QVERIFY(adjacent.open(QIODevice::WriteOnly));
+    QVERIFY(adjacent.write("[00:01.00]adjacent\n") > 0);
+    adjacent.close();
+    const QString explicitPath = dir.filePath(QStringLiteral("preferred.lrc"));
+    QFile explicitLyric(explicitPath);
+    QVERIFY(explicitLyric.open(QIODevice::WriteOnly));
+    QVERIFY(explicitLyric.write("[00:02.00]preferred\n") > 0);
+    explicitLyric.close();
+
+    Song song;
+    song.source = 1;
+    song.onlineId = 1002;
+    song.filePath = QStringLiteral("netease://1002");
+    song.cachePath = audioPath;
+    song.lyricPath = explicitPath;
+    const auto lines = LyricsLoader::load(song);
+    QCOMPARE(lines.size(), 1);
+    QCOMPARE(lines.first().timeMs, qint64(2000));
+    QCOMPARE(lines.first().text, QStringLiteral("preferred"));
+}
+
+void LrcParserTest::missingOnlineSidecarIsSafe()
+{
+    Song song;
+    song.source = 1;
+    song.onlineId = 1003;
+    song.filePath = QStringLiteral("netease://1003");
+    song.downloadPath = QStringLiteral("Z:/missing/downloaded.mp3");
+    QVERIFY(LyricsLoader::existingSidecarPathFor(song).isEmpty());
+    QVERIFY(LyricsLoader::load(song).isEmpty());
+    QVERIFY(LyricsLoader::writableSidecarPathFor(song).isEmpty());
 }
 
 QTEST_MAIN(LrcParserTest)

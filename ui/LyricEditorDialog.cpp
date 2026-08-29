@@ -21,8 +21,10 @@ LyricEditorDialog::LyricEditorDialog(const core::Song &song, QWidget *parent)
     layout->setContentsMargins(16, 14, 16, 12);
     layout->setSpacing(10);
 
-    auto *hint = new QLabel(QStringLiteral("保存后写入:%1")
-                                .arg(core::LyricsLoader::sidecarPathFor(song.filePath)), this);
+    const QString savePath = core::LyricsLoader::writableSidecarPathFor(song);
+    auto *hint = new QLabel(savePath.isEmpty()
+                                ? QStringLiteral("当前在线歌曲没有可写入的本地音频文件")
+                                : QStringLiteral("保存后写入:%1").arg(savePath), this);
     hint->setWordWrap(true);
     hint->setStyleSheet(QStringLiteral("color:#999;font-size:12px;"));
     layout->addWidget(hint);
@@ -35,6 +37,7 @@ LyricEditorDialog::LyricEditorDialog(const core::Song &song, QWidget *parent)
     m_edit->setPlainText(core::LrcParser::toLrc(lines));
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, this);
+    buttons->button(QDialogButtonBox::Save)->setEnabled(!savePath.isEmpty());
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
     layout->addWidget(buttons);
@@ -49,4 +52,3 @@ bool LyricEditorDialog::editForSong(QWidget *parent, const core::Song &song)
 }
 
 } // namespace ui
-

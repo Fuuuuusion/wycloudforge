@@ -1,4 +1,5 @@
 #include "core/LibraryService.h"
+#include "core/LyricsLoader.h"
 #include "core/PlaylistController.h"
 #include "core/SettingsService.h"
 
@@ -25,6 +26,7 @@ private slots:
     void persistenceAcrossReopen();
     void duplicateAddAndOrphanCleanup();
     void downloadedPersistenceAndCacheIsolation();
+    void downloadedLyricsSurviveReload();
     void managedDownloadFolderIsNotImported();
     void downloadAssociationsSurviveRestartAndRepair();
     void localAvailabilityClassification();
@@ -304,6 +306,38 @@ void PlaylistControllerTest::downloadedPersistenceAndCacheIsolation()
     QVERIFY(m_library->removeSongDownload(songId));
     QVERIFY(!QFileInfo::exists(downloadPath));
     QVERIFY(m_controller->isInPlaylist(playlistId, songId));
+}
+
+void PlaylistControllerTest::downloadedLyricsSurviveReload()
+{
+    Song online;
+    online.filePath = QStringLiteral("netease://lyrics-reload");
+    online.title = QStringLiteral("重启歌词");
+    online.source = 1;
+    online.onlineId = 8181;
+    const qint64 songId = m_library->upsertOnlineSong(online);
+    QVERIFY(songId > 0);
+
+    const QString downloadPath = m_dir->filePath(QStringLiteral("downloaded-with-lyrics.mp3"));
+    QFile audio(downloadPath);
+    QVERIFY(audio.open(QIODevice::WriteOnly));
+    QVERIFY(audio.write("download") > 0);
+    audio.close();
+    const QString lyricPath = LyricsLoader::sidecarPathFor(downloadPath);
+    QFile lyric(lyricPath);
+    QVERIFY(lyric.open(QIODevice::WriteOnly));
+    QVERIFY(lyric.write("[00:03.00]persisted\n") > 0);
+    lyric.close();
+
+    QVERIFY(m_library->setSongDownloaded(songId, downloadPath));
+    Song current = m_library->songById(songId);
+    QCOMPARE(QDir::cleanPath(current.lyricPath), QDir::cleanPath(lyricPath));
+    QCOMPARE(LyricsLoader::load(current).first().text, QStringLiteral("persisted"));
+
+    m_library->reloadDatabase();
+    current = m_library->songById(songId);
+    QCOMPARE(QDir::cleanPath(current.lyricPath), QDir::cleanPath(lyricPath));
+    QCOMPARE(LyricsLoader::load(current).first().text, QStringLiteral("persisted"));
 }
 
 void PlaylistControllerTest::managedDownloadFolderIsNotImported()

@@ -49,6 +49,7 @@ private:
     QList<core::LyricLine> m_tlyrc;
     QList<core::LyricLine> m_romalrc;
     int m_lyricMode = 0;
+    quint64 m_lyricRequestGeneration = 0;
     core::Song m_song;
     QPixmap m_coverPix;
 };

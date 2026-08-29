@@ -1210,7 +1210,7 @@ void LibraryService::reloadSongs()
         s.albumId = q.value(13).toLongLong();
         s.cachePath = q.value(14).toString();
         s.downloadPath = q.value(15).toString();
-        s.lyricPath = s.isOnline() ? QString() : LyricsLoader::sidecarPathFor(s.filePath);
+        s.lyricPath = LyricsLoader::existingSidecarPathFor(s);
         m_songs.append(s);
     }
 }
@@ -1470,7 +1470,9 @@ void LibraryService::setSongCached(qint64 songId, const QString &path, qint64 si
     u.exec();
     for (Song &s : m_songs) {
         if (s.id == songId) {
+            s.lyricPath.clear();
             s.cachePath = path;
+            s.lyricPath = LyricsLoader::existingSidecarPathFor(s);
             break;
         }
     }
@@ -1500,12 +1502,19 @@ void LibraryService::invalidateSongCache(qint64 songId)
 
     if (!path.isEmpty()) {
         const QString relative = QDir(cacheDir()).relativeFilePath(path);
-        if (!QFileInfo(path).isRelative() && !relative.startsWith(QStringLiteral("..")))
+        if (!QFileInfo(path).isRelative() && !relative.startsWith(QStringLiteral(".."))) {
             QFile::remove(path);
+            QFile::remove(LyricsLoader::sidecarPathFor(path));
+            LyricsLoader::invalidate(path);
+        }
     }
-    for (Song &song : m_songs)
-        if (song.id == songId)
+    for (Song &song : m_songs) {
+        if (song.id == songId) {
+            song.lyricPath.clear();
             song.cachePath.clear();
+            song.lyricPath = LyricsLoader::existingSidecarPathFor(song);
+        }
+    }
     emit cacheChanged();
     emit libraryChanged();
 }
@@ -1529,8 +1538,11 @@ void LibraryService::clearCache()
     // 清理数据库外的残留播放文件，但不触碰 covers/ 下的本地与线上封面。
     for (const QFileInfo &fi : dir.entryInfoList(QDir::Files | QDir::NoDotAndDotDot))
         QFile::remove(fi.absoluteFilePath());
-    for (Song &s : m_songs)
+    for (Song &s : m_songs) {
+        s.lyricPath.clear();
         s.cachePath.clear();
+        s.lyricPath = LyricsLoader::existingSidecarPathFor(s);
+    }
     emit cacheChanged();
     emit libraryChanged();
 }
@@ -1611,7 +1623,9 @@ bool LibraryService::setSongDownloaded(qint64 songId, const QString &path)
     bool found = false;
     for (Song &song : m_songs) {
         if (song.id == songId) {
+            song.lyricPath.clear();
             song.downloadPath = QDir::toNativeSeparators(QFileInfo(path).absoluteFilePath());
+            song.lyricPath = LyricsLoader::existingSidecarPathFor(song);
             found = true;
             break;
         }
@@ -1632,11 +1646,16 @@ bool LibraryService::removeSongDownload(qint64 songId)
     q.addBindValue(songId);
     if (!q.exec() || q.numRowsAffected() != 1)
         return false;
-    if (!path.isEmpty())
+    if (!path.isEmpty()) {
         QFile::remove(path);
+        QFile::remove(LyricsLoader::sidecarPathFor(path));
+        LyricsLoader::invalidate(path);
+    }
     for (Song &song : m_songs) {
         if (song.id == songId) {
+            song.lyricPath.clear();
             song.downloadPath.clear();
+            song.lyricPath = LyricsLoader::existingSidecarPathFor(song);
             break;
         }
     }

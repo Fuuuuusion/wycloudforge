@@ -10,6 +10,7 @@
 #include <QHBoxLayout>
 #include <QFileInfo>
 #include <QLabel>
+#include <QPointer>
 #include <QPushButton>
 #include <QVBoxLayout>
 
@@ -106,23 +107,28 @@ void PlayingPage::setSourceProvider(core::MusicSource *source)
 
 void PlayingPage::loadLyricsFor(const core::Song &song)
 {
-    if (song.isOnline() && m_source) {
-        m_source->lyric(song.onlineId, [this](const QString &lrc, const QString &tlyrc, const QString &romalrc) {
-            m_lrc = core::LrcParser::parseBytes(lrc.toUtf8());
-            m_tlyrc = core::LrcParser::parseBytes(tlyrc.toUtf8());
-            m_romalrc = core::LrcParser::parseBytes(romalrc.toUtf8());
-            applyLyricMode();
-        }, [this](const QString &) {
-            m_lrc.clear();
-            m_tlyrc.clear();
-            m_romalrc.clear();
-            applyLyricMode();
+    const quint64 requestGeneration = ++m_lyricRequestGeneration;
+
+    // 本地 LRC 先立即显示，断网或在线接口返回空时也不会被清掉。
+    m_lrc = core::LyricsLoader::load(song);
+    m_tlyrc.clear();
+    m_romalrc.clear();
+    applyLyricMode();
+
+    if (song.isOnline() && song.onlineId > 0 && m_source) {
+        const QPointer<PlayingPage> guard(this);
+        m_source->lyric(song.onlineId, [guard, requestGeneration](const QString &lrc, const QString &tlyrc,
+                                                                 const QString &romalrc) {
+            if (!guard || requestGeneration != guard->m_lyricRequestGeneration)
+                return;
+            const QList<core::LyricLine> onlineLyrics = core::LrcParser::parseBytes(lrc.toUtf8());
+            if (onlineLyrics.isEmpty())
+                return;
+            guard->m_lrc = onlineLyrics;
+            guard->m_tlyrc = core::LrcParser::parseBytes(tlyrc.toUtf8());
+            guard->m_romalrc = core::LrcParser::parseBytes(romalrc.toUtf8());
+            guard->applyLyricMode();
         });
-    } else {
-        m_lrc = core::LyricsLoader::load(song);
-        m_tlyrc.clear();
-        m_romalrc.clear();
-        applyLyricMode();
     }
 }
 

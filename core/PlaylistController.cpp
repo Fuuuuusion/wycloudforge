@@ -92,7 +92,7 @@ QList<Song> PlaylistController::songsOf(int playlistId) const
         s.albumId = q.value(13).toLongLong();
         s.cachePath = q.value(14).toString();
         s.downloadPath = q.value(15).toString();
-        s.lyricPath = s.isOnline() ? QString() : LyricsLoader::sidecarPathFor(s.filePath);
+        s.lyricPath = LyricsLoader::existingSidecarPathFor(s);
         songs.append(s);
     }
     return songs;
@@ -365,7 +365,7 @@ QList<Song> PlaylistController::recentSongs(int limit) const
         s.albumId = q.value(13).toLongLong();
         s.cachePath = q.value(14).toString();
         s.downloadPath = q.value(15).toString();
-        s.lyricPath = s.isOnline() ? QString() : LyricsLoader::sidecarPathFor(s.filePath);
+        s.lyricPath = LyricsLoader::existingSidecarPathFor(s);
         songs.append(s);
     }
     return songs;
