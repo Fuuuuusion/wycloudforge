@@ -8,6 +8,7 @@
 #include <QMediaPlayer>
 #include <QMediaDevices>
 #include <QObject>
+#include <QSet>
 #include <QVector>
 
 namespace core {
@@ -67,6 +68,7 @@ private:
     void buildShuffleOrder();
     void alignShuffleToCurrent();
     void maybeCacheCurrent(qint64 positionMs);
+    void saveCover(const Song &song);
 
     QMediaPlayer m_player;
     QAudioOutput m_audio;
@@ -86,6 +88,7 @@ private:
     bool m_usingCachedSource = false;
     bool m_cacheRetryAttempted = false;
     bool m_usingDownloadedSource = false;
+    QSet<qint64> m_coverSaveInFlight;
     int m_endOfMediaToken = -1;
 };
 

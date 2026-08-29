@@ -38,12 +38,23 @@ bool isSupportedFile(const QString &path)
 
 QString normalizedFileKey(const QString &path)
 {
-    const QString clean = QDir::cleanPath(path);
+    const QString clean = QDir::cleanPath(QDir::fromNativeSeparators(
+        QFileInfo(path).absoluteFilePath()));
 #ifdef Q_OS_WIN
     return clean.toCaseFolded();
 #else
     return clean;
 #endif
+}
+
+bool isPathInside(const QString &path, const QString &directory)
+{
+    if (directory.isEmpty())
+        return false;
+    const QString fileKey = normalizedFileKey(path);
+    const QString directoryKey = normalizedFileKey(directory);
+    return fileKey == directoryKey
+        || fileKey.startsWith(directoryKey + QLatin1Char('/'));
 }
 
 QString coverCacheDir()
@@ -204,7 +215,7 @@ class ScanWorker : public QObject
 {
     Q_OBJECT
 public slots:
-    void run(const QStringList &folders, const QString &dbPath)
+    void run(const QStringList &folders, const QString &dbPath, const QString &managedDownloadDir)
     {
         int added = 0;
         int removed = 0;
@@ -246,7 +257,7 @@ public slots:
                             if (QThread::currentThread()->isInterruptionRequested())
                                 break;
                             const QString path = it.next();
-                            if (!isSupportedFile(path))
+                            if (!isSupportedFile(path) || isPathInside(path, managedDownloadDir))
                                 continue;
                             const QFileInfo fileInfo(path);
                             const qint64 modifiedMs = fileInfo.lastModified().toMSecsSinceEpoch();
@@ -355,12 +366,16 @@ public slots:
                     for (const QString &folder : folders) {
                         if (QThread::currentThread()->isInterruptionRequested())
                             break;
+                        if (isPathInside(folder, managedDownloadDir))
+                            continue;
                         QDirIterator it(folder, QDir::Dirs | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
                         watchDirs << folder;
                         while (it.hasNext() && watchDirs.size() < 4000) {
                             if (QThread::currentThread()->isInterruptionRequested())
                                 break;
-                            watchDirs << it.next();
+                            const QString directory = it.next();
+                            if (!isPathInside(directory, managedDownloadDir))
+                                watchDirs << directory;
                         }
                     }
                 }
@@ -820,14 +835,63 @@ bool LibraryService::openDatabase()
         return false;
     }
 
+    removeManagedDownloadImports();
     reloadSongs();
     return m_lastError.isEmpty();
 }
 
 void LibraryService::reloadDatabase()
 {
+    removeManagedDownloadImports();
     reloadSongs();
     emit libraryChanged();
+}
+
+void LibraryService::removeManagedDownloadImports()
+{
+    if (!m_db.isOpen())
+        return;
+
+    const QString managedDownloadDir = SettingsService::onlineDownloadDir();
+    if (managedDownloadDir.isEmpty())
+        return;
+
+    QList<qint64> importedIds;
+    QSqlQuery find(m_db);
+    if (!find.exec(QStringLiteral("SELECT id,path FROM songs WHERE source=0")))
+        return;
+    while (find.next()) {
+        if (isPathInside(find.value(1).toString(), managedDownloadDir))
+            importedIds.append(find.value(0).toLongLong());
+    }
+    find.finish();
+    if (importedIds.isEmpty() || !m_db.transaction())
+        return;
+
+    bool ok = true;
+    for (const qint64 id : importedIds) {
+        for (const QString &sql : {
+                 QStringLiteral("DELETE FROM playlist_songs WHERE song_id=?"),
+                 QStringLiteral("DELETE FROM recent WHERE song_id=?"),
+                 QStringLiteral("DELETE FROM song_cache WHERE song_id=?"),
+                 QStringLiteral("DELETE FROM songs WHERE id=?") }) {
+            QSqlQuery remove(m_db);
+            remove.prepare(sql);
+            remove.addBindValue(id);
+            if (!remove.exec()) {
+                ok = false;
+                break;
+            }
+        }
+        if (!ok)
+            break;
+    }
+    if (ok)
+        ok = m_db.commit();
+    else
+        m_db.rollback();
+    if (!ok)
+        qWarning() << "Failed to remove imported download files from library";
 }
 
 QStringList LibraryService::folders() const
@@ -874,8 +938,9 @@ void LibraryService::startWorker(const QStringList &folders)
             m_scanThread = nullptr;
     });
     const QString dbPath = m_dbPath;
-    connect(this, &LibraryService::scanStarted, worker, [worker, folders, dbPath] {
-        worker->run(folders, dbPath);
+    const QString managedDownloadDir = SettingsService::onlineDownloadDir();
+    connect(this, &LibraryService::scanStarted, worker, [worker, folders, dbPath, managedDownloadDir] {
+        worker->run(folders, dbPath, managedDownloadDir);
     });
     connect(worker, &ScanWorker::progress, this, &LibraryService::scanProgress);
     connect(worker, &ScanWorker::finished, this, [this, thread](int added, int removed, const QStringList &watchDirs) {
@@ -883,6 +948,7 @@ void LibraryService::startWorker(const QStringList &folders)
         thread->quit();
         m_watcher->removePaths(m_watcher->directories());
         m_watcher->addPaths(watchDirs);
+        removeManagedDownloadImports();
         reloadSongs();
         emit scanFinished(added, removed);
         emit libraryChanged();

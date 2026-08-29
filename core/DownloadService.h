@@ -51,6 +51,7 @@ private:
     void startNext();
     void resolveUrl(qint64 taskId);
     void beginTransfer(qint64 taskId, const QUrl &url);
+    void saveCover(const Song &song);
     void failTask(qint64 taskId, const QString &message);
     Task *taskFor(qint64 taskId);
 

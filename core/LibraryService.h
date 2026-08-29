@@ -77,6 +77,7 @@ signals:
 
 private:
     void reloadSongs();
+    void removeManagedDownloadImports();
     bool recoverCorruptDatabase(const QString &backupPath, QString *error);
     void startWorker(const QStringList &folders);
     void onWatchChange(const QString &path);

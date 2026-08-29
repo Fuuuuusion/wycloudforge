@@ -235,6 +235,9 @@ void PlayerService::loadCurrent(bool autoPlay, bool allowCached, bool resetCache
     m_player.setSource(QUrl());
 
     if (song.isOnline()) {
+        // 下载文件和播放缓存都不包含歌曲元数据，在线歌曲的封面必须单独
+        // 缓存并写回 songs.cover_path，才能在重启后继续显示。
+        saveCover(song);
         m_cacheSaved = false;
         QString downloaded = song.downloadPath;
         if (downloaded.isEmpty() && m_lib)
@@ -374,6 +377,39 @@ void PlayerService::maybeCacheCurrent(qint64 positionMs)
     m_source->downloadToFile(url, path, [this, id, path](bool ok) {
         if (ok && m_lib)
             m_lib->setSongCached(id, path, QFileInfo(path).size());
+    });
+}
+
+void PlayerService::saveCover(const Song &song)
+{
+    if (!m_source || !m_lib || !song.isOnline() || song.id <= 0)
+        return;
+
+    const Song stored = m_lib->songById(song.id);
+    const Song target = stored.id > 0 ? stored : song;
+    if (!target.coverPath.isEmpty() && QFileInfo::exists(target.coverPath)
+        && QFileInfo(target.coverPath).size() > 0)
+        return;
+
+    const QString coverUrl = target.coverUrl.isEmpty() ? song.coverUrl : target.coverUrl;
+    if (coverUrl.isEmpty())
+        return;
+    const QString path = m_lib->songCoverCachePath(target);
+    if (path.isEmpty())
+        return;
+    if (QFileInfo::exists(path) && QFileInfo(path).size() > 0) {
+        m_lib->setSongCoverPath(target.id, path);
+        return;
+    }
+
+    if (m_coverSaveInFlight.contains(target.id))
+        return;
+    m_coverSaveInFlight.insert(target.id);
+    const qint64 id = target.id;
+    m_source->downloadToFile(QUrl(coverUrl), path, [this, id, path](bool ok) {
+        m_coverSaveInFlight.remove(id);
+        if (ok && m_lib)
+            m_lib->setSongCoverPath(id, path);
     });
 }
 

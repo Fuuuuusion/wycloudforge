@@ -1,10 +1,12 @@
 #include "core/LibraryService.h"
 #include "core/PlaylistController.h"
+#include "core/SettingsService.h"
 
 #include <QFile>
 #include <QFileInfo>
 #include <QDir>
 #include <QSqlQuery>
+#include <QSettings>
 #include <QTemporaryDir>
 #include <QtTest>
 
@@ -23,6 +25,7 @@ private slots:
     void persistenceAcrossReopen();
     void duplicateAddAndOrphanCleanup();
     void downloadedPersistenceAndCacheIsolation();
+    void managedDownloadFolderIsNotImported();
 
 private:
     QTemporaryDir *m_dir = nullptr;
@@ -257,6 +260,13 @@ void PlaylistControllerTest::downloadedPersistenceAndCacheIsolation()
     const qint64 songId = q.lastInsertId().toLongLong();
     m_library->reloadDatabase();
 
+    const QString coverPath = m_dir->filePath(QStringLiteral("song-cover.jpg"));
+    QFile cover(coverPath);
+    QVERIFY(cover.open(QIODevice::WriteOnly));
+    QVERIFY(cover.write("cover") > 0);
+    cover.close();
+    m_library->setSongCoverPath(songId, coverPath);
+
     const QString downloadPath = m_dir->filePath(QStringLiteral("artist - song.mp3"));
     QFile download(downloadPath);
     QVERIFY(download.open(QIODevice::WriteOnly));
@@ -274,6 +284,7 @@ void PlaylistControllerTest::downloadedPersistenceAndCacheIsolation()
     m_library->setSongCached(songId, cachePath, QFileInfo(cachePath).size());
 
     Song current = m_library->songById(songId);
+    QCOMPARE(current.coverPath, coverPath);
     QCOMPARE(current.downloadPath, QDir::toNativeSeparators(QFileInfo(downloadPath).absoluteFilePath()));
     QVERIFY(current.isDownloaded());
     QVERIFY(current.isCached());
@@ -282,6 +293,7 @@ void PlaylistControllerTest::downloadedPersistenceAndCacheIsolation()
     QVERIFY(QFileInfo::exists(downloadPath));
     QVERIFY(!QFileInfo::exists(cachePath));
     current = m_library->songById(songId);
+    QCOMPARE(current.coverPath, coverPath);
     QCOMPARE(current.downloadPath, QDir::toNativeSeparators(QFileInfo(downloadPath).absoluteFilePath()));
     QVERIFY(m_library->isSongDownloaded(songId));
 
@@ -290,6 +302,52 @@ void PlaylistControllerTest::downloadedPersistenceAndCacheIsolation()
     QVERIFY(m_library->removeSongDownload(songId));
     QVERIFY(!QFileInfo::exists(downloadPath));
     QVERIFY(m_controller->isInPlaylist(playlistId, songId));
+}
+
+void PlaylistControllerTest::managedDownloadFolderIsNotImported()
+{
+    QCoreApplication::setOrganizationName(QStringLiteral("NeteaseClone"));
+    QCoreApplication::setApplicationName(QStringLiteral("NeteaseClone"));
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, m_dir->path());
+    const QString oldDownloadDir = QSettings().value(QStringLiteral("online/downloadDir")).toString();
+    const QString musicRoot = m_dir->filePath(QStringLiteral("music"));
+    const QString managedDir = QDir(musicRoot).filePath(QStringLiteral("NeteaseClone Downloads"));
+    QVERIFY(QDir().mkpath(managedDir));
+    SettingsService::setOnlineDownloadDir(managedDir);
+
+    const QString localPath = QDir(musicRoot).filePath(QStringLiteral("local.mp3"));
+    QFile local(localPath);
+    QVERIFY(local.open(QIODevice::WriteOnly));
+    QVERIFY(local.write("local") > 0);
+    local.close();
+
+    const QString managedPath = QDir(managedDir).filePath(QStringLiteral("online.mp3"));
+    QFile managed(managedPath);
+    QVERIFY(managed.open(QIODevice::WriteOnly));
+    QVERIFY(managed.write("download") > 0);
+    managed.close();
+
+    // 模拟旧版本已经把下载文件错误写成 source=0；扫描完成时也应清理它。
+    QSqlQuery insert(m_library->database());
+    insert.prepare(QStringLiteral("INSERT INTO songs(path,title) VALUES(?,?)"));
+    insert.addBindValue(managedPath);
+    insert.addBindValue(QStringLiteral("误导入下载"));
+    QVERIFY(insert.exec());
+
+    QSignalSpy scanFinished(m_library, &LibraryService::scanFinished);
+    m_library->scanFolderNow(musicRoot);
+    QVERIFY(QTest::qWaitFor([&scanFinished] { return scanFinished.count() > 0; }, 5000));
+
+    const QList<Song> songs = m_library->allSongs();
+    QCOMPARE(songs.size(), 1);
+    QCOMPARE(songs.first().source, 0);
+    QCOMPARE(QDir::cleanPath(songs.first().filePath), QDir::cleanPath(localPath));
+
+    if (oldDownloadDir.isEmpty())
+        QSettings().remove(QStringLiteral("online/downloadDir"));
+    else
+        SettingsService::setOnlineDownloadDir(oldDownloadDir);
 }
 
 QTEST_MAIN(PlaylistControllerTest)

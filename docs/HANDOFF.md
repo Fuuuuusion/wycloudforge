@@ -213,6 +213,8 @@ Start-Process $exe -ArgumentList "--folder `"$tmp`"","--db `"$tmp\t.db`"","--pag
 - `Song` 增加 `downloadPath` 与有效文件判断;SQLite 启动迁移补充 `songs.download_path`,并处理旧库、损坏库恢复和失效下载清理。
 - `MusicSource` 下载接口支持进度、取消任务 ID 和详细错误;网易云实现流式写临时文件后原子提交,封面/自动缓存接口保持独立。
 - `SettingsService` / `LibraryService` 支持可配置下载目录、下载路径生成、下载记录设置与删除;默认目录为 `Music\NeteaseClone Downloads`。
+- 永久下载目录会从本地音乐扫描中排除；启动和扫描完成时会清理旧版本误导入的 `source=0` 下载副本，保留在线歌曲、收藏和歌单关系。
+- 播放缓存和永久下载完成后都会独立保存在线封面到 `covers/` 并写入 `songs.cover_path`，重启后继续显示封面。
 - `DownloadPage` 维护队列和逐首状态;所有歌曲列表统一接入批量模式、复选框和来源相关删除策略。
 - 播放路径固定为永久下载 → 自动缓存 → 在线 URL;清空缓存不会影响永久下载,删除永久下载不会影响收藏、歌单或缓存。
 

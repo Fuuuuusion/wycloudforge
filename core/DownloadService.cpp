@@ -204,16 +204,49 @@ void DownloadService::beginTransfer(qint64 taskId, const QUrl &url)
                 failTask(taskId, result.error.isEmpty() ? QStringLiteral("下载失败") : result.error);
                 return;
             }
-            if (!m_library->setSongDownloaded(current->song.id, path)) {
+            const Song completedSong = current->song;
+            if (!m_library->setSongDownloaded(completedSong.id, path)) {
                 failTask(taskId, QStringLiteral("下载完成但写入数据库失败"));
                 return;
             }
+            // 永久下载与在线歌曲身份分离保存；封面也必须落到应用封面缓存并
+            // 写回在线记录，否则重启后下载文件会被扫描成“本地歌曲”且无封面。
+            saveCover(completedSong);
             m_tasks.remove(taskId);
             m_activeTaskId = -1;
             emit taskRemoved(taskId);
             emit tasksChanged();
             startNext();
         });
+}
+
+void DownloadService::saveCover(const Song &song)
+{
+    if (!m_source || !m_library || !song.isOnline() || song.id <= 0)
+        return;
+
+    const Song stored = m_library->songById(song.id);
+    const Song target = stored.id > 0 ? stored : song;
+    if (!target.coverPath.isEmpty() && QFileInfo::exists(target.coverPath)
+        && QFileInfo(target.coverPath).size() > 0)
+        return;
+
+    const QString coverUrl = target.coverUrl.isEmpty() ? song.coverUrl : target.coverUrl;
+    if (coverUrl.isEmpty())
+        return;
+    const QString path = m_library->songCoverCachePath(target);
+    if (path.isEmpty())
+        return;
+    if (QFileInfo::exists(path) && QFileInfo(path).size() > 0) {
+        m_library->setSongCoverPath(target.id, path);
+        return;
+    }
+
+    const qint64 id = target.id;
+    m_source->downloadToFile(QUrl(coverUrl), path, [this, id, path](bool ok) {
+        if (ok && m_library)
+            m_library->setSongCoverPath(id, path);
+    });
 }
 
 void DownloadService::failTask(qint64 taskId, const QString &message)
