@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QMetaType>
+#include <QFileInfo>
 #include <QString>
 
 namespace core {
@@ -24,10 +25,16 @@ struct Song
     qint64 onlineId = 0;
     QString coverUrl;
     QString cachePath;
+    QString downloadPath; // 用户主动下载的永久文件路径
     qint64 albumId = 0;
 
     bool isOnline() const { return source > 0; }
     bool isCached() const { return isOnline() && !cachePath.isEmpty(); }
+    bool isDownloaded() const
+    {
+        return isOnline() && !downloadPath.isEmpty()
+            && QFileInfo(downloadPath).isFile() && QFileInfo(downloadPath).size() > 0;
+    }
     bool operator==(const Song &other) const { return id == other.id && filePath == other.filePath; }
 };
 

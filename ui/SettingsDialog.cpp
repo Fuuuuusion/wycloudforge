@@ -183,6 +183,26 @@ SettingsDialog::SettingsDialog(core::ApiService *apiService, core::NeteaseApiCli
         }
     });
 
+    auto *downloadTitle = new QLabel(QStringLiteral("永久下载"), this);
+    downloadTitle->setStyleSheet(QStringLiteral("font-weight:600;font-size:14px;"));
+    layout->addWidget(downloadTitle);
+    auto *downloadRow = new QHBoxLayout;
+    downloadRow->setSpacing(8);
+    downloadRow->addWidget(new QLabel(QStringLiteral("保存目录"), this));
+    m_downloadDirEdit = new QLineEdit(core::SettingsService::onlineDownloadDir(), this);
+    m_downloadDirEdit->setStyleSheet(QStringLiteral(
+        "QLineEdit{background:rgba(255,255,255,0.08);border:none;border-radius:6px;padding:6px 10px;color:#E8E8E8;}"));
+    auto *chooseDownloadDir = new QPushButton(QStringLiteral("选择"), this);
+    downloadRow->addWidget(m_downloadDirEdit, 1);
+    downloadRow->addWidget(chooseDownloadDir);
+    layout->addLayout(downloadRow);
+    connect(chooseDownloadDir, &QPushButton::clicked, this, [this] {
+        const QString dir = QFileDialog::getExistingDirectory(this, QStringLiteral("选择永久下载目录"),
+                                                               m_downloadDirEdit->text());
+        if (!dir.isEmpty())
+            m_downloadDirEdit->setText(dir);
+    });
+
     // ---------- 本地数据库 ----------
     auto *databaseTitle = new QLabel(QStringLiteral("本地数据库"), this);
     databaseTitle->setStyleSheet(QStringLiteral("font-weight:600;font-size:14px;"));
@@ -219,6 +239,7 @@ SettingsDialog::SettingsDialog(core::ApiService *apiService, core::NeteaseApiCli
         core::SettingsService::setOnlineAutoStart(m_autoStartCheck->isChecked());
         core::SettingsService::setOnlineCacheMaxCount(m_cacheCountSpin->value());
         core::SettingsService::setOnlineCacheMaxMB(m_cacheMBSpin->value());
+        core::SettingsService::setOnlineDownloadDir(m_downloadDirEdit->text().trimmed());
         accept();
     });
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);

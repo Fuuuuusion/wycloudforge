@@ -39,6 +39,7 @@ signals:
     void volumeChanged(int volume);
     void muteToggled(bool muted);
     void heartToggled(bool favorite);
+    void downloadRequested();
     void lyricsClicked();
     void playlistClicked();
 
@@ -57,6 +58,7 @@ private:
     QLabel *m_timeCur = nullptr;
     QLabel *m_timeTotal = nullptr;
     QPushButton *m_heartBtn = nullptr;
+    QPushButton *m_downloadBtn = nullptr;
     QPushButton *m_modeBtn = nullptr;
     QPushButton *m_prevBtn = nullptr;
     QPushButton *m_playBtn = nullptr;

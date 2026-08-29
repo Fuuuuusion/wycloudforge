@@ -61,6 +61,7 @@ signals:
 private:
     void loadCurrent(bool autoPlay, bool allowCached = true, bool resetCacheRetry = true);
     bool ensureAudioOutput();
+    bool retryInvalidDownloadedFile();
     bool retryInvalidCache();
     void buildShuffleOrder();
     void maybeCacheCurrent(qint64 positionMs);
@@ -82,6 +83,7 @@ private:
     bool m_pendingAutoPlay = false;
     bool m_usingCachedSource = false;
     bool m_cacheRetryAttempted = false;
+    bool m_usingDownloadedSource = false;
 };
 
 } // namespace core

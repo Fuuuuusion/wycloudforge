@@ -181,6 +181,21 @@ int SettingsService::onlineCacheMaxMB(int fallback)
     return s.value(QStringLiteral("online/cacheMaxMB"), fallback).toInt();
 }
 
+QString SettingsService::onlineDownloadDir()
+{
+    const QString configured = QSettings().value(QStringLiteral("online/downloadDir")).toString();
+    if (!configured.isEmpty())
+        return configured;
+    return QStandardPaths::writableLocation(QStandardPaths::MusicLocation)
+        + QStringLiteral("/NeteaseClone Downloads");
+}
+
+void SettingsService::setOnlineDownloadDir(const QString &dir)
+{
+    QSettings s;
+    s.setValue(QStringLiteral("online/downloadDir"), dir);
+}
+
 void SettingsService::setOnlineCacheMaxMB(int mb)
 {
     QSettings s;

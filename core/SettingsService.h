@@ -43,6 +43,8 @@ public:
     static void setOnlineCacheMaxCount(int count);
     static int onlineCacheMaxMB(int fallback = 2048);
     static void setOnlineCacheMaxMB(int mb);
+    static QString onlineDownloadDir();
+    static void setOnlineDownloadDir(const QString &dir);
     static QString onlineCookie();
     static void setOnlineCookie(const QString &cookie);
     static qint64 onlineUid();

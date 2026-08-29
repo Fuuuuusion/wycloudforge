@@ -42,6 +42,7 @@ private:
     QCheckBox *m_autoStartCheck = nullptr;
     QSpinBox *m_cacheCountSpin = nullptr;
     QSpinBox *m_cacheMBSpin = nullptr;
+    QLineEdit *m_downloadDirEdit = nullptr;
     QLabel *m_onlineStatus = nullptr;
     QLabel *m_cacheStats = nullptr;
     QLabel *m_loginLabel = nullptr;

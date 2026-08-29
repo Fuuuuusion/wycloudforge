@@ -58,6 +58,7 @@ LibraryPage::LibraryPage(QWidget *parent)
         group->addButton(btn, i);
         tabLayout->addWidget(btn);
     }
+    group->button(0)->setChecked(true);
     tabLayout->addStretch(1);
     layout->addWidget(tabRow);
 
@@ -67,8 +68,8 @@ LibraryPage::LibraryPage(QWidget *parent)
     filterLayout->setSpacing(8);
     auto *filterGroup = new QButtonGroup(this);
     filterGroup->setExclusive(true);
-    const QStringList filters = { QStringLiteral("本地与缓存"), QStringLiteral("本地"),
-                                  QStringLiteral("在线"), QStringLiteral("已缓存") };
+    const QStringList filters = { QStringLiteral("全部"), QStringLiteral("本地导入"),
+                                  QStringLiteral("已缓存"), QStringLiteral("已下载") };
     for (int i = 0; i < filters.size(); ++i) {
         auto *btn = new QPushButton(filters[i], filterRow);
         btn->setCheckable(true);
@@ -81,10 +82,13 @@ LibraryPage::LibraryPage(QWidget *parent)
         filterGroup->addButton(btn, i);
         filterLayout->addWidget(btn);
     }
+    filterGroup->button(0)->setChecked(true);
     filterLayout->addStretch(1);
     layout->addWidget(filterRow);
     connect(filterGroup, &QButtonGroup::idClicked, this, [this](int id) {
         m_filter = id;
+        m_songList->setDownloadActionMode(id == 3 ? SongListView::DeleteDownloadAction
+                                                  : SongListView::DownloadAction);
         applyFilter();
         rebuildArtists();
         rebuildAlbums();
@@ -176,11 +180,10 @@ void LibraryPage::applyFilter()
     for (const core::Song &s : m_songs) {
         const bool online = s.isOnline();
         switch (m_filter) {
-        // “本地歌单”只展示可直接使用的本地文件和已经下载的线上歌曲。
-        case 0: if (!online || s.isCached()) m_filtered.append(s); break;
+        case 0: m_filtered.append(s); break;
         case 1: if (!online) m_filtered.append(s); break;
-        case 2: if (online) m_filtered.append(s); break;
-        case 3: if (online && s.isCached()) m_filtered.append(s); break;
+        case 2: if (online && s.isCached() && !s.isDownloaded()) m_filtered.append(s); break;
+        case 3: if (online && s.isDownloaded()) m_filtered.append(s); break;
         default: break;
         }
     }

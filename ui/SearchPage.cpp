@@ -242,6 +242,7 @@ void SearchPage::loadOnlinePage(int offset)
                 const core::Song stored = m_lib->songById(s.id);
                 s.coverPath = stored.coverPath;
                 s.cachePath = stored.cachePath;
+                s.downloadPath = stored.downloadPath;
                 s.lyricPath = stored.lyricPath;
             }
             m_onlineSongs.append(s);

@@ -1,0 +1,233 @@
+#include "DownloadService.h"
+
+#include "core/LibraryService.h"
+#include "core/MusicSource.h"
+
+#include <QFileInfo>
+#include <QUrl>
+
+#include <algorithm>
+
+namespace core {
+
+DownloadService::DownloadService(QObject *parent)
+    : QObject(parent)
+{
+    qRegisterMetaType<DownloadService::Task>();
+}
+
+DownloadService::Task *DownloadService::taskFor(qint64 taskId)
+{
+    auto it = m_tasks.find(taskId);
+    return it == m_tasks.end() ? nullptr : &it.value();
+}
+
+QList<DownloadService::Task> DownloadService::tasks() const
+{
+    QList<Task> result;
+    for (qint64 id : m_tasks.keys())
+        result.append(m_tasks.value(id));
+    std::sort(result.begin(), result.end(), [](const Task &a, const Task &b) { return a.id < b.id; });
+    return result;
+}
+
+qint64 DownloadService::enqueue(const Song &song)
+{
+    if (!song.isOnline() || song.onlineId <= 0 || song.id <= 0)
+        return -1;
+    if (m_library && m_library->isSongDownloaded(song.id))
+        return -1;
+    for (const Task &task : m_tasks) {
+        if (task.song.id == song.id && (task.state == Queued || task.state == Downloading))
+            return task.id;
+    }
+    Task task;
+    task.id = m_nextTaskId++;
+    task.song = song;
+    if (m_library) {
+        const Song stored = m_library->songById(song.id);
+        if (stored.id > 0)
+            task.song = stored;
+    }
+    m_tasks.insert(task.id, task);
+    m_queue.append(task.id);
+    emit taskAdded(task);
+    emit tasksChanged();
+    startNext();
+    return task.id;
+}
+
+void DownloadService::enqueue(const QList<Song> &songs)
+{
+    for (const Song &song : songs)
+        enqueue(song);
+}
+
+void DownloadService::cancel(qint64 taskId)
+{
+    Task *task = taskFor(taskId);
+    if (!task)
+        return;
+    if (taskId == m_activeTaskId) {
+        m_cancelRequested = true;
+        if (m_source && m_downloadId)
+            m_source->cancelDownload(m_downloadId);
+        return;
+    }
+    if (task->state != Queued)
+        return;
+    m_queue.removeAll(taskId);
+    task->state = Canceled;
+    task->error = QStringLiteral("已取消");
+    emit taskUpdated(*task);
+    emit tasksChanged();
+}
+
+void DownloadService::retry(qint64 taskId)
+{
+    Task *task = taskFor(taskId);
+    if (!task || m_activeTaskId > 0 || (task->state != Failed && task->state != Canceled))
+        return;
+    task->state = Queued;
+    task->percent = 0;
+    task->error.clear();
+    m_queue.append(taskId);
+    emit taskUpdated(*task);
+    emit tasksChanged();
+    startNext();
+}
+
+void DownloadService::startNext()
+{
+    if (m_activeTaskId > 0 || m_queue.isEmpty())
+        return;
+    const qint64 taskId = m_queue.takeFirst();
+    Task *task = taskFor(taskId);
+    if (!task)
+        return startNext();
+    if (m_library && m_library->isSongDownloaded(task->song.id)) {
+        m_tasks.remove(taskId);
+        emit taskRemoved(taskId);
+        emit tasksChanged();
+        return startNext();
+    }
+    if (!m_source || !m_library) {
+        failTask(taskId, QStringLiteral("下载服务未准备好"));
+        return;
+    }
+    m_activeTaskId = taskId;
+    m_cancelRequested = false;
+    m_urlRetryCount = 0;
+    task->state = Downloading;
+    task->percent = 0;
+    emit taskUpdated(*task);
+    resolveUrl(taskId);
+}
+
+void DownloadService::resolveUrl(qint64 taskId)
+{
+    Task *task = taskFor(taskId);
+    if (!task || taskId != m_activeTaskId || !m_source)
+        return;
+    m_source->songUrls({ task->song.onlineId },
+                       [this, taskId](const QJsonArray &array) {
+        Task *task = taskFor(taskId);
+        if (!task || taskId != m_activeTaskId)
+            return;
+        if (m_cancelRequested) {
+            task->state = Canceled;
+            task->error = QStringLiteral("已取消");
+            m_activeTaskId = -1;
+            emit taskUpdated(*task);
+            emit tasksChanged();
+            startNext();
+            return;
+        }
+        QString url;
+        if (!array.isEmpty())
+            url = array.first().toObject().value(QStringLiteral("url")).toString();
+        if (url.isEmpty()) {
+            failTask(taskId, QStringLiteral("歌曲没有可用的下载地址(可能受版权/VIP限制)"));
+            return;
+        }
+        beginTransfer(taskId, QUrl(url));
+    }, [this, taskId](const QString &error) {
+        if (taskId == m_activeTaskId)
+            failTask(taskId, QStringLiteral("获取下载地址失败：%1").arg(error));
+    });
+}
+
+void DownloadService::beginTransfer(qint64 taskId, const QUrl &url)
+{
+    Task *task = taskFor(taskId);
+    if (!task || taskId != m_activeTaskId || !m_library || !m_source)
+        return;
+    const QString path = m_library->downloadFilePathFor(task->song);
+    if (path.isEmpty()) {
+        failTask(taskId, QStringLiteral("无法生成下载文件名"));
+        return;
+    }
+    m_downloadId = m_source->downloadToFileWithProgress(
+        url, path,
+        [this, taskId](qint64 received, qint64 total) {
+            Task *current = taskFor(taskId);
+            if (!current || taskId != m_activeTaskId || total <= 0)
+                return;
+            const int percent = qBound(0, int((received * 100) / total), 100);
+            if (percent == current->percent)
+                return;
+            current->percent = percent;
+            emit taskUpdated(*current);
+        },
+        [this, taskId, path](const MusicSource::DownloadResult &result) {
+            Task *current = taskFor(taskId);
+            if (!current || taskId != m_activeTaskId)
+                return;
+            m_downloadId = 0;
+            if (m_cancelRequested) {
+                current->state = Canceled;
+                current->error = QStringLiteral("已取消");
+                current->percent = 0;
+                m_activeTaskId = -1;
+                emit taskUpdated(*current);
+                emit tasksChanged();
+                startNext();
+                return;
+            }
+            if (!result.ok) {
+                const bool retryable = result.error.contains(QStringLiteral("HTTP 401"))
+                    || result.error.contains(QStringLiteral("HTTP 403"));
+                if (retryable && m_urlRetryCount++ == 0) {
+                    resolveUrl(taskId);
+                    return;
+                }
+                failTask(taskId, result.error.isEmpty() ? QStringLiteral("下载失败") : result.error);
+                return;
+            }
+            if (!m_library->setSongDownloaded(current->song.id, path)) {
+                failTask(taskId, QStringLiteral("下载完成但写入数据库失败"));
+                return;
+            }
+            m_tasks.remove(taskId);
+            m_activeTaskId = -1;
+            emit taskRemoved(taskId);
+            emit tasksChanged();
+            startNext();
+        });
+}
+
+void DownloadService::failTask(qint64 taskId, const QString &message)
+{
+    Task *task = taskFor(taskId);
+    if (!task || taskId != m_activeTaskId)
+        return;
+    m_downloadId = 0;
+    task->state = Failed;
+    task->error = message;
+    m_activeTaskId = -1;
+    emit taskUpdated(*task);
+    emit tasksChanged();
+    startNext();
+}
+
+} // namespace core

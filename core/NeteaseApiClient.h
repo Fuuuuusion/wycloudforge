@@ -3,9 +3,12 @@
 #include "core/MusicSource.h"
 
 #include <QObject>
+#include <QHash>
+#include <QPointer>
 #include <QUrlQuery>
 
 class QNetworkAccessManager;
+class QNetworkReply;
 
 namespace core {
 
@@ -56,11 +59,17 @@ public:
     void like(qint64 id, bool like, OkFn ok, ErrFn err = {}) override;
     void likeList(qint64 uid, JsonArrayFn ok, ErrFn err = {}) override;
     void downloadToFile(const QUrl &url, const QString &filePath, BoolFn done) override;
+    DownloadId downloadToFileWithProgress(const QUrl &url, const QString &filePath,
+                                          DownloadProgressFn progress,
+                                          DownloadDoneFn done) override;
+    void cancelDownload(DownloadId id) override;
 
     Song songFromJson(const QJsonObject &obj) const override;
 
 private:
     QNetworkAccessManager *m_nam = nullptr;
+    QHash<DownloadId, QPointer<QNetworkReply>> m_downloads;
+    DownloadId m_nextDownloadId = 1;
     QString m_base = QStringLiteral("http://127.0.0.1:3000");
     QString m_cookie;
 };

@@ -5,6 +5,7 @@
 #include "ui/AccountDialog.h"
 #include "ui/AccountPanel.h"
 #include "ui/AuroraBackground.h"
+#include "ui/DownloadPage.h"
 #include "ui/FavoritesPage.h"
 #include "ui/LibraryPage.h"
 #include "ui/LyricEditorDialog.h"
@@ -17,6 +18,7 @@
 #include "ui/SideBar.h"
 #include "ui/SettingsDialog.h"
 #include "ui/SongListPage.h"
+#include "ui/SongListView.h"
 #include "ui/TitleBar.h"
 
 #include <QApplication>
@@ -38,6 +40,7 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPlainTextEdit>
+#include <QPushButton>
 #include <QShortcut>
 #include <QStackedWidget>
 #include <QScrollArea>
@@ -137,9 +140,12 @@ MainWindow::MainWindow(QWidget *parent)
     m_songListPage = new ui::SongListPage(this);
     m_playing = new ui::PlayingPage(this);
     m_search = new ui::SearchPage(this);
+    m_downloadPage = new ui::DownloadPage(this);
 
     m_player.setSourceProvider(&m_apiClient);
     m_player.setLibrary(&m_library);
+    m_downloads.setSourceProvider(&m_apiClient);
+    m_downloads.setLibrary(&m_library);
     m_search->setSourceProvider(&m_apiClient, &m_library);
     m_playing->setSourceProvider(&m_apiClient);
     m_recommend->setSourceProvider(&m_apiClient, &m_library);
@@ -154,6 +160,9 @@ MainWindow::MainWindow(QWidget *parent)
     m_stack->addWidget(m_songListPage);
     m_stack->addWidget(m_playing);
     m_stack->addWidget(m_search);
+    m_stack->addWidget(m_downloadPage);
+
+    connectSongListActions();
 
     auto *body = new QWidget(this);
     auto *bodyLayout = new QHBoxLayout(body);
@@ -250,8 +259,18 @@ MainWindow::MainWindow(QWidget *parent)
         if (m_currentSongId > 0)
             m_playlists.setFavorite(m_currentSongId, fav);
     });
+    connect(m_playerBar, &ui::PlayerBar::downloadRequested, this, [this] {
+        handleSongDownload(m_player.currentSong());
+    });
     connect(m_playerBar, &ui::PlayerBar::lyricsClicked, this, [this] { showPage(5); });
     connect(m_playerBar, &ui::PlayerBar::playlistClicked, this, &MainWindow::openPlaybackQueue);
+
+    connect(m_downloadPage, &ui::DownloadPage::backRequested, this, [this] { showPage(m_lastPage); });
+    connect(m_downloadPage, &ui::DownloadPage::cancelRequested, &m_downloads, &core::DownloadService::cancel);
+    connect(m_downloadPage, &ui::DownloadPage::retryRequested, &m_downloads, &core::DownloadService::retry);
+    connect(&m_downloads, &core::DownloadService::tasksChanged, this, [this] {
+        m_downloadPage->setTasks(m_downloads.tasks());
+    });
 
     // ---------- 播放器信号 → UI ----------
     connect(&m_player, &core::PlayerService::songChanged, this, &MainWindow::onCurrentSongChanged);
@@ -322,7 +341,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_libraryPage, &ui::LibraryPage::deleteFromLibraryRequested, this, [this](int row) {
         const core::Song s = m_libraryPage->currentSongs().value(row);
         if (s.id > 0)
-            m_library.removeSong(s.id);
+            handleSongDelete(s);
     });
     connect(m_libraryPage, &ui::LibraryPage::importRequested, this, &MainWindow::addMusicFolder);
     connect(m_libraryPage, &ui::LibraryPage::importFilesRequested, this, &MainWindow::addMusicFiles);
@@ -369,10 +388,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_songListPage, &ui::SongListPage::deleteFromLibraryRequested, this, [this](int row) {
         const core::Song s = m_songListPage->currentSongs().value(row);
         if (s.id > 0) {
-            const bool wasCurrent = s.id == m_currentSongId;
-            m_library.removeSong(s.id);
-            if (wasCurrent)
-                m_player.next();
+            handleSongDelete(s);
             if (m_playlistContext > 0)
                 openPlaylist(m_playlistContext);
         }
@@ -427,13 +443,19 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_search, &ui::SearchPage::deleteFromLibraryRequested, this, [this](int row) {
         const core::Song s = m_search->currentSongs().value(row);
         if (s.id > 0)
-            m_library.removeSong(s.id);
+            handleSongDelete(s);
     });
 
     // ---------- 音乐库信号 ----------
     connect(&m_library, &core::LibraryService::libraryChanged, this, [this] {
         refreshSidebar();
         refreshLibraryViews();
+        refreshAllPages();
+        if (m_currentSongId > 0) {
+            const core::Song current = m_library.songById(m_currentSongId);
+            if (current.id > 0)
+                m_playerBar->setSong(current, m_playlists.isFavorite(current.id));
+        }
         if (!m_restoredLastSong) {
             m_restoredLastSong = true;
             const QString lastPath = core::SettingsService::lastSongPath();
@@ -505,12 +527,12 @@ MainWindow::MainWindow(QWidget *parent)
 void MainWindow::showPage(int pageId)
 {
     const bool clearPlaylistSelection = pageId >= 0 && pageId != 4 && pageId != 5
-        && m_playlistContext > 0;
+        && pageId != 7 && m_playlistContext > 0;
     if (clearPlaylistSelection) {
         m_playlistContext = -1;
         refreshSidebar();
     }
-    if (pageId == 5)
+    if (pageId == 5 || pageId == 7)
         m_lastPage = m_stack->currentIndex();
     if (pageId >= 0 && pageId < m_stack->count())
         m_stack->setCurrentIndex(pageId);
@@ -518,6 +540,8 @@ void MainWindow::showPage(int pageId)
         m_favorites->setSongs(m_playlists.songsOf(m_playlists.favoritePlaylistId()), m_currentSongId);
     if (pageId == 3)
         refreshAllPages();
+    if (pageId == 7)
+        m_downloadPage->setTasks(m_downloads.tasks());
     m_sideBar->setActivePage(pageId);
 }
 
@@ -611,6 +635,7 @@ void MainWindow::openOnlinePlaylist(qint64 id, const QString &name)
                     const core::Song stored = m_library.songById(s.id);
                     s.coverPath = stored.coverPath;
                     s.cachePath = stored.cachePath;
+                    s.downloadPath = stored.downloadPath;
                     s.lyricPath = stored.lyricPath;
                 }
                 songs.append(s);
@@ -709,6 +734,7 @@ void MainWindow::hydrateOnlineCovers(const QList<core::Song> &songs)
             detail.id = stored.id;
             detail.coverPath = stored.coverPath;
             detail.cachePath = stored.cachePath;
+            detail.downloadPath = stored.downloadPath;
             detail.lyricPath = stored.lyricPath;
             m_library.upsertOnlineSong(detail);
             m_onlineCoverAttempted.remove(stored.id);
@@ -839,6 +865,7 @@ void MainWindow::refreshAllPages()
     m_selfPlaylists->setPlaylists(m_playlists.playlists());
     m_songListPage->refreshCovers(&m_library);
     m_songListPage->setPlayingId(m_currentSongId);
+    refreshSongListStates();
 }
 
 void MainWindow::restoreOnlineSession()
@@ -1126,6 +1153,134 @@ void MainWindow::addMusicFiles()
     }
     // 之前同一目录已存在时不会触发扫描，导致手动导入看似无效。
     m_library.setFolders(folders);
+}
+
+void MainWindow::connectSongListActions()
+{
+    const auto views = findChildren<ui::SongListView *>();
+    for (ui::SongListView *view : views) {
+        connect(view, &ui::SongListView::downloadRequested, this, [this, view](int row) {
+            handleSongDownload(view->songs().value(row));
+        });
+        connect(view, &ui::SongListView::deleteDownloadRequested, this, [this, view](int row) {
+            handleSongDelete(view->songs().value(row));
+        });
+        connect(view, &ui::SongListView::batchDownloadRequested, this,
+                [this](const QList<core::Song> &songs) {
+            QList<core::Song> pending;
+            for (const core::Song &song : songs)
+                if (song.isOnline() && !song.isDownloaded())
+                    pending.append(song);
+            if (pending.isEmpty())
+                return;
+            m_downloads.enqueue(pending);
+            showPage(7);
+        });
+        connect(view, &ui::SongListView::batchDeleteRequested, this,
+                [this](const QList<core::Song> &songs) {
+            for (const core::Song &song : songs)
+                handleSongDelete(song, true);
+            QToolTip::showText(QCursor::pos(), QStringLiteral("已按歌曲来源完成批量删除"), this, QRect(), 1800);
+        });
+        connect(view, &ui::SongListView::batchFavoriteRequested, this,
+                &MainWindow::handleBatchFavorite);
+        connect(view, &ui::SongListView::batchAddToPlaylistRequested, this,
+                &MainWindow::handleBatchAddToPlaylist);
+        connect(view, &ui::SongListView::batchCreatePlaylistRequested, this,
+                &MainWindow::handleBatchCreatePlaylist);
+    }
+}
+
+void MainWindow::handleSongDownload(const core::Song &song)
+{
+    if (!song.isOnline() || song.id <= 0 || song.isDownloaded())
+        return;
+    if (m_downloads.enqueue(song) > 0)
+        showPage(7);
+}
+
+void MainWindow::handleSongDelete(const core::Song &song, bool batch)
+{
+    if (song.id <= 0)
+        return;
+    bool deleteLocalFile = false;
+    if (!batch && !song.isOnline()) {
+        QMessageBox box(this);
+        box.setWindowTitle(QStringLiteral("删除本地导入歌曲"));
+        box.setText(QStringLiteral("请选择对“%1”的处理方式：").arg(song.title));
+        QPushButton *removeFromLibrary = box.addButton(QStringLiteral("仅从曲库移除"), QMessageBox::AcceptRole);
+        QPushButton *removeFile = box.addButton(QStringLiteral("同时删除硬盘文件"), QMessageBox::DestructiveRole);
+        box.addButton(QMessageBox::Cancel);
+        box.exec();
+        if (box.clickedButton() == nullptr || box.clickedButton() == box.button(QMessageBox::Cancel))
+            return;
+        deleteLocalFile = box.clickedButton() == removeFile;
+        if (box.clickedButton() != removeFromLibrary && !deleteLocalFile)
+            return;
+    }
+
+    const bool wasCurrent = song.id == m_currentSongId;
+    if (!song.isOnline()) {
+        m_library.removeSong(song.id);
+        if (deleteLocalFile)
+            QFile::remove(song.filePath);
+    } else if (song.isDownloaded()) {
+        m_library.removeSongDownload(song.id);
+    } else if (song.isCached()) {
+        m_library.invalidateSongCache(song.id);
+    } else {
+        m_library.removeSong(song.id);
+    }
+    if (wasCurrent && !m_player.playlist().isEmpty())
+        m_player.next();
+}
+
+void MainWindow::handleBatchFavorite(const QList<core::Song> &songs, bool favorite)
+{
+    int changed = 0;
+    for (const core::Song &song : songs) {
+        if (song.id <= 0 || m_playlists.isFavorite(song.id) == favorite)
+            continue;
+        if (m_playlists.setFavorite(song.id, favorite))
+            ++changed;
+    }
+    QToolTip::showText(QCursor::pos(), QStringLiteral("已更新 %1 首歌曲的收藏状态").arg(changed), this, QRect(), 1800);
+}
+
+void MainWindow::handleBatchAddToPlaylist(const QList<core::Song> &songs, int playlistId)
+{
+    int added = 0;
+    for (const core::Song &song : songs)
+        if (song.id > 0 && m_playlists.addSong(playlistId, song.id))
+            ++added;
+    QToolTip::showText(QCursor::pos(), QStringLiteral("已添加 %1 首歌曲到歌单").arg(added), this, QRect(), 1800);
+}
+
+void MainWindow::handleBatchCreatePlaylist(const QList<core::Song> &songs)
+{
+    if (songs.isEmpty())
+        return;
+    bool ok = false;
+    const QString name = QInputDialog::getText(this, QStringLiteral("新建歌单"),
+                                               QStringLiteral("歌单名称:"), QLineEdit::Normal,
+                                               QString(), &ok).trimmed();
+    if (!ok || name.isEmpty())
+        return;
+    const int playlistId = m_playlists.createPlaylist(name);
+    if (playlistId <= 0)
+        return;
+    handleBatchAddToPlaylist(songs, playlistId);
+}
+
+void MainWindow::refreshSongListStates()
+{
+    QSet<qint64> favoriteIds;
+    for (const core::Song &song : m_playlists.songsOf(m_playlists.favoritePlaylistId()))
+        favoriteIds.insert(song.id);
+    for (ui::SongListView *view : findChildren<ui::SongListView *>()) {
+        view->refreshLibraryState(&m_library);
+        view->setFavoriteIds(favoriteIds);
+    }
 }
 
 bool MainWindow::focusIsEditable() const

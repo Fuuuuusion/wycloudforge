@@ -139,6 +139,14 @@ PlayerBar::PlayerBar(QWidget *parent)
         emit heartToggled(m_favorite);
     });
 
+    m_downloadBtn = new QPushButton(this);
+    m_downloadBtn->setProperty("class", "ctrlBtn");
+    m_downloadBtn->setIcon(makeSvgIcon(QStringLiteral(":/icons/icon-download.svg"), 18));
+    m_downloadBtn->setIconSize(QSize(18, 18));
+    m_downloadBtn->setFixedSize(30, 30);
+    m_downloadBtn->setCursor(Qt::PointingHandCursor);
+    connect(m_downloadBtn, &QPushButton::clicked, this, &PlayerBar::downloadRequested);
+
     auto *leftBox = new QWidget(this);
     leftBox->setFixedWidth(240);
     auto *leftLayout = new QHBoxLayout(leftBox);
@@ -147,6 +155,7 @@ PlayerBar::PlayerBar(QWidget *parent)
     leftLayout->addWidget(m_cover);
     leftLayout->addWidget(infoBox, 1);
     leftLayout->addWidget(m_heartBtn);
+    leftLayout->addWidget(m_downloadBtn);
 
     m_progress = new ProgressSlider(this);
     m_progress->setRange(0, 1000);
@@ -346,13 +355,19 @@ void PlayerBar::setSong(const core::Song &song, bool favorite)
     m_title->setText(song.title.isEmpty() ? QFileInfo(song.filePath).completeBaseName() : song.title);
     m_artist->setText(song.artist.isEmpty() ? QStringLiteral("未知歌手") : song.artist);
     if (song.isOnline())
-        m_sourceBadge->setText(song.isCached() ? QStringLiteral("☁ 已缓存") : QStringLiteral("☁ 在线"));
+        m_sourceBadge->setText(song.isDownloaded() ? QStringLiteral("☁ 已下载")
+                               : song.isCached() ? QStringLiteral("☁ 已缓存") : QStringLiteral("☁ 在线"));
     else
         m_sourceBadge->setText(QStringLiteral("本地"));
     m_sourceBadge->setVisible(!m_sourceBadge->text().isEmpty());
     m_sourceBadge->setToolTip(QString());
     m_heartBtn->setIcon(makeSvgIcon(favorite ? QStringLiteral(":/icons/icon-heart-fill.svg")
                                        : QStringLiteral(":/icons/icon-heart.svg"), 18));
+    const bool downloadable = song.isOnline() && !song.isDownloaded();
+    m_downloadBtn->setEnabled(downloadable);
+    m_downloadBtn->setToolTip(song.isOnline()
+                                  ? (song.isDownloaded() ? QStringLiteral("已下载") : QStringLiteral("未下载，点击下载"))
+                                  : QStringLiteral("本地歌曲无需下载"));
     if (!song.coverPath.isEmpty()) {
         QPixmap pm(song.coverPath);
         if (!pm.isNull())

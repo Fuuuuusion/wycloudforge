@@ -45,11 +45,12 @@ PlayerService::PlayerService(QObject *parent)
                 m_player.setPosition(0);
             next();
         }
-        if (status == QMediaPlayer::InvalidMedia && !retryInvalidCache())
+        if (status == QMediaPlayer::InvalidMedia
+            && !retryInvalidDownloadedFile() && !retryInvalidCache())
             emit errorOccurred(QStringLiteral("媒体无法解码或播放源已失效"));
     });
     connect(&m_player, &QMediaPlayer::errorOccurred, this, [this](QMediaPlayer::Error, const QString &err) {
-        if (!retryInvalidCache())
+        if (!retryInvalidDownloadedFile() && !retryInvalidCache())
             emit errorOccurred(err.isEmpty() ? QStringLiteral("播放失败") : err);
     });
 }
@@ -213,11 +214,26 @@ void PlayerService::loadCurrent(bool autoPlay, bool allowCached, bool resetCache
     m_currentUrl.clear();
     m_pendingAutoPlay = autoPlay;
     m_usingCachedSource = false;
+    m_usingDownloadedSource = false;
     m_player.stop();
     m_player.setSource(QUrl());
 
     if (song.isOnline()) {
         m_cacheSaved = false;
+        QString downloaded = song.downloadPath;
+        if (downloaded.isEmpty() && m_lib)
+            downloaded = m_lib->downloadPathFor(song.id);
+        if (allowCached && !downloaded.isEmpty() && QFileInfo::exists(downloaded)
+            && QFileInfo(downloaded).size() > 0) {
+            m_cacheSaved = true;
+            m_usingDownloadedSource = true;
+            m_playlist[m_index].downloadPath = downloaded;
+            m_player.setSource(QUrl::fromLocalFile(downloaded));
+            if (m_pendingAutoPlay && ensureAudioOutput())
+                m_player.play();
+            emit songChanged(m_playlist[m_index], m_index);
+            return;
+        }
         QString cached = song.cachePath;
         if (cached.isEmpty() && m_lib)
             cached = m_lib->cachePathFor(song.id);
@@ -289,6 +305,22 @@ bool PlayerService::ensureAudioOutput()
     }
     if (m_audio.device().isNull() || m_audio.device().id() != device.id())
         m_audio.setDevice(device);
+    return true;
+}
+
+bool PlayerService::retryInvalidDownloadedFile()
+{
+    if (!m_usingDownloadedSource || m_index < 0 || m_index >= m_playlist.size())
+        return false;
+    const bool autoPlay = m_pendingAutoPlay || m_player.playbackState() == QMediaPlayer::PlayingState;
+    const qint64 songId = m_playlist[m_index].id;
+    m_usingDownloadedSource = false;
+    m_playlist[m_index].downloadPath.clear();
+    if (m_lib)
+        m_lib->removeSongDownload(songId);
+    QTimer::singleShot(0, this, [this, autoPlay] {
+        loadCurrent(autoPlay, true, false);
+    });
     return true;
 }
 

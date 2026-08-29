@@ -1,5 +1,6 @@
 #include "SongListView.h"
 
+#include "core/LibraryService.h"
 #include "core/SearchService.h"
 #include "ui/CoverProvider.h"
 #include "ui/SongListModel.h"
@@ -8,11 +9,15 @@
 #include <QContextMenuEvent>
 #include <QHeaderView>
 #include <QIcon>
+#include <QHBoxLayout>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPushButton>
+#include <QResizeEvent>
 #include <QStyledItemDelegate>
+#include <QVBoxLayout>
 
 namespace ui {
 namespace {
@@ -104,7 +109,22 @@ public:
             rect.translate(0, -2);
         if (col == 0) {
             painter->save();
-            if (playing) {
+            const bool batch = index.data(SongListModel::BatchModeRole).toBool();
+            if (batch) {
+                const QRectF box(rect.center().x() - 8, rect.center().y() - 8, 16, 16);
+                painter->setPen(QPen(index.data(SongListModel::SelectedRole).toBool()
+                                         ? kPrimary : QColor(0x6E, 0x6E, 0x7A), 1.2));
+                painter->setBrush(index.data(SongListModel::SelectedRole).toBool()
+                                      ? kPrimary : Qt::NoBrush);
+                painter->drawRoundedRect(box, 4, 4);
+                if (index.data(SongListModel::SelectedRole).toBool()) {
+                    painter->setPen(QPen(Qt::white, 1.6));
+                    painter->drawLine(box.left() + 4, box.center().y(), box.left() + 7,
+                                      box.bottom() - 4);
+                    painter->drawLine(box.left() + 7, box.bottom() - 4, box.right() - 3,
+                                      box.top() + 4);
+                }
+            } else if (playing) {
                 const QPointF c = rect.center() + QPointF(1, 0);
                 QPainterPath path;
                 path.moveTo(c.x() - 4, c.y() - 5);
@@ -163,12 +183,30 @@ public:
             drawHighlightedText(*painter, textRect, song.album, query,
                                 active ? activeTextBrush(textRect) : QBrush(kText3), Qt::AlignLeft);
             painter->restore();
-        } else {
+        } else if (col == 4) {
             painter->save();
             painter->setFont(m_baseFont);
             painter->setPen(active ? QPen(activeTextBrush(rect), 1) : QPen(kText3, 1));
             painter->drawText(rect.adjusted(0, 0, -12, 0), Qt::AlignRight | Qt::AlignVCenter,
                               formatDuration(song.durationMs));
+            painter->restore();
+        } else if (col == 5) {
+            const bool favorite = index.data(SongListModel::FavoriteRole).toBool();
+            const QPixmap heart = tintedIcon(favorite ? QStringLiteral(":/icons/icon-heart-fill.svg")
+                                                       : QStringLiteral(":/icons/icon-heart.svg"),
+                                             18, favorite ? kPrimary : kText3);
+            painter->drawPixmap(QRectF(rect.center().x() - 9, rect.center().y() - 9, 18, 18).toRect(), heart);
+        } else if (col == 6) {
+            painter->save();
+            painter->setFont(QFont(QStringLiteral("Microsoft YaHei UI"), 8));
+            if (m_downloadMode == SongListView::DeleteDownloadAction && song.isDownloaded()) {
+                painter->setPen(kPrimary);
+                painter->drawText(rect, Qt::AlignCenter, QStringLiteral("删除下载"));
+            } else if (m_downloadMode == SongListView::DownloadAction && song.isOnline()) {
+                painter->setPen(song.isDownloaded() ? kText3 : kPrimary);
+                painter->drawText(rect, Qt::AlignCenter,
+                                  song.isDownloaded() ? QStringLiteral("已下载") : QStringLiteral("未下载"));
+            }
             painter->restore();
         }
     }
@@ -193,11 +231,17 @@ public:
         return m_hoverRow;
     }
 
+    void setDownloadMode(SongListView::DownloadActionMode mode)
+    {
+        m_downloadMode = mode;
+    }
+
 private:
     QFont m_baseFont = QFont(QStringLiteral("Microsoft YaHei UI"), 9);
     QFont m_titleFont = QFont(QStringLiteral("Microsoft YaHei UI"), 9);
     QString m_query;
     int m_hoverRow = -1;
+    SongListView::DownloadActionMode m_downloadMode = SongListView::DownloadAction;
 };
 
 } // namespace
@@ -227,12 +271,81 @@ SongListView::SongListView(QWidget *parent)
     horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
     horizontalHeader()->setSectionResizeMode(3, QHeaderView::Fixed);
     horizontalHeader()->setSectionResizeMode(4, QHeaderView::Fixed);
+    horizontalHeader()->setSectionResizeMode(5, QHeaderView::Fixed);
+    horizontalHeader()->setSectionResizeMode(6, QHeaderView::Fixed);
     setColumnWidth(0, 56);
     setColumnWidth(2, 200);
     setColumnWidth(3, 180);
     setColumnWidth(4, 70);
+    setColumnWidth(5, 44);
+    setColumnWidth(6, 86);
     viewport()->setAutoFillBackground(false);
     setStyleSheet(QStringLiteral("QTableView{background:transparent;border:none;}"));
+
+    setViewportMargins(0, 42, 0, 0);
+    m_batchBar = new QWidget(this);
+    m_batchBar->setStyleSheet(QStringLiteral("QWidget{background:rgba(255,255,255,0.035);border-radius:10px;}"));
+    auto *bar = new QHBoxLayout(m_batchBar);
+    bar->setContentsMargins(8, 3, 8, 3);
+    bar->setSpacing(6);
+    auto makeBarButton = [this](const QString &text) {
+        auto *button = new QPushButton(text, m_batchBar);
+        button->setCursor(Qt::PointingHandCursor);
+        button->setStyleSheet(QStringLiteral(
+            "QPushButton{border:none;background:rgba(255,255,255,0.06);color:#C8C8D0;"
+            "padding:5px 11px;border-radius:14px;font-size:12px;}"
+            "QPushButton:hover{background:rgba(236,65,65,0.16);color:#EC4141;}"
+            "QPushButton:disabled{color:#555563;background:rgba(255,255,255,0.025);}"));
+        return button;
+    };
+    m_batchToggle = makeBarButton(QStringLiteral("批量操作"));
+    m_selectAll = makeBarButton(QStringLiteral("全选"));
+    m_clearSelection = makeBarButton(QStringLiteral("清空选择"));
+    m_favoriteSelected = makeBarButton(QStringLiteral("批量收藏"));
+    m_unfavoriteSelected = makeBarButton(QStringLiteral("批量取消收藏"));
+    m_addSelected = makeBarButton(QStringLiteral("添加到歌单"));
+    m_downloadSelected = makeBarButton(QStringLiteral("批量下载"));
+    m_deleteSelected = makeBarButton(QStringLiteral("按来源删除"));
+    m_exitBatch = makeBarButton(QStringLiteral("完成"));
+    bar->addWidget(m_batchToggle);
+    bar->addWidget(m_selectAll);
+    bar->addWidget(m_clearSelection);
+    bar->addWidget(m_favoriteSelected);
+    bar->addWidget(m_unfavoriteSelected);
+    bar->addWidget(m_addSelected);
+    bar->addWidget(m_downloadSelected);
+    bar->addWidget(m_deleteSelected);
+    bar->addStretch(1);
+    bar->addWidget(m_exitBatch);
+    m_batchPlaylistMenu = new QMenu(m_addSelected);
+    m_addSelected->setMenu(m_batchPlaylistMenu);
+    connect(m_batchToggle, &QPushButton::clicked, this, [this] { setBatchMode(!m_batchMode); });
+    connect(m_exitBatch, &QPushButton::clicked, this, [this] { setBatchMode(false); });
+    connect(m_selectAll, &QPushButton::clicked, this, [this] {
+        m_selectedRows.clear();
+        for (int row = 0; row < m_model->rowCount(); ++row)
+            m_selectedRows.insert(row);
+        m_model->setSelectedRows(m_selectedRows);
+        updateBatchButtons();
+    });
+    connect(m_clearSelection, &QPushButton::clicked, this, [this] {
+        m_selectedRows.clear();
+        m_model->setSelectedRows(m_selectedRows);
+        updateBatchButtons();
+    });
+    connect(m_favoriteSelected, &QPushButton::clicked, this, [this] {
+        emit batchFavoriteRequested(selectedSongs(), true);
+    });
+    connect(m_unfavoriteSelected, &QPushButton::clicked, this, [this] {
+        emit batchFavoriteRequested(selectedSongs(), false);
+    });
+    connect(m_downloadSelected, &QPushButton::clicked, this, [this] {
+        emit batchDownloadRequested(selectedSongs());
+    });
+    connect(m_deleteSelected, &QPushButton::clicked, this, [this] {
+        emit batchDeleteRequested(selectedSongs());
+    });
+    setBatchMode(false);
 
     connect(this, &QTableView::doubleClicked, this, [this](const QModelIndex &idx) {
         if (idx.isValid())
@@ -242,7 +355,10 @@ SongListView::SongListView(QWidget *parent)
 
 void SongListView::setSongs(const QList<core::Song> &songs, qint64 playingId)
 {
+    m_selectedRows.clear();
+    m_model->setSelectedRows(m_selectedRows);
     m_model->setSongs(songs, playingId);
+    updateBatchButtons();
 }
 
 QList<core::Song> SongListView::songs() const
@@ -270,6 +386,121 @@ void SongListView::setHighlightQuery(const QString &query)
 void SongListView::setPlaylistMenuItems(const QList<QPair<int, QString>> &items)
 {
     m_playlistItems = items;
+    rebuildBatchPlaylistMenu();
+}
+
+void SongListView::setFavoriteIds(const QSet<qint64> &ids)
+{
+    m_favoriteIds = ids;
+    m_model->setFavoriteIds(ids);
+}
+
+void SongListView::refreshLibraryState(core::LibraryService *library)
+{
+    if (!library)
+        return;
+    QList<core::Song> songs = m_model->songs();
+    bool changed = false;
+    for (core::Song &song : songs) {
+        const core::Song stored = library->songById(song.id);
+        if (stored.id <= 0)
+            continue;
+        if (song.cachePath != stored.cachePath || song.downloadPath != stored.downloadPath
+            || song.coverPath != stored.coverPath || song.lyricPath != stored.lyricPath) {
+            song.cachePath = stored.cachePath;
+            song.downloadPath = stored.downloadPath;
+            song.coverPath = stored.coverPath;
+            song.lyricPath = stored.lyricPath;
+            changed = true;
+        }
+    }
+    if (changed)
+        m_model->refreshSongs(songs);
+}
+
+void SongListView::setDownloadActionMode(DownloadActionMode mode)
+{
+    m_downloadMode = mode;
+    if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate()))
+        delegate->setDownloadMode(mode);
+    m_downloadSelected->setVisible(mode == DownloadAction);
+    m_deleteSelected->setText(mode == DeleteDownloadAction ? QStringLiteral("批量删除下载")
+                                                            : QStringLiteral("按来源删除"));
+    viewport()->update();
+}
+
+QList<core::Song> SongListView::selectedSongs() const
+{
+    QList<core::Song> result;
+    for (int row = 0; row < m_model->rowCount(); ++row)
+        if (m_selectedRows.contains(row))
+            result.append(m_model->songAt(row));
+    return result;
+}
+
+void SongListView::setBatchMode(bool enabled)
+{
+    m_batchMode = enabled;
+    m_batchBar->setVisible(enabled);
+    setViewportMargins(0, enabled ? 42 : 0, 0, 0);
+    m_batchToggle->setText(enabled ? QStringLiteral("退出批量") : QStringLiteral("批量操作"));
+    m_selectAll->setVisible(enabled);
+    m_clearSelection->setVisible(enabled);
+    m_favoriteSelected->setVisible(enabled);
+    m_unfavoriteSelected->setVisible(enabled);
+    m_addSelected->setVisible(enabled);
+    m_downloadSelected->setVisible(enabled && m_downloadMode == DownloadAction);
+    m_deleteSelected->setVisible(enabled);
+    m_exitBatch->setVisible(enabled);
+    m_model->setBatchMode(enabled);
+    if (!enabled) {
+        m_selectedRows.clear();
+        m_model->setSelectedRows(m_selectedRows);
+    }
+    updateBatchButtons();
+    viewport()->update();
+}
+
+void SongListView::updateBatchButtons()
+{
+    const bool hasSelection = !m_selectedRows.isEmpty();
+    m_selectAll->setEnabled(m_model->rowCount() > 0);
+    m_clearSelection->setEnabled(hasSelection);
+    m_favoriteSelected->setEnabled(hasSelection);
+    m_unfavoriteSelected->setEnabled(hasSelection);
+    // 即使当前还没有已有歌单，也可以从菜单创建新歌单。
+    m_addSelected->setEnabled(hasSelection);
+    m_downloadSelected->setEnabled(hasSelection);
+    m_deleteSelected->setEnabled(hasSelection);
+}
+
+void SongListView::rebuildBatchPlaylistMenu()
+{
+    m_batchPlaylistMenu->clear();
+    QAction *newPlaylist = m_batchPlaylistMenu->addAction(QStringLiteral("新建歌单…"));
+    connect(newPlaylist, &QAction::triggered, this, [this] {
+        emit batchCreatePlaylistRequested(selectedSongs());
+    });
+    if (!m_playlistItems.isEmpty())
+        m_batchPlaylistMenu->addSeparator();
+    for (const auto &item : m_playlistItems) {
+        QAction *action = m_batchPlaylistMenu->addAction(item.second);
+        connect(action, &QAction::triggered, this, [this, id = item.first] {
+            emit batchAddToPlaylistRequested(selectedSongs(), id);
+        });
+    }
+}
+
+void SongListView::toggleRowSelection(int row)
+{
+    if (row < 0 || row >= m_model->rowCount())
+        return;
+    if (m_selectedRows.contains(row))
+        m_selectedRows.remove(row);
+    else
+        m_selectedRows.insert(row);
+    m_model->setSelectedRows(m_selectedRows);
+    updateBatchButtons();
 }
 
 void SongListView::mouseMoveEvent(QMouseEvent *event)
@@ -295,6 +526,39 @@ void SongListView::leaveEvent(QEvent *event)
     QTableView::leaveEvent(event);
 }
 
+void SongListView::mousePressEvent(QMouseEvent *event)
+{
+    if (event->button() == Qt::LeftButton) {
+        const QModelIndex idx = indexAt(event->pos());
+        if (idx.isValid()) {
+            if (m_batchMode && idx.column() == 0) {
+                toggleRowSelection(idx.row());
+                return;
+            }
+            if (idx.column() == 5) {
+                emit heartRequested(idx.row());
+                return;
+            }
+            if (idx.column() == 6) {
+                const core::Song song = m_model->songAt(idx.row());
+                if (m_downloadMode == DeleteDownloadAction && song.isDownloaded())
+                    emit deleteDownloadRequested(idx.row());
+                else if (m_downloadMode == DownloadAction && song.isOnline() && !song.isDownloaded())
+                    emit downloadRequested(idx.row());
+                return;
+            }
+        }
+    }
+    QTableView::mousePressEvent(event);
+}
+
+void SongListView::resizeEvent(QResizeEvent *event)
+{
+    QTableView::resizeEvent(event);
+    if (m_batchBar)
+        m_batchBar->setGeometry(0, 0, width(), 38);
+}
+
 void SongListView::contextMenuEvent(QContextMenuEvent *event)
 {
     const QModelIndex idx = indexAt(event->pos());
@@ -307,6 +571,11 @@ void SongListView::contextMenuEvent(QContextMenuEvent *event)
     m_menu->addAction(QStringLiteral("播放"), this, [this] { emit playRequested(m_contextRow); });
     m_menu->addAction(QStringLiteral("喜欢"), this, [this] { emit heartRequested(m_contextRow); });
 
+    const core::Song contextSong = m_model->songAt(m_contextRow);
+    if (contextSong.isOnline() && !contextSong.isDownloaded()) {
+        m_menu->addAction(QStringLiteral("下载到本地"), this, [this] { emit downloadRequested(m_contextRow); });
+    }
+
     if (!m_playlistItems.isEmpty()) {
         auto *addMenu = m_menu->addMenu(QStringLiteral("添加到歌单"));
         for (const auto &item : m_playlistItems) {
@@ -317,7 +586,10 @@ void SongListView::contextMenuEvent(QContextMenuEvent *event)
     }
     if (m_removable)
         m_menu->addAction(QStringLiteral("从歌单移除"), this, [this] { emit removeFromPlaylistRequested(m_contextRow); });
-    m_menu->addAction(QStringLiteral("从音乐库删除"), this, [this] { emit deleteFromLibraryRequested(m_contextRow); });
+    const QString deleteText = !contextSong.isOnline() ? QStringLiteral("删除本地导入歌曲")
+        : contextSong.isDownloaded() ? QStringLiteral("删除下载")
+        : contextSong.isCached() ? QStringLiteral("删除缓存") : QStringLiteral("移除在线记录");
+    m_menu->addAction(deleteText, this, [this] { emit deleteFromLibraryRequested(m_contextRow); });
     m_menu->exec(event->globalPos());
 }
 

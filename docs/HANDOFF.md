@@ -192,15 +192,26 @@ Start-Process $exe -ArgumentList "--folder `"$tmp`"","--db `"$tmp\t.db`"","--pag
 
 ### 架构分层(稳定)
 
-- `core`:`ApiService`(探测/自拉起 API)、`NeteaseApiClient`(HTTP+JSON,含搜索/歌曲/URL/歌词/专辑/歌手/歌单/评论/登录/QR/收藏)、`LibraryService`(多文件夹递归扫描+QFileSystemWatcher 增量+拖拽导入+`ON CONFLICT(path) DO UPDATE`)、`PlayerService`(QMediaPlayer+QAudioOutput,在线缓存优先)、`PlaylistController`(SQLite 歌单,含封面/简介)、`LyricsLoader/LrcParser`(行级同步,编码识别)、`TagReader`(TagLib+wchar_t,加密容器短路)、`SearchService`、`SettingsService`、`MusicSource.h`。
+- `core`:`ApiService`(探测/自拉起 API)、`NeteaseApiClient`(HTTP+JSON,含搜索/歌曲/URL/歌词/专辑/歌手/歌单/评论/登录/QR/收藏/流式下载)、`LibraryService`(多文件夹递归扫描+QFileSystemWatcher 增量+拖拽导入+`ON CONFLICT(path) DO UPDATE`,缓存/下载路径持久化)、`PlayerService`(QMediaPlayer+QAudioOutput,永久下载→自动缓存→在线 URL)、`DownloadService`(下载队列、进度、取消、失败与重试)、`PlaylistController`(SQLite 歌单,含封面/简介)、`LyricsLoader/LrcParser`(行级同步,编码识别)、`TagReader`(TagLib+wchar_t,加密容器短路)、`SearchService`、`SettingsService`、`MusicSource.h`。
 - `ui`:主窗口栈(0-6)、`AuroraBackground`、`TitleBar`、`SideBar`、`PlayerBar`(胶囊)、`AccountPanel/AccountDialog`、`LibraryPage/FavoritesPage/RecommendPage/SelfPlaylistsPage/SongListPage/OnlinePage/SearchPage/PlayingPage`、`SongListView/SongListModel`、`LyricWidget`、`LoginDialog`、`SettingsDialog`、`PlaylistEditDialog`、`LyricEditorDialog`、`CommentsDialog`(入口已从正在播放页移除)、`CoverProvider/CoverCard`、`ProgressSlider`。
 - 测试:`tests/` 有 LRC/tagreader/歌单/播放器单测(ctest),需保持通过。
 
 ### 已实现功能
 
 - 本地:多文件夹扫描、拖拽导入、缺失标记、封面(内嵌→cover.jpg/png→首字渐变色占位)、缩略图缓存;播放/暂停/上下首/拖动进度/音量/静音;列表循环/单曲循环/随机;记住最后曲目与进度。
-- 在线:搜索/播放/歌词(含翻译)/专辑歌手详情/歌单广场/排行榜/每日推荐/私人FM/评论(接口保留、UI 入口移除)/扫码登录/我的歌单/红心;在线歌曲并入 `songs` 表,按 `source/online_id` 区分;**最近听过缓存到磁盘**(`song_cache` + LRU,默认 200 首/2GB,可一键清空),断网可回听;来源标记(云图标/离线角标/失效灰)+ 来源过滤(全部/本地/在线/已缓存)。
+- 在线:搜索/播放/歌词(含翻译)/专辑歌手详情/歌单广场/排行榜/每日推荐/私人FM/评论(接口保留、UI 入口移除)/扫码登录/我的歌单/红心;在线歌曲并入 `songs` 表,按 `source/online_id` 区分;**最近听过缓存到磁盘**(`song_cache` + LRU,默认 200 首/2GB,可一键清空),断网可回听;来源标记(云图标/离线角标/失效灰)+ 来源过滤(全部/在线/已缓存)。
+- 永久下载: `songs.download_path` 与在线身份、收藏、歌单关系独立保存;默认目录为 `Music\NeteaseClone Downloads`,可在设置中更改。下载先写临时文件再原子改名,每首任务开始时重新获取 URL,临时链接失效自动重试一次;有效文件启动时校验,外部删除后自动恢复为“未下载”。下载管理页支持逐首进度、取消、失败原因和重试,完成任务从进行中列表移除。
+- 批量操作:所有歌曲列表支持选择后批量收藏/取消收藏、添加到已有或新建歌单、下载;列表行和播放胶囊均显示收藏/下载状态并禁止重复下载。
+- 本地页筛选为`全部 / 本地导入 / 已缓存 / 已下载`;永久下载不计入“已缓存”。删除按来源执行:本地导入默认仅移出曲库,在线缓存仅清缓存,在线下载仅删永久文件,无本地文件则移除在线记录;批量删除按来源汇总结果。
 - .ogg、.mgg(仅入库)已支持;TagLib 中文路径、列表多列渲染、登录写 uid/昵称 已修。
+
+### 本轮下载与批量操作实现
+
+- `Song` 增加 `downloadPath` 与有效文件判断;SQLite 启动迁移补充 `songs.download_path`,并处理旧库、损坏库恢复和失效下载清理。
+- `MusicSource` 下载接口支持进度、取消任务 ID 和详细错误;网易云实现流式写临时文件后原子提交,封面/自动缓存接口保持独立。
+- `SettingsService` / `LibraryService` 支持可配置下载目录、下载路径生成、下载记录设置与删除;默认目录为 `Music\NeteaseClone Downloads`。
+- `DownloadPage` 维护队列和逐首状态;所有歌曲列表统一接入批量模式、复选框和来源相关删除策略。
+- 播放路径固定为永久下载 → 自动缓存 → 在线 URL;清空缓存不会影响永久下载,删除永久下载不会影响收藏、歌单或缓存。
 
 ### 最近 5 个 commit
 

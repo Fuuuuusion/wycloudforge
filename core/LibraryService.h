@@ -57,6 +57,14 @@ public:
     void clearCache();
     void cacheUsage(qint64 *bytes, int *count) const;
 
+    // 用户主动下载(与自动播放缓存完全分离)
+    QString downloadDir() const;
+    QString downloadFilePathFor(const Song &song) const;
+    QString downloadPathFor(qint64 songId) const;
+    bool isSongDownloaded(qint64 songId) const;
+    bool setSongDownloaded(qint64 songId, const QString &path);
+    bool removeSongDownload(qint64 songId);
+
     static void setDatabasePathOverride(const QString &path);
 
 signals:

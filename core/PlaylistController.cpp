@@ -68,7 +68,7 @@ QList<Song> PlaylistController::songsOf(int playlistId) const
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral(
         "SELECT s.id,s.path,s.title,s.artist,s.album,s.duration_ms,s.cover_path,s.missing,s.play_count,s.last_played_ms,"
-        "s.source,s.online_id,s.cover_url,s.album_id,COALESCE(NULLIF(sc.cache_path,''),s.cache_path,'') "
+        "s.source,s.online_id,s.cover_url,s.album_id,COALESCE(NULLIF(sc.cache_path,''),s.cache_path,''),s.download_path "
         "FROM playlist_songs ps JOIN songs s ON s.id=ps.song_id "
         "LEFT JOIN song_cache sc ON sc.song_id=s.id "
         "WHERE ps.playlist_id=? ORDER BY ps.position, s.id"));
@@ -91,6 +91,7 @@ QList<Song> PlaylistController::songsOf(int playlistId) const
         s.coverUrl = q.value(12).toString();
         s.albumId = q.value(13).toLongLong();
         s.cachePath = q.value(14).toString();
+        s.downloadPath = q.value(15).toString();
         s.lyricPath = s.isOnline() ? QString() : LyricsLoader::sidecarPathFor(s.filePath);
         songs.append(s);
     }
@@ -338,7 +339,7 @@ QList<Song> PlaylistController::recentSongs(int limit) const
     const int safeLimit = qBound(1, limit, 1000);
     const QString sql = QStringLiteral(
         "SELECT s.id,s.path,s.title,s.artist,s.album,s.duration_ms,s.cover_path,s.missing,s.play_count,s.last_played_ms,"
-        "s.source,s.online_id,s.cover_url,s.album_id,COALESCE(NULLIF(sc.cache_path,''),s.cache_path,'') "
+        "s.source,s.online_id,s.cover_url,s.album_id,COALESCE(NULLIF(sc.cache_path,''),s.cache_path,''),s.download_path "
         "FROM recent r JOIN songs s ON s.id=r.song_id "
         "LEFT JOIN song_cache sc ON sc.song_id=s.id "
         "ORDER BY r.played_ms DESC, r.rowid DESC LIMIT %1").arg(safeLimit);
@@ -363,6 +364,7 @@ QList<Song> PlaylistController::recentSongs(int limit) const
         s.coverUrl = q.value(12).toString();
         s.albumId = q.value(13).toLongLong();
         s.cachePath = q.value(14).toString();
+        s.downloadPath = q.value(15).toString();
         s.lyricPath = s.isOnline() ? QString() : LyricsLoader::sidecarPathFor(s.filePath);
         songs.append(s);
     }

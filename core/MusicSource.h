@@ -8,6 +8,8 @@
 
 #include <functional>
 
+class QNetworkReply;
+
 class QUrl;
 
 namespace core {
@@ -23,6 +25,15 @@ public:
     using String2Fn = std::function<void(const QString &, const QString &)>;
     using String3Fn = std::function<void(const QString &, const QString &, const QString &)>;
     using BoolFn = std::function<void(bool)>;
+    using DownloadId = quint64;
+    using DownloadProgressFn = std::function<void(qint64, qint64)>;
+    struct DownloadResult
+    {
+        bool ok = false;
+        QString error;
+        qint64 sizeBytes = 0;
+    };
+    using DownloadDoneFn = std::function<void(const DownloadResult &)>;
 
     virtual ~MusicSource() = default;
 
@@ -62,6 +73,11 @@ public:
 
     // 通用下载(播放缓存)
     virtual void downloadToFile(const QUrl &url, const QString &filePath, BoolFn done) = 0;
+    // 可取消、可观察进度的下载(永久下载管理器)
+    virtual DownloadId downloadToFileWithProgress(const QUrl &url, const QString &filePath,
+                                                   DownloadProgressFn progress,
+                                                   DownloadDoneFn done) = 0;
+    virtual void cancelDownload(DownloadId id) = 0;
 
     virtual Song songFromJson(const QJsonObject &obj) const = 0;
 

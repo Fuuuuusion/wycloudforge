@@ -23,6 +23,8 @@ add_library(neteclone_ui STATIC
     LibraryPage.cpp
     SongListPage.h
     SongListPage.cpp
+    DownloadPage.h
+    DownloadPage.cpp
     LyricWidget.h
     LyricWidget.cpp
     PlayingPage.h

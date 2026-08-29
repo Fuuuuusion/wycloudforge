@@ -2,6 +2,8 @@
 #include "core/PlaylistController.h"
 
 #include <QFile>
+#include <QFileInfo>
+#include <QDir>
 #include <QSqlQuery>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -20,6 +22,7 @@ private slots:
     void recentPlays();
     void persistenceAcrossReopen();
     void duplicateAddAndOrphanCleanup();
+    void downloadedPersistenceAndCacheIsolation();
 
 private:
     QTemporaryDir *m_dir = nullptr;
@@ -240,6 +243,53 @@ void PlaylistControllerTest::duplicateAddAndOrphanCleanup()
     QVERIFY(verify.next());
     QCOMPARE(verify.value(0).toInt(), 0);
     QCOMPARE(m_controller->songsOf(playlistId).size(), 1);
+}
+
+void PlaylistControllerTest::downloadedPersistenceAndCacheIsolation()
+{
+    QSqlQuery q(m_library->database());
+    q.prepare(QStringLiteral("INSERT INTO songs(path,title,source,online_id) VALUES(?,?,?,?)"));
+    q.addBindValue(QStringLiteral("netease://download-test"));
+    q.addBindValue(QStringLiteral("永久下载测试"));
+    q.addBindValue(1);
+    q.addBindValue(8080);
+    QVERIFY(q.exec());
+    const qint64 songId = q.lastInsertId().toLongLong();
+    m_library->reloadDatabase();
+
+    const QString downloadPath = m_dir->filePath(QStringLiteral("artist - song.mp3"));
+    QFile download(downloadPath);
+    QVERIFY(download.open(QIODevice::WriteOnly));
+    QVERIFY(download.write("download") > 0);
+    download.close();
+    QVERIFY(m_library->setSongDownloaded(songId, downloadPath));
+
+    const QString cacheDirectory = m_library->cacheDir();
+    QVERIFY2(QDir().mkpath(cacheDirectory), qPrintable(cacheDirectory));
+    const QString cachePath = QDir(cacheDirectory).filePath(QStringLiteral("isolation.mp3"));
+    QFile cache(cachePath);
+    QVERIFY(cache.open(QIODevice::WriteOnly));
+    QVERIFY(cache.write("cache") > 0);
+    cache.close();
+    m_library->setSongCached(songId, cachePath, QFileInfo(cachePath).size());
+
+    Song current = m_library->songById(songId);
+    QCOMPARE(current.downloadPath, QDir::toNativeSeparators(QFileInfo(downloadPath).absoluteFilePath()));
+    QVERIFY(current.isDownloaded());
+    QVERIFY(current.isCached());
+
+    m_library->clearCache();
+    QVERIFY(QFileInfo::exists(downloadPath));
+    QVERIFY(!QFileInfo::exists(cachePath));
+    current = m_library->songById(songId);
+    QCOMPARE(current.downloadPath, QDir::toNativeSeparators(QFileInfo(downloadPath).absoluteFilePath()));
+    QVERIFY(m_library->isSongDownloaded(songId));
+
+    const int playlistId = m_controller->createPlaylist(QStringLiteral("下载关系"));
+    QVERIFY(m_controller->addSong(playlistId, songId));
+    QVERIFY(m_library->removeSongDownload(songId));
+    QVERIFY(!QFileInfo::exists(downloadPath));
+    QVERIFY(m_controller->isInPlaylist(playlistId, songId));
 }
 
 QTEST_MAIN(PlaylistControllerTest)

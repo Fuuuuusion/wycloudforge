@@ -57,6 +57,7 @@ private slots:
     void playlistNavigation();
     void playPauseAndPosition();
     void cachedOnlineSongPlayback();
+    void downloadedOnlineSongPlayback();
 };
 
 void PlayerServiceTest::playlistNavigation()
@@ -157,6 +158,34 @@ void PlayerServiceTest::cachedOnlineSongPlayback()
     const bool started = QTest::qWaitFor([&player] { return player.isPlaying(); }, 4000);
     if (!started)
         QSKIP("无可用音频输出设备,跳过缓存在线歌曲播放验证");
+    QVERIFY(QTest::qWaitFor([&player] { return player.position() >= 300; }, 3000));
+}
+
+void PlayerServiceTest::downloadedOnlineSongPlayback()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString downloadPath = dir.filePath(QStringLiteral("downloaded.wav"));
+    writeWav(downloadPath, 3);
+
+    Song song;
+    song.id = 43;
+    song.filePath = QStringLiteral("netease://654321");
+    song.title = QStringLiteral("下载歌曲");
+    song.source = 1;
+    song.onlineId = 654321;
+    song.downloadPath = downloadPath;
+    song.durationMs = 3000;
+
+    PlayerService player;
+    QSignalSpy changed(&player, &PlayerService::songChanged);
+    player.setPlaylist({ song }, 0);
+    QCOMPARE(changed.count(), 1);
+    QCOMPARE(player.currentSong().downloadPath, downloadPath);
+    player.play();
+    const bool started = QTest::qWaitFor([&player] { return player.isPlaying(); }, 4000);
+    if (!started)
+        QSKIP("无可用音频输出设备,跳过下载在线歌曲播放验证");
     QVERIFY(QTest::qWaitFor([&player] { return player.position() >= 300; }, 3000));
 }
 

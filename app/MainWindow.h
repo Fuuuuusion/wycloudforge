@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/ApiService.h"
+#include "core/DownloadService.h"
 #include "core/LibraryService.h"
 #include "core/NeteaseApiClient.h"
 #include "core/PlayerService.h"
@@ -16,6 +17,7 @@
 
 namespace ui {
 class AccountPanel;
+class DownloadPage;
 class FavoritesPage;
 class LibraryPage;
 class PlayerBar;
@@ -72,6 +74,13 @@ private:
     void setupShortcuts();
     void addMusicFolder();
     void addMusicFiles();
+    void connectSongListActions();
+    void handleSongDownload(const core::Song &song);
+    void handleSongDelete(const core::Song &song, bool batch = false);
+    void handleBatchFavorite(const QList<core::Song> &songs, bool favorite);
+    void handleBatchAddToPlaylist(const QList<core::Song> &songs, int playlistId);
+    void handleBatchCreatePlaylist(const QList<core::Song> &songs);
+    void refreshSongListStates();
     bool focusIsEditable() const;
 
     core::LibraryService m_library{ this };
@@ -79,6 +88,7 @@ private:
     core::NeteaseApiClient m_apiClient{ this };
     core::PlaylistController m_playlists{ this };
     core::PlayerService m_player{ this };
+    core::DownloadService m_downloads{ this };
 
     ui::TitleBar *m_titleBar = nullptr;
     ui::SideBar *m_sideBar = nullptr;
@@ -91,6 +101,7 @@ private:
     ui::SongListPage *m_songListPage = nullptr;
     ui::PlayingPage *m_playing = nullptr;
     ui::SearchPage *m_search = nullptr;
+    ui::DownloadPage *m_downloadPage = nullptr;
     QStackedWidget *m_stack = nullptr;
 
     qint64 m_currentSongId = -1;

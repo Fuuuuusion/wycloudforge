@@ -1,11 +1,14 @@
 #include "NeteaseApiClient.h"
 
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QSaveFile>
+#include <QTimer>
 #include <QUrl>
 
 #include <memory>
@@ -362,23 +365,94 @@ void NeteaseApiClient::likeList(qint64 uid, JsonArrayFn ok, ErrFn err)
 
 void NeteaseApiClient::downloadToFile(const QUrl &url, const QString &filePath, BoolFn done)
 {
+    downloadToFileWithProgress(url, filePath, {}, [done](const DownloadResult &result) {
+        if (done)
+            done(result.ok);
+    });
+}
+
+MusicSource::DownloadId NeteaseApiClient::downloadToFileWithProgress(const QUrl &url,
+                                                                      const QString &filePath,
+                                                                      DownloadProgressFn progress,
+                                                                      DownloadDoneFn done)
+{
+    if (!url.isValid() || url.isEmpty() || filePath.isEmpty()) {
+        QTimer::singleShot(0, this, [done] {
+            if (done)
+                done({ false, QStringLiteral("下载地址或目标路径无效"), 0 });
+        });
+        return 0;
+    }
+
+    const DownloadId id = m_nextDownloadId++;
+    auto file = std::make_shared<QSaveFile>(filePath);
+    if (!file->open(QIODevice::WriteOnly)) {
+        const QString error = file->errorString();
+        QTimer::singleShot(0, this, [done, error] {
+            if (done)
+                done({ false, QStringLiteral("无法创建下载文件：%1").arg(error), 0 });
+        });
+        return 0;
+    }
+
     QNetworkRequest req(url);
+    req.setHeader(QNetworkRequest::UserAgentHeader,
+                  QStringLiteral("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"));
     req.setTransferTimeout(60000);
     QNetworkReply *reply = m_nam->get(req);
-    connect(reply, &QNetworkReply::finished, this, [reply, filePath, done] {
-        reply->deleteLater();
-        bool ok = false;
-        if (reply->error() == QNetworkReply::NoError) {
-            const QByteArray data = reply->readAll();
-            QFile f(filePath);
-            if (!data.isEmpty() && f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-                ok = f.write(data) == data.size();
-                f.close();
-            }
-        }
-        if (done)
-            done(ok);
+    m_downloads.insert(id, reply);
+    auto writeFailed = std::make_shared<bool>(false);
+
+    connect(reply, &QNetworkReply::readyRead, this, [reply, file, writeFailed] {
+        const QByteArray data = reply->readAll();
+        if (!data.isEmpty() && file->write(data) != data.size())
+            *writeFailed = true;
+        if (*writeFailed)
+            reply->abort();
     });
+    connect(reply, &QNetworkReply::downloadProgress, this,
+            [progress](qint64 received, qint64 total) {
+        if (progress)
+            progress(received, total);
+    });
+    connect(reply, &QNetworkReply::finished, this,
+            [this, id, reply, file, writeFailed, done] {
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const QString networkError = reply->errorString();
+        const QByteArray tail = reply->readAll();
+        if (!tail.isEmpty() && file->write(tail) != tail.size())
+            *writeFailed = true;
+
+        DownloadResult result;
+        if (*writeFailed) {
+            result.error = QStringLiteral("写入下载文件失败");
+        } else if (status >= 400) {
+            result.error = QStringLiteral("服务器返回 HTTP %1").arg(status);
+        } else if (reply->error() != QNetworkReply::NoError) {
+            result.error = networkError.isEmpty() ? QStringLiteral("网络连接失败") : networkError;
+        } else if (!file->commit()) {
+            result.error = QStringLiteral("保存下载文件失败：%1").arg(file->errorString());
+        } else {
+            result.ok = QFileInfo(file->fileName()).size() > 0;
+            result.sizeBytes = QFileInfo(file->fileName()).size();
+            if (!result.ok)
+                result.error = QStringLiteral("下载内容为空");
+        }
+        m_downloads.remove(id);
+        reply->deleteLater();
+        if (done)
+            done(result);
+    });
+    return id;
+}
+
+void NeteaseApiClient::cancelDownload(DownloadId id)
+{
+    if (id == 0)
+        return;
+    const QPointer<QNetworkReply> reply = m_downloads.value(id);
+    if (reply)
+        reply->abort();
 }
 
 Song NeteaseApiClient::songFromJson(const QJsonObject &obj) const

@@ -10,6 +10,8 @@ add_library(neteclone_core STATIC
     SettingsService.cpp
     LibraryService.h
     LibraryService.cpp
+    DownloadService.h
+    DownloadService.cpp
     PlayerService.h
     PlayerService.cpp
     PlaylistController.h
