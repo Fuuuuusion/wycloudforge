@@ -33,6 +33,7 @@ public:
     QList<Song> allSongs() const { return m_songs; }
     Song songById(qint64 id) const;
     Song songByPath(const QString &path) const;
+    Song songByRemoteId(int source, const QString &remoteId) const;
     Song songByOnlineId(int source, qint64 onlineId) const;
     int songCount() const { return m_songs.size(); }
 

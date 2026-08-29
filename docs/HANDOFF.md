@@ -275,3 +275,11 @@ a4dcb21  SongListModel 改多列表 + 登录补齐uid/昵称 + QPointer防闪退
 ## 7) 新模型一句话速查
 
 > 重建:先 `Stop-Process NeteaseClone`,再 `cmd /v:on /c "%TEMP%\netease_build\run_ninja1.bat"`;运行用 require_escalated `Start-Process`;验证用临时 DB + `--page 2 --screenshot` 隔离截图;改完 `git commit` + `git push origin main`。AppData/真实库、GUI 都要沙箱外。别写独立 Qt probe(cc1plus 静默崩),别让 PowerShell 直接调 g++/cmake,别在 .bat 写中文路径。视觉=固定深色主题+无1px分隔线+固定色播放器+横向滚动条彻底禁用。版权=不绕过 VIP、不下未授权歌曲。
+
+---
+
+## 8) QQ 多源接入编译/测试记录（2026-08-29）
+
+- 构建 `NeteaseClone` 失败：`ui/OnlinePage.cpp:289` 把强类型 `core::SourceId` 与整数 `1` 直接比较。根因是第一阶段将来源 ID 从裸 `int` 升级为 `enum class SourceId` 后，旧页面条件判断未同步。可行方案：改为 `core::SourceId::Netease`，后续新代码禁止使用来源魔法数字。该问题不是环境配置缺失。
+- 直接从 PowerShell 调用 Ninja 构建 `tst_playlistcontroller` 失败：编译命令退出但没有任何 C++ 诊断。根因是该启动方式没有把 `C:\Qt\Tools\mingw1310_64\bin` 放入 `PATH`，MinGW `cc1plus` 在当前机器上会静默失败。可行方案：使用 `cmd` 构建脚本并显式设置 Ninja/MinGW `PATH`；不要把这类无诊断退出误判为源码错误。
+- 更新后的 `tst_playlistcontroller` 首次运行有 12 项初始化失败：`cannot commit transaction - SQL statements in progress`。根因是字符串远端 ID 迁移前的 `PRAGMA wal_checkpoint(FULL)` 查询仍持有结果集，导致 SQLite 拒绝提交后续迁移事务。可行方案：备份并进入迁移事务前显式 `checkpoint.finish()`；测试初始化保留 `QVERIFY2(..., lastError)`，以后数据库打开失败可直接看到原因。该问题不是环境配置缺失。

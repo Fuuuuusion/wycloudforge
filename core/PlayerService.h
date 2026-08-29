@@ -23,6 +23,7 @@ public:
     explicit PlayerService(QObject *parent = nullptr);
 
     void setSourceProvider(MusicSource *source) { m_source = source; }
+    void setSourceRegistry(class MusicSourceRegistry *registry) { m_registry = registry; }
     void setLibrary(class LibraryService *library) { m_lib = library; }
 
     void setPlaylist(const QList<Song> &songs, int startIndex = -1);
@@ -69,6 +70,7 @@ private:
     void alignShuffleToCurrent();
     void maybeCacheCurrent(qint64 positionMs);
     void saveCover(const Song &song);
+    MusicSource *sourceFor(const Song &song) const;
 
     QMediaPlayer m_player;
     QAudioOutput m_audio;
@@ -80,6 +82,7 @@ private:
     int m_shufflePos = 0;
     QVector<int> m_history;
     MusicSource *m_source = nullptr;
+    class MusicSourceRegistry *m_registry = nullptr;
     class LibraryService *m_lib = nullptr;
     QString m_currentUrl;
     bool m_cacheSaved = false;

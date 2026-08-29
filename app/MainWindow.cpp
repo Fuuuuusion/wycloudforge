@@ -186,12 +186,16 @@ MainWindow::MainWindow(QWidget *parent)
     m_search = new ui::SearchPage(this);
     m_downloadPage = new ui::DownloadPage(this);
 
+    m_sourceRegistry.registerSource(&m_apiClient);
     m_player.setSourceProvider(&m_apiClient);
+    m_player.setSourceRegistry(&m_sourceRegistry);
     m_player.setLibrary(&m_library);
     m_downloads.setSourceProvider(&m_apiClient);
+    m_downloads.setSourceRegistry(&m_sourceRegistry);
     m_downloads.setLibrary(&m_library);
     m_search->setSourceProvider(&m_apiClient, &m_library);
     m_playing->setSourceProvider(&m_apiClient);
+    m_playing->setSourceRegistry(&m_sourceRegistry);
     m_recommend->setSourceProvider(&m_apiClient, &m_library);
     m_apiClient.setCookie(core::SettingsService::onlineCookie());
 

@@ -1,5 +1,9 @@
 add_library(neteclone_core STATIC
     Song.h
+    MusicSource.h
+    MusicSource.cpp
+    MusicSourceRegistry.h
+    MusicSourceRegistry.cpp
     TagReader.h
     TagReader.cpp
     LrcParser.h

@@ -286,7 +286,7 @@ void OnlinePage::refresh()
     if (!m_source)
         return;
     refreshPlaylistSquare();
-    if (m_source->sourceId() == 1) {
+    if (m_source->sourceId() == core::SourceId::Netease) {
         // 网易云源:加载排行榜(已登录时拉取我的歌单)
         m_source->topLists([this](const QJsonArray &arr) {
             m_topListWidget->clear();

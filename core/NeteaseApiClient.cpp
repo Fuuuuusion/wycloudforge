@@ -33,23 +33,6 @@ QJsonObject parseObject(QNetworkReply *reply, QString *error)
 
 } // namespace
 
-Song MusicSource::makeOnlineSong(int source, const QString &scheme, qint64 onlineId, const QString &title,
-                                 const QString &artist, const QString &album, qint64 durationMs,
-                                 const QString &coverUrl, qint64 albumId)
-{
-    Song song;
-    song.source = source;
-    song.onlineId = onlineId;
-    song.title = title;
-    song.artist = artist;
-    song.album = album;
-    song.durationMs = durationMs;
-    song.coverUrl = coverUrl;
-    song.albumId = albumId;
-    song.filePath = QStringLiteral("%1://%2").arg(scheme).arg(onlineId);
-    return song;
-}
-
 NeteaseApiClient::NeteaseApiClient(QObject *parent)
     : QObject(parent)
 {
@@ -135,13 +118,10 @@ void NeteaseApiClient::matchSong(const QString &title, const QString &artist, co
         err);
 }
 
-void NeteaseApiClient::songUrls(const QList<qint64> &ids, JsonArrayFn ok, ErrFn err)
+void NeteaseApiClient::songUrls(const QStringList &ids, JsonArrayFn ok, ErrFn err)
 {
-    QStringList s;
-    for (qint64 id : ids)
-        s << QString::number(id);
     QUrlQuery q;
-    q.addQueryItem(QStringLiteral("id"), s.join(QLatin1Char(',')));
+    q.addQueryItem(QStringLiteral("id"), ids.join(QLatin1Char(',')));
     q.addQueryItem(QStringLiteral("level"), QStringLiteral("standard"));
     get(QStringLiteral("/song/url/v1"), q, [ok](const QJsonObject &obj) { ok(obj.value(QStringLiteral("data")).toArray()); }, err);
 }
@@ -164,10 +144,10 @@ void NeteaseApiClient::songDetails(const QList<qint64> &ids, JsonArrayFn ok, Err
         [ok](const QJsonObject &obj) { ok(obj.value(QStringLiteral("songs")).toArray()); }, err);
 }
 
-void NeteaseApiClient::lyric(qint64 id, String3Fn ok, ErrFn err)
+void NeteaseApiClient::lyric(const QString &id, String3Fn ok, ErrFn err)
 {
     QUrlQuery q;
-    q.addQueryItem(QStringLiteral("id"), QString::number(id));
+    q.addQueryItem(QStringLiteral("id"), id);
     get(QStringLiteral("/lyric"), q, [ok](const QJsonObject &obj) {
         const QString lrc = obj.value(QStringLiteral("lrc")).toObject().value(QStringLiteral("lyric")).toString();
         const QString tlyrc = obj.value(QStringLiteral("tlyric")).toObject().value(QStringLiteral("lyric")).toString();
@@ -176,54 +156,54 @@ void NeteaseApiClient::lyric(qint64 id, String3Fn ok, ErrFn err)
     }, err);
 }
 
-void NeteaseApiClient::songDetail(qint64 id, OkFn ok, ErrFn err)
+void NeteaseApiClient::songDetail(const QString &id, OkFn ok, ErrFn err)
 {
     QUrlQuery q;
-    q.addQueryItem(QStringLiteral("ids"), QString::number(id));
+    q.addQueryItem(QStringLiteral("ids"), id);
     get(QStringLiteral("/song/detail"), q, ok, err);
 }
 
-void NeteaseApiClient::albumDetail(qint64 id, OkFn ok, ErrFn err)
+void NeteaseApiClient::albumDetail(const QString &id, OkFn ok, ErrFn err)
 {
     QUrlQuery q;
-    q.addQueryItem(QStringLiteral("id"), QString::number(id));
+    q.addQueryItem(QStringLiteral("id"), id);
     get(QStringLiteral("/album"), q, ok, err);
 }
 
-void NeteaseApiClient::artistDetail(qint64 id, OkFn ok, ErrFn err)
+void NeteaseApiClient::artistDetail(const QString &id, OkFn ok, ErrFn err)
 {
     QUrlQuery q;
-    q.addQueryItem(QStringLiteral("id"), QString::number(id));
+    q.addQueryItem(QStringLiteral("id"), id);
     get(QStringLiteral("/artist/detail"), q, ok, err);
 }
 
-void NeteaseApiClient::artistSongs(qint64 id, JsonArrayFn ok, ErrFn err)
+void NeteaseApiClient::artistSongs(const QString &id, JsonArrayFn ok, ErrFn err)
 {
     QUrlQuery q;
-    q.addQueryItem(QStringLiteral("id"), QString::number(id));
+    q.addQueryItem(QStringLiteral("id"), id);
     q.addQueryItem(QStringLiteral("limit"), QStringLiteral("50"));
     get(QStringLiteral("/artist/songs"), q, [ok](const QJsonObject &obj) { ok(obj.value(QStringLiteral("songs")).toArray()); }, err);
 }
 
-void NeteaseApiClient::playlistDetail(qint64 id, OkFn ok, ErrFn err)
+void NeteaseApiClient::playlistDetail(const QString &id, OkFn ok, ErrFn err)
 {
     QUrlQuery q;
-    q.addQueryItem(QStringLiteral("id"), QString::number(id));
+    q.addQueryItem(QStringLiteral("id"), id);
     get(QStringLiteral("/playlist/detail"), q,
         [ok](const QJsonObject &obj) { ok(obj.value(QStringLiteral("playlist")).toObject()); }, err);
 }
 
-void NeteaseApiClient::playlistTracks(qint64 id, JsonArrayFn ok, ErrFn err)
+void NeteaseApiClient::playlistTracks(const QString &id, JsonArrayFn ok, ErrFn err)
 {
     QUrlQuery detailQuery;
-    detailQuery.addQueryItem(QStringLiteral("id"), QString::number(id));
+    detailQuery.addQueryItem(QStringLiteral("id"), id);
     get(QStringLiteral("/playlist/detail"), detailQuery,
         [this, id, ok, err](const QJsonObject &obj) {
             const QJsonObject playlist = obj.value(QStringLiteral("playlist")).toObject();
             const QJsonArray trackIds = playlist.value(QStringLiteral("trackIds")).toArray();
             if (trackIds.isEmpty()) {
                 QUrlQuery q;
-                q.addQueryItem(QStringLiteral("id"), QString::number(id));
+                q.addQueryItem(QStringLiteral("id"), id);
                 q.addQueryItem(QStringLiteral("limit"), QStringLiteral("1000"));
                 q.addQueryItem(QStringLiteral("offset"), QStringLiteral("0"));
                 get(QStringLiteral("/playlist/track/all"), q,
@@ -300,10 +280,10 @@ void NeteaseApiClient::personalFm(JsonArrayFn ok, ErrFn err)
         [ok](const QJsonObject &obj) { ok(obj.value(QStringLiteral("data")).toArray()); }, err);
 }
 
-void NeteaseApiClient::comments(qint64 id, int offset, int limit, OkFn ok, ErrFn err)
+void NeteaseApiClient::comments(const QString &id, int offset, int limit, OkFn ok, ErrFn err)
 {
     QUrlQuery q;
-    q.addQueryItem(QStringLiteral("id"), QString::number(id));
+    q.addQueryItem(QStringLiteral("id"), id);
     q.addQueryItem(QStringLiteral("offset"), QString::number(offset));
     q.addQueryItem(QStringLiteral("limit"), QString::number(limit));
     get(QStringLiteral("/comment/music"), q, ok, err);
@@ -349,26 +329,26 @@ void NeteaseApiClient::logout(OkFn ok, ErrFn err)
     get(QStringLiteral("/logout"), q, ok, err);
 }
 
-void NeteaseApiClient::userPlaylists(qint64 uid, JsonArrayFn ok, ErrFn err)
+void NeteaseApiClient::userPlaylists(const QString &uid, JsonArrayFn ok, ErrFn err)
 {
     QUrlQuery q;
-    q.addQueryItem(QStringLiteral("uid"), QString::number(uid));
+    q.addQueryItem(QStringLiteral("uid"), uid);
     q.addQueryItem(QStringLiteral("limit"), QStringLiteral("50"));
     get(QStringLiteral("/user/playlist"), q, [ok](const QJsonObject &obj) { ok(obj.value(QStringLiteral("playlist")).toArray()); }, err);
 }
 
-void NeteaseApiClient::like(qint64 id, bool like, OkFn ok, ErrFn err)
+void NeteaseApiClient::like(const QString &id, bool like, OkFn ok, ErrFn err)
 {
     QUrlQuery q;
-    q.addQueryItem(QStringLiteral("id"), QString::number(id));
+    q.addQueryItem(QStringLiteral("id"), id);
     q.addQueryItem(QStringLiteral("like"), like ? QStringLiteral("true") : QStringLiteral("false"));
     get(QStringLiteral("/like"), q, ok, err);
 }
 
-void NeteaseApiClient::likeList(qint64 uid, JsonArrayFn ok, ErrFn err)
+void NeteaseApiClient::likeList(const QString &uid, JsonArrayFn ok, ErrFn err)
 {
     QUrlQuery q;
-    q.addQueryItem(QStringLiteral("uid"), QString::number(uid));
+    q.addQueryItem(QStringLiteral("uid"), uid);
     get(QStringLiteral("/likelist"), q, [ok](const QJsonObject &obj) { ok(obj.value(QStringLiteral("ids")).toArray()); }, err);
 }
 
@@ -467,11 +447,15 @@ void NeteaseApiClient::cancelDownload(DownloadId id)
 Song NeteaseApiClient::songFromJson(const QJsonObject &obj) const
 {
     QStringList artists;
+    QString artistRemoteId;
     QJsonArray ar = obj.value(QStringLiteral("ar")).toArray();
     if (ar.isEmpty())
         ar = obj.value(QStringLiteral("artists")).toArray();
-    for (const QJsonValue &v : ar)
+    for (const QJsonValue &v : ar) {
         artists << v.toObject().value(QStringLiteral("name")).toString();
+        if (artistRemoteId.isEmpty())
+            artistRemoteId = v.toObject().value(QStringLiteral("id")).toVariant().toString();
+    }
     QJsonObject al = obj.value(QStringLiteral("al")).toObject();
     if (al.isEmpty())
         al = obj.value(QStringLiteral("album")).toObject();
@@ -485,13 +469,14 @@ Song NeteaseApiClient::songFromJson(const QJsonObject &obj) const
         coverUrl = obj.value(QStringLiteral("albumPicUrl")).toString();
     return MusicSource::makeOnlineSong(
         sourceId(), sourceScheme(),
-        obj.value(QStringLiteral("id")).toVariant().toLongLong(),
+        obj.value(QStringLiteral("id")).toVariant().toString(),
         obj.value(QStringLiteral("name")).toString(),
         artists.join(QLatin1Char('/')),
         al.value(QStringLiteral("name")).toString(),
         durationMs,
         coverUrl,
-        al.value(QStringLiteral("id")).toVariant().toLongLong());
+        al.value(QStringLiteral("id")).toVariant().toString(),
+        artistRemoteId);
 }
 
 } // namespace core

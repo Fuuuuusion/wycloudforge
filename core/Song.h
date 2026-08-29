@@ -6,6 +6,13 @@
 
 namespace core {
 
+enum class SourceId : int
+{
+    Local = 0,
+    Netease = 1,
+    QqMusic = 2
+};
+
 struct Song
 {
     qint64 id = -1;
@@ -20,15 +27,38 @@ struct Song
     qint64 playCount = 0;
     qint64 lastPlayedMs = 0;
 
-    // 多源:0 本地文件,1 网易云,2 QQ音乐(预留)
-    int source = 0;
+    // 多源:0 本地文件,1 网易云,2 QQ音乐。remoteId 是新的稳定远端身份，
+    // onlineId/albumId 仅为旧网易云数据库兼容字段。
+    int source = int(SourceId::Local);
+    QString remoteId;
+    QString albumRemoteId;
+    QString artistRemoteId;
     qint64 onlineId = 0;
     QString coverUrl;
     QString cachePath;
     QString downloadPath; // 用户主动下载的永久文件路径
     qint64 albumId = 0;
 
-    bool isOnline() const { return source > 0; }
+    SourceId sourceId() const { return static_cast<SourceId>(source); }
+    QString effectiveRemoteId() const
+    {
+        return !remoteId.isEmpty() ? remoteId
+                                   : (onlineId > 0 ? QString::number(onlineId) : QString());
+    }
+    QString effectiveAlbumRemoteId() const
+    {
+        return !albumRemoteId.isEmpty() ? albumRemoteId
+                                        : (albumId > 0 ? QString::number(albumId) : QString());
+    }
+    QString stableIdentity() const
+    {
+        if (isOnline())
+            return QStringLiteral("%1:%2").arg(source).arg(effectiveRemoteId());
+        return QStringLiteral("0:%1").arg(QFileInfo(filePath).absoluteFilePath());
+    }
+
+    bool isOnline() const { return source != int(SourceId::Local); }
+    bool hasRemoteIdentity() const { return isOnline() && !effectiveRemoteId().isEmpty(); }
     bool isCached() const
     {
         return isOnline() && !cachePath.isEmpty()
@@ -43,9 +73,15 @@ struct Song
     {
         return !isOnline() || isCached() || isDownloaded();
     }
-    bool operator==(const Song &other) const { return id == other.id && filePath == other.filePath; }
+    bool operator==(const Song &other) const
+    {
+        if (id > 0 && other.id > 0)
+            return id == other.id;
+        return stableIdentity() == other.stableIdentity();
+    }
 };
 
 } // namespace core
 
 Q_DECLARE_METATYPE(core::Song)
+Q_DECLARE_METATYPE(core::SourceId)

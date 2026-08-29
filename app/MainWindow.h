@@ -4,6 +4,7 @@
 #include "core/DownloadService.h"
 #include "core/LibraryService.h"
 #include "core/NeteaseApiClient.h"
+#include "core/MusicSourceRegistry.h"
 #include "core/PlayerService.h"
 #include "core/PlaylistController.h"
 #include "core/SettingsService.h"
@@ -89,6 +90,7 @@ private:
     core::LibraryService m_library{ this };
     core::ApiService m_apiService{ this };
     core::NeteaseApiClient m_apiClient{ this };
+    core::MusicSourceRegistry m_sourceRegistry;
     core::PlaylistController m_playlists{ this };
     core::PlayerService m_player{ this };
     core::DownloadService m_downloads{ this };

@@ -1,6 +1,7 @@
 #include "PlayerService.h"
 
 #include "core/LibraryService.h"
+#include "core/MusicSourceRegistry.h"
 
 #include <algorithm>
 #include <numeric>
@@ -235,6 +236,7 @@ void PlayerService::loadCurrent(bool autoPlay, bool allowCached, bool resetCache
     m_player.setSource(QUrl());
 
     if (song.isOnline()) {
+        MusicSource *source = sourceFor(song);
         // 下载文件和播放缓存都不包含歌曲元数据，在线歌曲的封面必须单独
         // 缓存并写回 songs.cover_path，才能在重启后继续显示。
         saveCover(song);
@@ -267,14 +269,14 @@ void PlayerService::loadCurrent(bool autoPlay, bool allowCached, bool resetCache
             emit songChanged(m_playlist[m_index], m_index);
             return;
         }
-        if (!m_source || song.onlineId <= 0) {
+        if (!source || !song.hasRemoteIdentity()) {
             m_pendingAutoPlay = false;
             emit songChanged(song, m_index);
             emit errorOccurred(QStringLiteral("歌曲没有可用的缓存或在线播放源"));
             return;
         }
         const int token = m_loadToken;
-        m_source->songUrls({ song.onlineId },
+        source->songUrls({ song.effectiveRemoteId() },
                            [this, token](const QJsonArray &arr) {
                                if (token != m_loadToken)
                                    return;
@@ -362,10 +364,13 @@ bool PlayerService::retryInvalidCache()
 
 void PlayerService::maybeCacheCurrent(qint64 positionMs)
 {
-    if (m_cacheSaved || !m_source || !m_lib || m_currentUrl.isEmpty())
+    if (m_cacheSaved || !m_lib || m_currentUrl.isEmpty())
         return;
     const Song song = currentSong();
     if (!song.isOnline())
+        return;
+    MusicSource *source = sourceFor(song);
+    if (!source)
         return;
     const qint64 dur = m_player.duration();
     if (positionMs < 30000 && (dur <= 0 || positionMs < dur * 0.3))
@@ -374,7 +379,7 @@ void PlayerService::maybeCacheCurrent(qint64 positionMs)
     const QString path = m_lib->cacheFilePathFor(song);
     const QUrl url(m_currentUrl);
     const qint64 id = song.id;
-    m_source->downloadToFile(url, path, [this, id, path](bool ok) {
+    source->downloadToFile(url, path, [this, id, path](bool ok) {
         if (ok && m_lib)
             m_lib->setSongCached(id, path, QFileInfo(path).size());
     });
@@ -382,7 +387,10 @@ void PlayerService::maybeCacheCurrent(qint64 positionMs)
 
 void PlayerService::saveCover(const Song &song)
 {
-    if (!m_source || !m_lib || !song.isOnline() || song.id <= 0)
+    if (!m_lib || !song.isOnline() || song.id <= 0)
+        return;
+    MusicSource *source = sourceFor(song);
+    if (!source)
         return;
 
     const Song stored = m_lib->songById(song.id);
@@ -406,11 +414,20 @@ void PlayerService::saveCover(const Song &song)
         return;
     m_coverSaveInFlight.insert(target.id);
     const qint64 id = target.id;
-    m_source->downloadToFile(QUrl(coverUrl), path, [this, id, path](bool ok) {
+    source->downloadToFile(QUrl(coverUrl), path, [this, id, path](bool ok) {
         m_coverSaveInFlight.remove(id);
         if (ok && m_lib)
             m_lib->setSongCoverPath(id, path);
     });
+}
+
+MusicSource *PlayerService::sourceFor(const Song &song) const
+{
+    if (m_registry) {
+        if (MusicSource *source = m_registry->sourceFor(song))
+            return source;
+    }
+    return m_source;
 }
 
 void PlayerService::buildShuffleOrder()

@@ -2,6 +2,7 @@
 
 #include "core/LibraryService.h"
 #include "core/MusicSource.h"
+#include "core/MusicSourceRegistry.h"
 
 #include <QFileInfo>
 #include <QUrl>
@@ -33,7 +34,7 @@ QList<DownloadService::Task> DownloadService::tasks() const
 
 qint64 DownloadService::enqueue(const Song &song)
 {
-    if (!song.isOnline() || song.onlineId <= 0 || song.id <= 0)
+    if (!song.hasRemoteIdentity() || song.id <= 0)
         return -1;
     if (m_library && m_library->isSongDownloaded(song.id))
         return -1;
@@ -70,8 +71,8 @@ void DownloadService::cancel(qint64 taskId)
         return;
     if (taskId == m_activeTaskId) {
         m_cancelRequested = true;
-        if (m_source && m_downloadId)
-            m_source->cancelDownload(m_downloadId);
+        if (m_activeSource && m_downloadId)
+            m_activeSource->cancelDownload(m_downloadId);
         return;
     }
     if (task->state != Queued)
@@ -111,7 +112,8 @@ void DownloadService::startNext()
         emit tasksChanged();
         return startNext();
     }
-    if (!m_source || !m_library) {
+    m_activeSource = sourceFor(task->song);
+    if (!m_activeSource || !m_library) {
         failTask(taskId, QStringLiteral("下载服务未准备好"));
         return;
     }
@@ -127,9 +129,9 @@ void DownloadService::startNext()
 void DownloadService::resolveUrl(qint64 taskId)
 {
     Task *task = taskFor(taskId);
-    if (!task || taskId != m_activeTaskId || !m_source)
+    if (!task || taskId != m_activeTaskId || !m_activeSource)
         return;
-    m_source->songUrls({ task->song.onlineId },
+    m_activeSource->songUrls({ task->song.effectiveRemoteId() },
                        [this, taskId](const QJsonArray &array) {
         Task *task = taskFor(taskId);
         if (!task || taskId != m_activeTaskId)
@@ -160,14 +162,14 @@ void DownloadService::resolveUrl(qint64 taskId)
 void DownloadService::beginTransfer(qint64 taskId, const QUrl &url)
 {
     Task *task = taskFor(taskId);
-    if (!task || taskId != m_activeTaskId || !m_library || !m_source)
+    if (!task || taskId != m_activeTaskId || !m_library || !m_activeSource)
         return;
     const QString path = m_library->downloadFilePathFor(task->song);
     if (path.isEmpty()) {
         failTask(taskId, QStringLiteral("无法生成下载文件名"));
         return;
     }
-    m_downloadId = m_source->downloadToFileWithProgress(
+    m_downloadId = m_activeSource->downloadToFileWithProgress(
         url, path,
         [this, taskId](qint64 received, qint64 total) {
             Task *current = taskFor(taskId);
@@ -214,6 +216,7 @@ void DownloadService::beginTransfer(qint64 taskId, const QUrl &url)
             saveCover(completedSong);
             m_tasks.remove(taskId);
             m_activeTaskId = -1;
+            m_activeSource = nullptr;
             emit taskRemoved(taskId);
             emit tasksChanged();
             startNext();
@@ -222,7 +225,10 @@ void DownloadService::beginTransfer(qint64 taskId, const QUrl &url)
 
 void DownloadService::saveCover(const Song &song)
 {
-    if (!m_source || !m_library || !song.isOnline() || song.id <= 0)
+    if (!m_library || !song.isOnline() || song.id <= 0)
+        return;
+    MusicSource *source = sourceFor(song);
+    if (!source)
         return;
 
     const Song stored = m_library->songById(song.id);
@@ -243,7 +249,7 @@ void DownloadService::saveCover(const Song &song)
     }
 
     const qint64 id = target.id;
-    m_source->downloadToFile(QUrl(coverUrl), path, [this, id, path](bool ok) {
+    source->downloadToFile(QUrl(coverUrl), path, [this, id, path](bool ok) {
         if (ok && m_library)
             m_library->setSongCoverPath(id, path);
     });
@@ -258,9 +264,19 @@ void DownloadService::failTask(qint64 taskId, const QString &message)
     task->state = Failed;
     task->error = message;
     m_activeTaskId = -1;
+    m_activeSource = nullptr;
     emit taskUpdated(*task);
     emit tasksChanged();
     startNext();
+}
+
+MusicSource *DownloadService::sourceFor(const Song &song) const
+{
+    if (m_registry) {
+        if (MusicSource *source = m_registry->sourceFor(song))
+            return source;
+    }
+    return m_source;
 }
 
 } // namespace core

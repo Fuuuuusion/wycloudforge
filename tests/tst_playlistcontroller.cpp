@@ -30,6 +30,7 @@ private slots:
     void managedDownloadFolderIsNotImported();
     void downloadAssociationsSurviveRestartAndRepair();
     void localAvailabilityClassification();
+    void stringRemoteIdentityPersists();
 
 private:
     QTemporaryDir *m_dir = nullptr;
@@ -43,7 +44,7 @@ void PlaylistControllerTest::init()
     QVERIFY(m_dir->isValid());
     LibraryService::setDatabasePathOverride(m_dir->filePath(QStringLiteral("t.db")));
     m_library = new LibraryService;
-    QVERIFY(m_library->openDatabase());
+    QVERIFY2(m_library->openDatabase(), qPrintable(m_library->lastError()));
     m_controller = new PlaylistController;
     m_controller->setDatabase(m_library->database());
 }
@@ -505,6 +506,46 @@ void PlaylistControllerTest::localAvailabilityClassification()
     local.source = 0;
     local.missing = true;
     QVERIFY(local.isLocallyAvailable());
+}
+
+void PlaylistControllerTest::stringRemoteIdentityPersists()
+{
+    Song qq;
+    qq.source = int(SourceId::QqMusic);
+    qq.remoteId = QStringLiteral("0039MnYb0qxYhV");
+    qq.albumRemoteId = QStringLiteral("004DABuD2r4V8n");
+    qq.artistRemoteId = QStringLiteral("0025NhlN2yWrP4");
+    qq.filePath = QStringLiteral("qqmusic://0039MnYb0qxYhV");
+    qq.title = QStringLiteral("字符串身份");
+    qq.artist = QStringLiteral("QQ 歌手");
+    const qint64 songId = m_library->upsertOnlineSong(qq);
+    QVERIFY(songId > 0);
+
+    Song updated = qq;
+    updated.title = QStringLiteral("字符串身份（更新）");
+    QCOMPARE(m_library->upsertOnlineSong(updated), songId);
+    QCOMPARE(m_library->songByRemoteId(int(SourceId::QqMusic), qq.remoteId).id, songId);
+
+    const int playlistId = m_controller->createPlaylist(QStringLiteral("QQ 字符串歌单"));
+    QVERIFY(m_controller->addSong(playlistId, songId));
+
+    delete m_controller;
+    m_controller = nullptr;
+    delete m_library;
+    m_library = new LibraryService;
+    QVERIFY(m_library->openDatabase());
+    m_controller = new PlaylistController;
+    m_controller->setDatabase(m_library->database());
+
+    const Song restored = m_library->songByRemoteId(int(SourceId::QqMusic), qq.remoteId);
+    QCOMPARE(restored.id, songId);
+    QCOMPARE(restored.title, updated.title);
+    QCOMPARE(restored.remoteId, qq.remoteId);
+    QCOMPARE(restored.albumRemoteId, qq.albumRemoteId);
+    QCOMPARE(restored.artistRemoteId, qq.artistRemoteId);
+    QCOMPARE(restored.onlineId, qint64(0));
+    QCOMPARE(m_controller->songsOf(playlistId).first().stableIdentity(),
+             QStringLiteral("2:0039MnYb0qxYhV"));
 }
 
 QTEST_MAIN(PlaylistControllerTest)

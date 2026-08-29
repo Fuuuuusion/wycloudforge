@@ -5,6 +5,7 @@
 
 #include "core/LyricsLoader.h"
 #include "core/MusicSource.h"
+#include "core/MusicSourceRegistry.h"
 
 #include <QButtonGroup>
 #include <QHBoxLayout>
@@ -105,6 +106,11 @@ void PlayingPage::setSourceProvider(core::MusicSource *source)
     m_source = source;
 }
 
+void PlayingPage::setSourceRegistry(core::MusicSourceRegistry *registry)
+{
+    m_registry = registry;
+}
+
 void PlayingPage::loadLyricsFor(const core::Song &song)
 {
     const quint64 requestGeneration = ++m_lyricRequestGeneration;
@@ -115,9 +121,10 @@ void PlayingPage::loadLyricsFor(const core::Song &song)
     m_romalrc.clear();
     applyLyricMode();
 
-    if (song.isOnline() && song.onlineId > 0 && m_source) {
+    core::MusicSource *source = m_registry ? m_registry->sourceFor(song) : m_source;
+    if (song.hasRemoteIdentity() && source) {
         const QPointer<PlayingPage> guard(this);
-        m_source->lyric(song.onlineId, [guard, requestGeneration](const QString &lrc, const QString &tlyrc,
+        source->lyric(song.effectiveRemoteId(), [guard, requestGeneration](const QString &lrc, const QString &tlyrc,
                                                                  const QString &romalrc) {
             if (!guard || requestGeneration != guard->m_lyricRequestGeneration)
                 return;

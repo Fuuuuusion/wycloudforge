@@ -32,6 +32,7 @@ public:
     explicit DownloadService(QObject *parent = nullptr);
 
     void setSourceProvider(MusicSource *source) { m_source = source; }
+    void setSourceRegistry(class MusicSourceRegistry *registry) { m_registry = registry; }
     void setLibrary(LibraryService *library) { m_library = library; }
 
     qint64 enqueue(const Song &song);
@@ -54,8 +55,11 @@ private:
     void saveCover(const Song &song);
     void failTask(qint64 taskId, const QString &message);
     Task *taskFor(qint64 taskId);
+    MusicSource *sourceFor(const Song &song) const;
 
     MusicSource *m_source = nullptr;
+    class MusicSourceRegistry *m_registry = nullptr;
+    MusicSource *m_activeSource = nullptr;
     LibraryService *m_library = nullptr;
     QHash<qint64, Task> m_tasks;
     QList<qint64> m_queue;

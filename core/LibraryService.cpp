@@ -75,9 +75,9 @@ QString safeDownloadPart(QString value)
     return value;
 }
 
-QString downloadBaseName(const QString &titleValue, const QString &artistValue, qint64 onlineId)
+QString downloadBaseName(const QString &titleValue, const QString &artistValue, const QString &remoteId)
 {
-    const QString title = titleValue.isEmpty() ? QStringLiteral("歌曲_%1").arg(onlineId)
+    const QString title = titleValue.isEmpty() ? QStringLiteral("歌曲_%1").arg(remoteId)
                                                 : titleValue;
     const QString artist = artistValue.isEmpty() ? QStringLiteral("未知歌手") : artistValue;
     return safeDownloadPart(artist) + QStringLiteral(" - ") + safeDownloadPart(title);
@@ -201,7 +201,7 @@ bool executeRecoverySql(const QSqlDatabase &database, const QString &sql, QStrin
 bool createRecoverySchema(const QSqlDatabase &database, QString *error)
 {
     const QStringList statements = {
-        QStringLiteral("CREATE TABLE songs(id INTEGER PRIMARY KEY AUTOINCREMENT,path TEXT NOT NULL UNIQUE,title TEXT DEFAULT '',artist TEXT DEFAULT '',album TEXT DEFAULT '',duration_ms INTEGER DEFAULT 0,cover_path TEXT DEFAULT '',has_cover INTEGER DEFAULT 0,missing INTEGER DEFAULT 0,play_count INTEGER DEFAULT 0,last_played_ms INTEGER DEFAULT 0,source INTEGER DEFAULT 0,online_id INTEGER DEFAULT 0,cover_url TEXT DEFAULT '',cache_path TEXT DEFAULT '',album_id INTEGER DEFAULT 0,download_path TEXT DEFAULT '',file_mtime_ms INTEGER DEFAULT 0,file_size INTEGER DEFAULT 0)"),
+        QStringLiteral("CREATE TABLE songs(id INTEGER PRIMARY KEY AUTOINCREMENT,path TEXT NOT NULL UNIQUE,title TEXT DEFAULT '',artist TEXT DEFAULT '',album TEXT DEFAULT '',duration_ms INTEGER DEFAULT 0,cover_path TEXT DEFAULT '',has_cover INTEGER DEFAULT 0,missing INTEGER DEFAULT 0,play_count INTEGER DEFAULT 0,last_played_ms INTEGER DEFAULT 0,source INTEGER DEFAULT 0,remote_id TEXT DEFAULT '',online_id INTEGER DEFAULT 0,cover_url TEXT DEFAULT '',cache_path TEXT DEFAULT '',album_remote_id TEXT DEFAULT '',album_id INTEGER DEFAULT 0,artist_remote_id TEXT DEFAULT '',download_path TEXT DEFAULT '',file_mtime_ms INTEGER DEFAULT 0,file_size INTEGER DEFAULT 0)"),
         QStringLiteral("CREATE TABLE playlists(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL UNIQUE,cover_path TEXT DEFAULT '',description TEXT DEFAULT '',created_ms INTEGER DEFAULT 0)"),
         QStringLiteral("CREATE TABLE song_cache(song_id INTEGER PRIMARY KEY,cache_path TEXT NOT NULL,size_bytes INTEGER DEFAULT 0,last_used_ms INTEGER DEFAULT 0)"),
         QStringLiteral("CREATE TABLE playlist_songs(playlist_id INTEGER NOT NULL,song_id INTEGER NOT NULL,position INTEGER NOT NULL,PRIMARY KEY(playlist_id,song_id))"),
@@ -212,8 +212,8 @@ bool createRecoverySchema(const QSqlDatabase &database, QString *error)
             return false;
     }
     return executeRecoverySql(database, QStringLiteral(
-        "CREATE UNIQUE INDEX idx_songs_source_online ON songs(source, online_id) "
-        "WHERE source>0 AND online_id>0"), error);
+        "CREATE UNIQUE INDEX idx_songs_source_remote ON songs(source, remote_id) "
+        "WHERE source>0 AND remote_id<>''"), error);
 }
 
 template<typename RowWriter>
@@ -482,18 +482,26 @@ bool LibraryService::recoverCorruptDatabase(const QString &backupPath, QString *
     // 仍有机会读取表本身；读取失败的行会被跳过，而原库始终保留在备份中。
     QString songsSql = QStringLiteral(
         "SELECT id,path,title,artist,album,duration_ms,cover_path,has_cover,missing,"
-        "play_count,last_played_ms,source,online_id,cover_url,cache_path,album_id");
+        "play_count,last_played_ms,source,");
     QSqlQuery songColumns(m_db);
-    bool hasDownloadPath = false;
+    QSet<QString> availableSongColumns;
     if (songColumns.exec(QStringLiteral("PRAGMA table_info(songs)"))) {
-        while (songColumns.next()) {
-            if (songColumns.value(1).toString() == QStringLiteral("download_path")) {
-                hasDownloadPath = true;
-                break;
-            }
-        }
+        while (songColumns.next())
+            availableSongColumns.insert(songColumns.value(1).toString());
     }
-    songsSql += hasDownloadPath ? QStringLiteral(",download_path ") : QStringLiteral(",'' AS download_path ");
+    const auto textColumnOr = [&availableSongColumns](const QString &column, const QString &fallback) {
+        return availableSongColumns.contains(column) ? column : fallback + QStringLiteral(" AS ") + column;
+    };
+    songsSql += textColumnOr(QStringLiteral("remote_id"),
+                             availableSongColumns.contains(QStringLiteral("online_id"))
+                                 ? QStringLiteral("CAST(online_id AS TEXT)") : QStringLiteral("''"));
+    songsSql += QStringLiteral(",online_id,cover_url,cache_path,");
+    songsSql += textColumnOr(QStringLiteral("album_remote_id"),
+                             availableSongColumns.contains(QStringLiteral("album_id"))
+                                 ? QStringLiteral("CAST(album_id AS TEXT)") : QStringLiteral("''"));
+    songsSql += QStringLiteral(",album_id,");
+    songsSql += textColumnOr(QStringLiteral("artist_remote_id"), QStringLiteral("''"));
+    songsSql += QLatin1Char(',') + textColumnOr(QStringLiteral("download_path"), QStringLiteral("''")) + QLatin1Char(' ');
     songsSql += QStringLiteral("FROM songs NOT INDEXED ORDER BY rowid");
     songColumns = QSqlQuery();
     const RecoveryRows songs = readRecoveryRows(m_db, songsSql);
@@ -577,20 +585,20 @@ bool LibraryService::recoverCorruptDatabase(const QString &backupPath, QString *
     QSet<QString> onlineKeys;
     const bool songsWritten = writeRecoveryRows(recovered, songs.rows, QStringLiteral(
         "INSERT OR IGNORE INTO songs(id,path,title,artist,album,duration_ms,cover_path,has_cover,missing,"
-        "play_count,last_played_ms,source,online_id,cover_url,cache_path,album_id,download_path) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"),
+        "play_count,last_played_ms,source,remote_id,online_id,cover_url,cache_path,album_remote_id,album_id,artist_remote_id,download_path) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"),
         [&paths, &onlineKeys](QSqlQuery &query, const QVariantList &row) {
-            if (row.size() != 17)
+            if (row.size() != 20)
                 return false;
             const QString path = row.at(1).toString();
             if (path.isEmpty() || paths.contains(path))
                 return false;
             const int source = row.at(11).toInt();
-            const qint64 onlineId = row.at(12).toLongLong();
-            const QString onlineKey = QStringLiteral("%1:%2").arg(source).arg(onlineId);
-            if (source > 0 && onlineId > 0 && onlineKeys.contains(onlineKey))
+            const QString remoteId = row.at(12).toString();
+            const QString onlineKey = QStringLiteral("%1:%2").arg(source).arg(remoteId);
+            if (source > 0 && !remoteId.isEmpty() && onlineKeys.contains(onlineKey))
                 return false;
             paths.insert(path);
-            if (source > 0 && onlineId > 0)
+            if (source > 0 && !remoteId.isEmpty())
                 onlineKeys.insert(onlineKey);
             for (const QVariant &value : row)
                 query.addBindValue(value);
@@ -785,18 +793,90 @@ bool LibraryService::openDatabase()
         while (info.next())
             cols << info.value(1).toString();
     }
-    const auto addCol = [this](const QString &name, const QString &def) {
-        QSqlQuery a(m_db);
-        a.exec(QStringLiteral("ALTER TABLE songs ADD COLUMN %1 %2").arg(name, def));
+    const QList<QPair<QString, QString>> songColumnsToEnsure = {
+        { QStringLiteral("source"), QStringLiteral("INTEGER DEFAULT 0") },
+        { QStringLiteral("remote_id"), QStringLiteral("TEXT DEFAULT ''") },
+        { QStringLiteral("online_id"), QStringLiteral("INTEGER DEFAULT 0") },
+        { QStringLiteral("cover_url"), QStringLiteral("TEXT DEFAULT ''") },
+        { QStringLiteral("cache_path"), QStringLiteral("TEXT DEFAULT ''") },
+        { QStringLiteral("album_remote_id"), QStringLiteral("TEXT DEFAULT ''") },
+        { QStringLiteral("album_id"), QStringLiteral("INTEGER DEFAULT 0") },
+        { QStringLiteral("artist_remote_id"), QStringLiteral("TEXT DEFAULT ''") },
+        { QStringLiteral("download_path"), QStringLiteral("TEXT DEFAULT ''") },
+        { QStringLiteral("file_mtime_ms"), QStringLiteral("INTEGER DEFAULT 0") },
+        { QStringLiteral("file_size"), QStringLiteral("INTEGER DEFAULT 0") }
     };
-    if (!cols.contains(QStringLiteral("source"))) addCol(QStringLiteral("source"), QStringLiteral("INTEGER DEFAULT 0"));
-    if (!cols.contains(QStringLiteral("online_id"))) addCol(QStringLiteral("online_id"), QStringLiteral("INTEGER DEFAULT 0"));
-    if (!cols.contains(QStringLiteral("cover_url"))) addCol(QStringLiteral("cover_url"), QStringLiteral("TEXT DEFAULT ''"));
-    if (!cols.contains(QStringLiteral("cache_path"))) addCol(QStringLiteral("cache_path"), QStringLiteral("TEXT DEFAULT ''"));
-    if (!cols.contains(QStringLiteral("album_id"))) addCol(QStringLiteral("album_id"), QStringLiteral("INTEGER DEFAULT 0"));
-    if (!cols.contains(QStringLiteral("download_path"))) addCol(QStringLiteral("download_path"), QStringLiteral("TEXT DEFAULT ''"));
-    if (!cols.contains(QStringLiteral("file_mtime_ms"))) addCol(QStringLiteral("file_mtime_ms"), QStringLiteral("INTEGER DEFAULT 0"));
-    if (!cols.contains(QStringLiteral("file_size"))) addCol(QStringLiteral("file_size"), QStringLiteral("INTEGER DEFAULT 0"));
+    bool needsSongMigration = false;
+    for (const auto &column : songColumnsToEnsure)
+        needsSongMigration = needsSongMigration || !cols.contains(column.first);
+    if (needsSongMigration) {
+        QSqlQuery checkpoint(m_db);
+        checkpoint.exec(QStringLiteral("PRAGMA wal_checkpoint(FULL)"));
+        checkpoint.finish();
+        const QString migrationBackup = backupDatabaseFiles(m_dbPath);
+        if (migrationBackup.isEmpty()) {
+            m_lastError = QStringLiteral("数据库迁移前无法创建安全备份");
+            return false;
+        }
+        if (!m_db.transaction()) {
+            m_lastError = QStringLiteral("无法开始数据库迁移事务：%1").arg(m_db.lastError().text());
+            return false;
+        }
+        bool migrationOk = true;
+        QString migrationError;
+        for (const auto &column : songColumnsToEnsure) {
+            if (cols.contains(column.first))
+                continue;
+            QSqlQuery alter(m_db);
+            if (!alter.exec(QStringLiteral("ALTER TABLE songs ADD COLUMN %1 %2")
+                                .arg(column.first, column.second))) {
+                migrationOk = false;
+                migrationError = alter.lastError().text();
+                break;
+            }
+        }
+        if (migrationOk) {
+            QSqlQuery backfill(m_db);
+            migrationOk = backfill.exec(QStringLiteral(
+                "UPDATE songs SET remote_id=CAST(online_id AS TEXT) "
+                "WHERE source>0 AND remote_id='' AND online_id>0"));
+            if (migrationOk)
+                migrationOk = backfill.exec(QStringLiteral(
+                    "UPDATE songs SET album_remote_id=CAST(album_id AS TEXT) "
+                    "WHERE source>0 AND album_remote_id='' AND album_id>0"));
+            if (!migrationOk)
+                migrationError = backfill.lastError().text();
+        }
+        if (migrationOk) {
+            QSqlQuery conflicts(m_db);
+            migrationOk = conflicts.exec(QStringLiteral(
+                "SELECT source,remote_id FROM songs WHERE source>0 AND remote_id<>'' "
+                "GROUP BY source,remote_id HAVING COUNT(*)>1 LIMIT 1"));
+            if (migrationOk && conflicts.next()) {
+                migrationOk = false;
+                migrationError = QStringLiteral("发现重复远端歌曲身份 %1:%2")
+                                     .arg(conflicts.value(0).toInt()).arg(conflicts.value(1).toString());
+            } else if (!migrationOk) {
+                migrationError = conflicts.lastError().text();
+            }
+        }
+        if (migrationOk) {
+            QSqlQuery index(m_db);
+            migrationOk = index.exec(QStringLiteral(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_songs_source_remote "
+                "ON songs(source,remote_id) WHERE source>0 AND remote_id<>''"));
+            if (!migrationOk)
+                migrationError = index.lastError().text();
+        }
+        if (!migrationOk || !m_db.commit()) {
+            if (migrationError.isEmpty())
+                migrationError = m_db.lastError().text();
+            m_db.rollback();
+            m_lastError = QStringLiteral("数据库多源迁移失败：%1；备份：%2")
+                              .arg(migrationError, migrationBackup);
+            return false;
+        }
+    }
 
     q.exec(QStringLiteral(
         "CREATE TABLE IF NOT EXISTS playlists("
@@ -831,6 +911,12 @@ bool LibraryService::openDatabase()
     q.exec(QStringLiteral(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_songs_source_online "
         "ON songs(source, online_id) WHERE source>0 AND online_id>0"));
+    if (!q.exec(QStringLiteral(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_songs_source_remote "
+            "ON songs(source, remote_id) WHERE source>0 AND remote_id<>''"))) {
+        m_lastError = QStringLiteral("创建多源歌曲唯一索引失败：%1").arg(q.lastError().text());
+        return false;
+    }
     q.exec(QStringLiteral(
         "CREATE TABLE IF NOT EXISTS playlists("
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -885,7 +971,7 @@ void LibraryService::reconcileManagedDownloads()
 
     struct DownloadRow {
         qint64 id = -1;
-        qint64 onlineId = 0;
+        QString remoteId;
         QString title;
         QString artist;
         QString storedPath;
@@ -897,17 +983,17 @@ void LibraryService::reconcileManagedDownloads()
     QSet<QString> claimedPaths;
     QSqlQuery songs(m_db);
     if (!songs.exec(QStringLiteral(
-            "SELECT id,online_id,title,artist,download_path FROM songs "
-            "WHERE source>0 AND online_id>0 ORDER BY id")))
+            "SELECT id,remote_id,title,artist,download_path FROM songs "
+            "WHERE source>0 AND remote_id<>'' ORDER BY id")))
         return;
     while (songs.next()) {
         DownloadRow row;
         row.id = songs.value(0).toLongLong();
-        row.onlineId = songs.value(1).toLongLong();
+        row.remoteId = songs.value(1).toString();
         row.title = songs.value(2).toString();
         row.artist = songs.value(3).toString();
         row.storedPath = songs.value(4).toString();
-        row.baseKey = downloadBaseName(row.title, row.artist, row.onlineId).toCaseFolded();
+        row.baseKey = downloadBaseName(row.title, row.artist, row.remoteId).toCaseFolded();
         row.assigned = !row.storedPath.isEmpty() && QFileInfo(row.storedPath).isFile()
             && QFileInfo(row.storedPath).size() > 0;
         if (row.assigned)
@@ -1187,7 +1273,8 @@ void LibraryService::reloadSongs()
     QSqlQuery q(m_db);
     if (!q.exec(QStringLiteral(
         "SELECT s.id,s.path,s.title,s.artist,s.album,s.duration_ms,s.cover_path,s.missing,"
-        "s.play_count,s.last_played_ms,s.source,s.online_id,s.cover_url,s.album_id,sc.cache_path,s.download_path "
+        "s.play_count,s.last_played_ms,s.source,s.online_id,s.cover_url,s.album_id,sc.cache_path,s.download_path,"
+        "s.remote_id,s.album_remote_id,s.artist_remote_id "
         "FROM songs s LEFT JOIN song_cache sc ON sc.song_id=s.id ORDER BY s.id"))) {
         m_lastError = q.lastError().text();
         return;
@@ -1210,6 +1297,13 @@ void LibraryService::reloadSongs()
         s.albumId = q.value(13).toLongLong();
         s.cachePath = q.value(14).toString();
         s.downloadPath = q.value(15).toString();
+        s.remoteId = q.value(16).toString();
+        s.albumRemoteId = q.value(17).toString();
+        s.artistRemoteId = q.value(18).toString();
+        if (s.remoteId.isEmpty() && s.onlineId > 0)
+            s.remoteId = QString::number(s.onlineId);
+        if (s.albumRemoteId.isEmpty() && s.albumId > 0)
+            s.albumRemoteId = QString::number(s.albumId);
         s.lyricPath = LyricsLoader::existingSidecarPathFor(s);
         m_songs.append(s);
     }
@@ -1233,8 +1327,13 @@ Song LibraryService::songByPath(const QString &path) const
 
 Song LibraryService::songByOnlineId(int source, qint64 onlineId) const
 {
+    return songByRemoteId(source, QString::number(onlineId));
+}
+
+Song LibraryService::songByRemoteId(int source, const QString &remoteId) const
+{
     for (const Song &s : m_songs)
-        if (s.source == source && s.onlineId == onlineId)
+        if (s.source == source && s.effectiveRemoteId() == remoteId)
             return s;
     return {};
 }
@@ -1283,18 +1382,22 @@ void LibraryService::removeSong(qint64 songId)
 
 qint64 LibraryService::upsertOnlineSong(const Song &song)
 {
-    if (!m_db.isOpen() || song.onlineId <= 0)
+    const QString remoteId = song.effectiveRemoteId();
+    if (!m_db.isOpen() || !song.isOnline() || remoteId.isEmpty())
         return -1;
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral(
-        "INSERT INTO songs(path,title,artist,album,duration_ms,cover_path,has_cover,cover_url,source,online_id,album_id,missing) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,0) "
-        "ON CONFLICT(source,online_id) WHERE source>0 AND online_id>0 DO UPDATE SET "
+        "INSERT INTO songs(path,title,artist,album,duration_ms,cover_path,has_cover,cover_url,source,"
+        "remote_id,online_id,album_remote_id,album_id,artist_remote_id,missing) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,0) "
+        "ON CONFLICT(source,remote_id) WHERE source>0 AND remote_id<>'' DO UPDATE SET "
         "title=excluded.title,artist=excluded.artist,album=excluded.album,"
         "duration_ms=excluded.duration_ms,cover_url=excluded.cover_url,"
         "cover_path=CASE WHEN excluded.cover_path<>'' THEN excluded.cover_path ELSE songs.cover_path END,"
         "has_cover=CASE WHEN excluded.cover_path<>'' THEN excluded.has_cover ELSE songs.has_cover END,"
-        "album_id=excluded.album_id,missing=0"));
+        "online_id=CASE WHEN excluded.online_id>0 THEN excluded.online_id ELSE songs.online_id END,"
+        "album_remote_id=excluded.album_remote_id,album_id=excluded.album_id,"
+        "artist_remote_id=excluded.artist_remote_id,missing=0"));
     q.addBindValue(song.filePath);
     q.addBindValue(song.title);
     q.addBindValue(song.artist);
@@ -1304,22 +1407,25 @@ qint64 LibraryService::upsertOnlineSong(const Song &song)
     q.addBindValue(song.coverPath.isEmpty() ? 0 : 1);
     q.addBindValue(song.coverUrl);
     q.addBindValue(song.source);
+    q.addBindValue(remoteId);
     q.addBindValue(song.onlineId);
+    q.addBindValue(song.effectiveAlbumRemoteId());
     q.addBindValue(song.albumId);
+    q.addBindValue(song.artistRemoteId);
     if (!q.exec())
         return -1;
 
     QSqlQuery sel(m_db);
-    sel.prepare(QStringLiteral("SELECT id FROM songs WHERE source=? AND online_id=?"));
+    sel.prepare(QStringLiteral("SELECT id FROM songs WHERE source=? AND remote_id=?"));
     sel.addBindValue(song.source);
-    sel.addBindValue(song.onlineId);
+    sel.addBindValue(remoteId);
     sel.exec();
     if (!sel.next())
         return -1;
     const qint64 id = sel.value(0).toLongLong();
 
     for (Song &s : m_songs) {
-        if (s.source == song.source && s.onlineId == song.onlineId) {
+        if (s.source == song.source && s.effectiveRemoteId() == remoteId) {
             s.id = id;
             s.title = song.title;
             s.artist = song.artist;
@@ -1329,7 +1435,10 @@ qint64 LibraryService::upsertOnlineSong(const Song &song)
             if (!song.coverPath.isEmpty())
                 s.coverPath = song.coverPath;
             s.coverUrl = song.coverUrl;
+            s.remoteId = remoteId;
             s.albumId = song.albumId;
+            s.albumRemoteId = song.effectiveAlbumRemoteId();
+            s.artistRemoteId = song.artistRemoteId;
             s.filePath = song.filePath;
             s.missing = false;
             return id;
@@ -1415,9 +1524,11 @@ QString LibraryService::coverCacheDir() const
 
 QString LibraryService::songCoverCachePath(const Song &song) const
 {
-    if (!song.isOnline() || song.onlineId <= 0)
+    if (!song.hasRemoteIdentity())
         return {};
-    return coverCacheDir() + QStringLiteral("/song_%1_%2.jpg").arg(song.source).arg(song.onlineId);
+    const QByteArray identity = song.effectiveRemoteId().toUtf8();
+    const QString key = QString::fromLatin1(QCryptographicHash::hash(identity, QCryptographicHash::Sha1).toHex());
+    return coverCacheDir() + QStringLiteral("/song_%1_%2.jpg").arg(song.source).arg(key);
 }
 
 QString LibraryService::playlistCoverCachePath(qint64 playlistId) const
@@ -1431,7 +1542,7 @@ QString LibraryService::cacheFilePathFor(const Song &song) const
 {
     if (!song.isOnline())
         return {};
-    const QByteArray key = QStringLiteral("%1:%2").arg(song.source).arg(song.onlineId).toUtf8();
+    const QByteArray key = song.stableIdentity().toUtf8();
     const QString name = QString::fromLatin1(QCryptographicHash::hash(key, QCryptographicHash::Sha1).toHex());
     return cacheDir() + QLatin1Char('/') + name + QStringLiteral(".mp3");
 }
@@ -1574,13 +1685,13 @@ QString LibraryService::downloadDir() const
 
 QString LibraryService::downloadFilePathFor(const Song &song) const
 {
-    if (!song.isOnline() || song.onlineId <= 0)
+    if (!song.hasRemoteIdentity())
         return {};
     if (!song.downloadPath.isEmpty() && QFileInfo(song.downloadPath).isFile()
         && QFileInfo(song.downloadPath).size() > 0)
         return song.downloadPath;
 
-    const QString base = downloadBaseName(song.title, song.artist, song.onlineId);
+    const QString base = downloadBaseName(song.title, song.artist, song.effectiveRemoteId());
     QString path = QDir(downloadDir()).filePath(base + QStringLiteral(".mp3"));
     int suffix = 2;
     while (QFileInfo::exists(path))
