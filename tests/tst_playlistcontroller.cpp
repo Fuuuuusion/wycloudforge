@@ -23,6 +23,7 @@ private slots:
     void createRenameDelete();
     void addRemoveMoveSongs();
     void favorites();
+    void batchTransactions();
     void recentPlays();
     void persistenceAcrossReopen();
     void duplicateAddAndOrphanCleanup();
@@ -155,6 +156,61 @@ void PlaylistControllerTest::favorites()
     QCOMPARE(m_controller->songsOf(m_controller->favoritePlaylistId()).size(), 1);
     m_controller->setFavorite(songId, false);
     QVERIFY(!m_controller->isFavorite(songId));
+}
+
+void PlaylistControllerTest::batchTransactions()
+{
+    QList<qint64> ids;
+    QSqlQuery insert(m_library->database());
+    insert.prepare(QStringLiteral("INSERT INTO songs(path,title) VALUES(?,?)"));
+    for (int i = 0; i < 3; ++i) {
+        insert.bindValue(0, QStringLiteral("/tmp/batch-%1.mp3").arg(i));
+        insert.bindValue(1, QStringLiteral("批量歌曲 %1").arg(i + 1));
+        QVERIFY(insert.exec());
+        ids.append(insert.lastInsertId().toLongLong());
+    }
+
+    const int playlistId = m_controller->createPlaylist(QStringLiteral("批量事务"));
+    QVERIFY(playlistId > 1);
+    QSignalSpy playlistsChanged(m_controller, &PlaylistController::playlistsChanged);
+    QSignalSpy songsChanged(m_controller, &PlaylistController::playlistSongsChanged);
+
+    auto result = m_controller->addSongsBatch(
+        playlistId, { ids[0], ids[1], ids[1] });
+    QVERIFY(result.success);
+    QCOMPARE(result.requested, 3);
+    QCOMPARE(result.changed, 2);
+    QCOMPARE(result.unchanged, 1);
+    QCOMPARE(m_controller->songsOf(playlistId).size(), 2);
+    QCOMPARE(playlistsChanged.count(), 0);
+    QCOMPARE(songsChanged.count(), 1);
+
+    result = m_controller->addSongsBatch(playlistId, { ids[2], 999999 });
+    QVERIFY(!result.success);
+    QCOMPARE(result.changed, 0);
+    QVERIFY(!m_controller->isInPlaylist(playlistId, ids[2]));
+
+    playlistsChanged.clear();
+    songsChanged.clear();
+    result = m_controller->setFavoritesBatch(ids, true);
+    QVERIFY(result.success);
+    QCOMPARE(result.changed, 3);
+    QCOMPARE(result.unchanged, 0);
+    QCOMPARE(m_controller->songsOf(m_controller->favoritePlaylistId()).size(), 3);
+    QCOMPARE(playlistsChanged.count(), 0);
+    QCOMPARE(songsChanged.count(), 1);
+
+    playlistsChanged.clear();
+    songsChanged.clear();
+    result = m_controller->setFavoritesBatch({ ids[0], ids[1], ids[1] }, false);
+    QVERIFY(result.success);
+    QCOMPARE(result.changed, 2);
+    QCOMPARE(result.unchanged, 1);
+    QVERIFY(!m_controller->isFavorite(ids[0]));
+    QVERIFY(!m_controller->isFavorite(ids[1]));
+    QVERIFY(m_controller->isFavorite(ids[2]));
+    QCOMPARE(playlistsChanged.count(), 0);
+    QCOMPARE(songsChanged.count(), 1);
 }
 
 void PlaylistControllerTest::recentPlays()

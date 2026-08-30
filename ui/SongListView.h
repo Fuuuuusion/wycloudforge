@@ -8,6 +8,8 @@
 class QMenu;
 class QMouseEvent;
 class QResizeEvent;
+class QAction;
+class QLabel;
 class QPushButton;
 class QToolButton;
 
@@ -63,12 +65,14 @@ protected:
 private:
     void setBatchMode(bool enabled);
     void updateBatchButtons();
+    void updateBatchLayout();
     void rebuildBatchPlaylistMenu();
     void toggleRowSelection(int row);
     SongListModel *m_model = nullptr;
     QMenu *m_menu = nullptr;
     QWidget *m_batchBar = nullptr;
     QPushButton *m_batchToggle = nullptr;
+    QLabel *m_selectionSummary = nullptr;
     QPushButton *m_selectAll = nullptr;
     QPushButton *m_clearSelection = nullptr;
     QPushButton *m_favoriteSelected = nullptr;
@@ -77,9 +81,16 @@ private:
     QPushButton *m_downloadSelected = nullptr;
     QPushButton *m_deleteSelected = nullptr;
     QPushButton *m_exitBatch = nullptr;
+    QToolButton *m_moreSelected = nullptr;
     QMenu *m_batchPlaylistMenu = nullptr;
+    QMenu *m_batchMoreMenu = nullptr;
+    QAction *m_moreClear = nullptr;
+    QAction *m_moreFavorite = nullptr;
+    QAction *m_moreUnfavorite = nullptr;
+    QAction *m_moreDownload = nullptr;
+    QAction *m_moreDelete = nullptr;
     QList<QPair<int, QString>> m_playlistItems;
-    QSet<int> m_selectedRows;
+    QSet<QString> m_selectedIdentities;
     QSet<qint64> m_favoriteIds;
     int m_contextRow = -1;
     bool m_removable = false;

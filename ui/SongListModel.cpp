@@ -36,7 +36,7 @@ QVariant SongListModel::data(const QModelIndex &index, int role) const
     case MissingRole: return song.missing;
     case DownloadedRole: return song.isDownloaded();
     case FavoriteRole: return m_favoriteIds.contains(song.id);
-    case SelectedRole: return m_selectedRows.contains(index.row());
+    case SelectedRole: return m_selectedIdentities.contains(song.selectionIdentity());
     case BatchModeRole: return m_batchMode;
     case Qt::ToolTipRole: {
         if (song.isOnline()) {
@@ -105,21 +105,18 @@ void SongListModel::setBatchMode(bool enabled)
         return;
     m_batchMode = enabled;
     if (!enabled)
-        m_selectedRows.clear();
+        m_selectedIdentities.clear();
     if (!m_songs.isEmpty())
         emit dataChanged(index(0, 0), index(m_songs.size() - 1, 0));
 }
 
-void SongListModel::setSelectedRows(const QSet<int> &rows)
+void SongListModel::setSelectedIdentities(const QSet<QString> &identities)
 {
-    const QSet<int> old = m_selectedRows;
-    m_selectedRows = rows;
-    QSet<int> changed = old;
-    changed.unite(rows);
-    for (int row : changed) {
-        if (row >= 0 && row < m_songs.size())
-            emit dataChanged(index(row, 0), index(row, 0));
-    }
+    if (m_selectedIdentities == identities)
+        return;
+    m_selectedIdentities = identities;
+    if (!m_songs.isEmpty())
+        emit dataChanged(index(0, 0), index(m_songs.size() - 1, 0));
 }
 
 } // namespace ui

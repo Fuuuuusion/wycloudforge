@@ -85,7 +85,7 @@ private:
     void addMusicFiles();
     void connectSongListActions();
     void handleSongDownload(const core::Song &song);
-    void handleSongDelete(const core::Song &song, bool batch = false);
+    bool handleSongDelete(const core::Song &song, bool batch = false);
     void handleBatchFavorite(const QList<core::Song> &songs, bool favorite);
     void handleBatchAddToPlaylist(const QList<core::Song> &songs, int playlistId);
     void handleBatchCreatePlaylist(const QList<core::Song> &songs);

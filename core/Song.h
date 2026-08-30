@@ -56,6 +56,16 @@ struct Song
             return QStringLiteral("%1:%2").arg(source).arg(effectiveRemoteId());
         return QStringLiteral("0:%1").arg(QFileInfo(filePath).absoluteFilePath());
     }
+    QString selectionIdentity() const
+    {
+        if (isOnline() && hasRemoteIdentity())
+            return QStringLiteral("remote:%1").arg(stableIdentity());
+        if (!isOnline() && id > 0)
+            return QStringLiteral("local:%1").arg(id);
+        if (id > 0)
+            return QStringLiteral("database:%1").arg(id);
+        return QStringLiteral("fallback:%1").arg(stableIdentity());
+    }
 
     bool isOnline() const { return source != int(SourceId::Local); }
     bool hasRemoteIdentity() const { return isOnline() && !effectiveRemoteId().isEmpty(); }

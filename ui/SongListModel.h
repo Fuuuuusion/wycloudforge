@@ -42,13 +42,13 @@ public:
     void setPlayingId(qint64 playingId);
     void setFavoriteIds(const QSet<qint64> &ids);
     void setBatchMode(bool enabled);
-    void setSelectedRows(const QSet<int> &rows);
+    void setSelectedIdentities(const QSet<QString> &identities);
 
 private:
     QList<core::Song> m_songs;
     qint64 m_playingId = -1;
     QSet<qint64> m_favoriteIds;
-    QSet<int> m_selectedRows;
+    QSet<QString> m_selectedIdentities;
     bool m_batchMode = false;
 };
 

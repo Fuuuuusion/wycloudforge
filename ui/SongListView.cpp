@@ -6,10 +6,12 @@
 #include "ui/SongListModel.h"
 #include "ui/SvgIcon.h"
 
+#include <QAction>
 #include <QContextMenuEvent>
 #include <QHeaderView>
 #include <QIcon>
 #include <QHBoxLayout>
+#include <QLabel>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
@@ -17,6 +19,7 @@
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QStyledItemDelegate>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 namespace ui {
@@ -279,7 +282,8 @@ SongListView::SongListView(QWidget *parent)
 
     setViewportMargins(0, 42, 0, 0);
     m_batchBar = new QWidget(this);
-    m_batchBar->setStyleSheet(QStringLiteral("QWidget{background:#16161E;border-radius:10px;}"));
+    m_batchBar->setObjectName(QStringLiteral("batchBar"));
+    m_batchBar->setStyleSheet(QStringLiteral("#batchBar{background:#16161E;border-radius:10px;}"));
     auto *bar = new QHBoxLayout(m_batchBar);
     bar->setContentsMargins(8, 3, 8, 3);
     bar->setSpacing(6);
@@ -294,15 +298,39 @@ SongListView::SongListView(QWidget *parent)
         return button;
     };
     m_batchToggle = makeBarButton(QStringLiteral("批量操作"));
+    m_batchToggle->setObjectName(QStringLiteral("batchToggle"));
+    m_batchToggle->setAccessibleName(QStringLiteral("批量操作"));
+    m_selectionSummary = new QLabel(QStringLiteral("已选择 0 首"), m_batchBar);
+    m_selectionSummary->setObjectName(QStringLiteral("batchSelectionSummary"));
+    m_selectionSummary->setStyleSheet(QStringLiteral("color:#C8C8D0;font-size:12px;padding:0 4px;"));
     m_selectAll = makeBarButton(QStringLiteral("全选"));
+    m_selectAll->setObjectName(QStringLiteral("batchSelectAll"));
     m_clearSelection = makeBarButton(QStringLiteral("清空选择"));
+    m_clearSelection->setObjectName(QStringLiteral("batchClearSelection"));
     m_favoriteSelected = makeBarButton(QStringLiteral("批量收藏"));
+    m_favoriteSelected->setObjectName(QStringLiteral("batchFavorite"));
     m_unfavoriteSelected = makeBarButton(QStringLiteral("批量取消收藏"));
+    m_unfavoriteSelected->setObjectName(QStringLiteral("batchUnfavorite"));
     m_addSelected = makeBarButton(QStringLiteral("添加到歌单"));
+    m_addSelected->setObjectName(QStringLiteral("batchAddToPlaylist"));
     m_downloadSelected = makeBarButton(QStringLiteral("批量下载"));
+    m_downloadSelected->setObjectName(QStringLiteral("batchDownload"));
     m_deleteSelected = makeBarButton(QStringLiteral("按来源删除"));
+    m_deleteSelected->setObjectName(QStringLiteral("batchDelete"));
     m_exitBatch = makeBarButton(QStringLiteral("完成"));
+    m_exitBatch->setObjectName(QStringLiteral("batchDone"));
+    m_moreSelected = new QToolButton(m_batchBar);
+    m_moreSelected->setObjectName(QStringLiteral("batchMore"));
+    m_moreSelected->setText(QStringLiteral("更多"));
+    m_moreSelected->setCursor(Qt::PointingHandCursor);
+    m_moreSelected->setPopupMode(QToolButton::InstantPopup);
+    m_moreSelected->setStyleSheet(QStringLiteral(
+        "QToolButton{border:none;background:#1B1B24;color:#C8C8D0;"
+        "padding:5px 11px;border-radius:14px;font-size:12px;}"
+        "QToolButton:hover{background:#3A2024;color:#EC4141;}"
+        "QToolButton:disabled{color:#555563;background:#16161E;}"));
     bar->addWidget(m_batchToggle);
+    bar->addWidget(m_selectionSummary);
     bar->addWidget(m_selectAll);
     bar->addWidget(m_clearSelection);
     bar->addWidget(m_favoriteSelected);
@@ -310,22 +338,30 @@ SongListView::SongListView(QWidget *parent)
     bar->addWidget(m_addSelected);
     bar->addWidget(m_downloadSelected);
     bar->addWidget(m_deleteSelected);
+    bar->addWidget(m_moreSelected);
     bar->addStretch(1);
     bar->addWidget(m_exitBatch);
     m_batchPlaylistMenu = new QMenu(m_addSelected);
     m_addSelected->setMenu(m_batchPlaylistMenu);
+    m_batchMoreMenu = new QMenu(m_moreSelected);
+    m_moreClear = m_batchMoreMenu->addAction(QStringLiteral("清空选择"));
+    m_moreFavorite = m_batchMoreMenu->addAction(QStringLiteral("批量收藏"));
+    m_moreUnfavorite = m_batchMoreMenu->addAction(QStringLiteral("批量取消收藏"));
+    m_moreDownload = m_batchMoreMenu->addAction(QStringLiteral("批量下载"));
+    m_moreDelete = m_batchMoreMenu->addAction(QStringLiteral("按来源删除"));
+    m_moreSelected->setMenu(m_batchMoreMenu);
     connect(m_batchToggle, &QPushButton::clicked, this, [this] { setBatchMode(!m_batchMode); });
     connect(m_exitBatch, &QPushButton::clicked, this, [this] { setBatchMode(false); });
     connect(m_selectAll, &QPushButton::clicked, this, [this] {
-        m_selectedRows.clear();
-        for (int row = 0; row < m_model->rowCount(); ++row)
-            m_selectedRows.insert(row);
-        m_model->setSelectedRows(m_selectedRows);
+        m_selectedIdentities.clear();
+        for (const core::Song &song : m_model->songs())
+            m_selectedIdentities.insert(song.selectionIdentity());
+        m_model->setSelectedIdentities(m_selectedIdentities);
         updateBatchButtons();
     });
     connect(m_clearSelection, &QPushButton::clicked, this, [this] {
-        m_selectedRows.clear();
-        m_model->setSelectedRows(m_selectedRows);
+        m_selectedIdentities.clear();
+        m_model->setSelectedIdentities(m_selectedIdentities);
         updateBatchButtons();
     });
     connect(m_favoriteSelected, &QPushButton::clicked, this, [this] {
@@ -340,6 +376,11 @@ SongListView::SongListView(QWidget *parent)
     connect(m_deleteSelected, &QPushButton::clicked, this, [this] {
         emit batchDeleteRequested(selectedSongs());
     });
+    connect(m_moreClear, &QAction::triggered, m_clearSelection, &QPushButton::click);
+    connect(m_moreFavorite, &QAction::triggered, m_favoriteSelected, &QPushButton::click);
+    connect(m_moreUnfavorite, &QAction::triggered, m_unfavoriteSelected, &QPushButton::click);
+    connect(m_moreDownload, &QAction::triggered, m_downloadSelected, &QPushButton::click);
+    connect(m_moreDelete, &QAction::triggered, m_deleteSelected, &QPushButton::click);
     setBatchMode(false);
 
     connect(this, &QTableView::doubleClicked, this, [this](const QModelIndex &idx) {
@@ -350,9 +391,16 @@ SongListView::SongListView(QWidget *parent)
 
 void SongListView::setSongs(const QList<core::Song> &songs, qint64 playingId)
 {
-    m_selectedRows.clear();
-    m_model->setSelectedRows(m_selectedRows);
+    if (m_batchMode) {
+        QSet<QString> available;
+        for (const core::Song &song : songs)
+            available.insert(song.selectionIdentity());
+        m_selectedIdentities.intersect(available);
+    } else {
+        m_selectedIdentities.clear();
+    }
     m_model->setSongs(songs, playingId);
+    m_model->setSelectedIdentities(m_selectedIdentities);
     updateBatchButtons();
 }
 
@@ -418,9 +466,10 @@ void SongListView::setDownloadActionMode(DownloadActionMode mode)
     m_downloadMode = mode;
     if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate()))
         delegate->setDownloadMode(mode);
-    m_downloadSelected->setVisible(mode == DownloadAction);
     m_deleteSelected->setText(mode == DeleteDownloadAction ? QStringLiteral("批量删除下载")
                                                             : QStringLiteral("按来源删除"));
+    m_moreDelete->setText(m_deleteSelected->text());
+    updateBatchButtons();
     viewport()->update();
 }
 
@@ -428,7 +477,7 @@ QList<core::Song> SongListView::selectedSongs() const
 {
     QList<core::Song> result;
     for (int row = 0; row < m_model->rowCount(); ++row)
-        if (m_selectedRows.contains(row))
+        if (m_selectedIdentities.contains(m_model->songAt(row).selectionIdentity()))
             result.append(m_model->songAt(row));
     return result;
 }
@@ -436,21 +485,12 @@ QList<core::Song> SongListView::selectedSongs() const
 void SongListView::setBatchMode(bool enabled)
 {
     m_batchMode = enabled;
-    m_batchBar->setVisible(enabled);
-    setViewportMargins(0, enabled ? 42 : 0, 0, 0);
-    m_batchToggle->setText(enabled ? QStringLiteral("退出批量") : QStringLiteral("批量操作"));
-    m_selectAll->setVisible(enabled);
-    m_clearSelection->setVisible(enabled);
-    m_favoriteSelected->setVisible(enabled);
-    m_unfavoriteSelected->setVisible(enabled);
-    m_addSelected->setVisible(enabled);
-    m_downloadSelected->setVisible(enabled && m_downloadMode == DownloadAction);
-    m_deleteSelected->setVisible(enabled);
-    m_exitBatch->setVisible(enabled);
+    m_batchBar->setVisible(true);
+    setViewportMargins(0, 42, 0, 0);
     m_model->setBatchMode(enabled);
     if (!enabled) {
-        m_selectedRows.clear();
-        m_model->setSelectedRows(m_selectedRows);
+        m_selectedIdentities.clear();
+        m_model->setSelectedIdentities(m_selectedIdentities);
     }
     updateBatchButtons();
     viewport()->update();
@@ -458,15 +498,53 @@ void SongListView::setBatchMode(bool enabled)
 
 void SongListView::updateBatchButtons()
 {
-    const bool hasSelection = !m_selectedRows.isEmpty();
+    const QList<core::Song> selection = selectedSongs();
+    const bool hasSelection = !selection.isEmpty();
+    bool hasDownloadable = false;
+    for (const core::Song &song : selection) {
+        if (song.isOnline() && !song.isDownloaded()) {
+            hasDownloadable = true;
+            break;
+        }
+    }
+    m_selectionSummary->setText(QStringLiteral("已选择 %1 首").arg(selection.size()));
     m_selectAll->setEnabled(m_model->rowCount() > 0);
     m_clearSelection->setEnabled(hasSelection);
     m_favoriteSelected->setEnabled(hasSelection);
     m_unfavoriteSelected->setEnabled(hasSelection);
     // 即使当前还没有已有歌单，也可以从菜单创建新歌单。
     m_addSelected->setEnabled(hasSelection);
-    m_downloadSelected->setEnabled(hasSelection);
+    m_downloadSelected->setEnabled(hasDownloadable);
     m_deleteSelected->setEnabled(hasSelection);
+    m_moreClear->setEnabled(hasSelection);
+    m_moreFavorite->setEnabled(hasSelection);
+    m_moreUnfavorite->setEnabled(hasSelection);
+    m_moreDownload->setEnabled(hasDownloadable);
+    m_moreDelete->setEnabled(hasSelection);
+    updateBatchLayout();
+}
+
+void SongListView::updateBatchLayout()
+{
+    const bool compact = width() < 1050;
+    const bool veryCompact = width() < 760;
+    m_batchBar->setVisible(true);
+    m_batchToggle->setVisible(!m_batchMode);
+    m_selectionSummary->setVisible(m_batchMode);
+    m_selectAll->setVisible(m_batchMode);
+    m_clearSelection->setVisible(m_batchMode && !veryCompact);
+    m_favoriteSelected->setVisible(m_batchMode && !veryCompact);
+    m_unfavoriteSelected->setVisible(m_batchMode && !compact);
+    m_addSelected->setVisible(m_batchMode);
+    m_downloadSelected->setVisible(m_batchMode && !compact && m_downloadMode == DownloadAction);
+    m_deleteSelected->setVisible(m_batchMode && !compact);
+    m_moreSelected->setVisible(m_batchMode && compact);
+    m_exitBatch->setVisible(m_batchMode);
+    m_moreClear->setVisible(veryCompact);
+    m_moreFavorite->setVisible(veryCompact);
+    m_moreUnfavorite->setVisible(compact);
+    m_moreDownload->setVisible(compact && m_downloadMode == DownloadAction);
+    m_moreDelete->setVisible(compact);
 }
 
 void SongListView::rebuildBatchPlaylistMenu()
@@ -490,11 +568,12 @@ void SongListView::toggleRowSelection(int row)
 {
     if (row < 0 || row >= m_model->rowCount())
         return;
-    if (m_selectedRows.contains(row))
-        m_selectedRows.remove(row);
+    const QString identity = m_model->songAt(row).selectionIdentity();
+    if (m_selectedIdentities.contains(identity))
+        m_selectedIdentities.remove(identity);
     else
-        m_selectedRows.insert(row);
-    m_model->setSelectedRows(m_selectedRows);
+        m_selectedIdentities.insert(identity);
+    m_model->setSelectedIdentities(m_selectedIdentities);
     updateBatchButtons();
 }
 
@@ -550,8 +629,10 @@ void SongListView::mousePressEvent(QMouseEvent *event)
 void SongListView::resizeEvent(QResizeEvent *event)
 {
     QTableView::resizeEvent(event);
-    if (m_batchBar)
+    if (m_batchBar) {
         m_batchBar->setGeometry(0, 0, width(), 38);
+        updateBatchLayout();
+    }
 }
 
 void SongListView::contextMenuEvent(QContextMenuEvent *event)

@@ -20,6 +20,14 @@ public:
         int songCount = 0;
     };
 
+    struct BatchResult
+    {
+        int requested = 0;
+        int changed = 0;
+        int unchanged = 0;
+        bool success = false;
+    };
+
     explicit PlaylistController(QObject *parent = nullptr);
 
     void setDatabase(const QSqlDatabase &db);
@@ -40,9 +48,11 @@ public:
     bool deletePlaylist(int id);
 
     bool addSong(int playlistId, qint64 songId);
+    BatchResult addSongsBatch(int playlistId, const QList<qint64> &songIds);
     bool removeSong(int playlistId, qint64 songId);
     bool moveSong(int playlistId, int from, int to);
     bool setFavorite(qint64 songId, bool favorite);
+    BatchResult setFavoritesBatch(const QList<qint64> &songIds, bool favorite);
 
     QList<Song> recentSongs(int limit = 40) const;
     void recordPlay(qint64 songId);

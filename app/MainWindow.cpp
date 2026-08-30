@@ -1351,16 +1351,62 @@ void MainWindow::connectSongListActions()
             for (const core::Song &song : songs)
                 if (song.isOnline() && !song.isDownloaded())
                     pending.append(song);
-            if (pending.isEmpty())
+            if (pending.isEmpty()) {
+                QToolTip::showText(QCursor::pos(), QStringLiteral("所选歌曲均不可下载或已经下载"),
+                                   this, QRect(), 2200);
                 return;
+            }
             m_downloads.enqueue(pending);
+            const int skipped = songs.size() - pending.size();
+            const QString message = skipped > 0
+                ? QStringLiteral("已加入 %1 首下载任务，跳过 %2 首").arg(pending.size()).arg(skipped)
+                : QStringLiteral("已加入 %1 首下载任务").arg(pending.size());
+            QToolTip::showText(QCursor::pos(), message, this, QRect(), 2600);
             showPage(7);
         });
         connect(view, &ui::SongListView::batchDeleteRequested, this,
                 [this](const QList<core::Song> &songs) {
-            for (const core::Song &song : songs)
-                handleSongDelete(song, true);
-            QToolTip::showText(QCursor::pos(), QStringLiteral("已按歌曲来源完成批量删除"), this, QRect(), 1800);
+            int localRemoved = 0;
+            int downloadsRemoved = 0;
+            int cachesRemoved = 0;
+            int onlineRecordsRemoved = 0;
+            QStringList failures;
+            for (const core::Song &song : songs) {
+                const bool local = !song.isOnline();
+                const bool downloaded = song.isDownloaded();
+                const bool cached = song.isCached();
+                if (!handleSongDelete(song, true)) {
+                    failures.append(song.title.isEmpty() ? QStringLiteral("未知歌曲") : song.title);
+                    continue;
+                }
+                if (local)
+                    ++localRemoved;
+                else if (downloaded)
+                    ++downloadsRemoved;
+                else if (cached)
+                    ++cachesRemoved;
+                else
+                    ++onlineRecordsRemoved;
+            }
+            QStringList summary;
+            if (localRemoved > 0)
+                summary.append(QStringLiteral("从曲库移除 %1 首").arg(localRemoved));
+            if (downloadsRemoved > 0)
+                summary.append(QStringLiteral("删除永久下载 %1 首").arg(downloadsRemoved));
+            if (cachesRemoved > 0)
+                summary.append(QStringLiteral("删除缓存 %1 首").arg(cachesRemoved));
+            if (onlineRecordsRemoved > 0)
+                summary.append(QStringLiteral("移除在线记录 %1 首").arg(onlineRecordsRemoved));
+            if (!failures.isEmpty()) {
+                QString detail = failures.mid(0, 3).join(QStringLiteral("、"));
+                if (failures.size() > 3)
+                    detail += QStringLiteral("等");
+                summary.append(QStringLiteral("失败 %1 首：%2").arg(failures.size()).arg(detail));
+            }
+            if (summary.isEmpty())
+                summary.append(QStringLiteral("没有可处理的歌曲"));
+            QToolTip::showText(QCursor::pos(), summary.join(QStringLiteral("；")),
+                               this, QRect(), 4200);
         });
         connect(view, &ui::SongListView::batchFavoriteRequested, this,
                 &MainWindow::handleBatchFavorite);
@@ -1379,10 +1425,10 @@ void MainWindow::handleSongDownload(const core::Song &song)
         showPage(7);
 }
 
-void MainWindow::handleSongDelete(const core::Song &song, bool batch)
+bool MainWindow::handleSongDelete(const core::Song &song, bool batch)
 {
     if (song.id <= 0)
-        return;
+        return false;
     bool deleteLocalFile = false;
     if (!batch && !song.isOnline()) {
         QMessageBox box(this);
@@ -1393,47 +1439,65 @@ void MainWindow::handleSongDelete(const core::Song &song, bool batch)
         box.addButton(QMessageBox::Cancel);
         box.exec();
         if (box.clickedButton() == nullptr || box.clickedButton() == box.button(QMessageBox::Cancel))
-            return;
+            return false;
         deleteLocalFile = box.clickedButton() == removeFile;
         if (box.clickedButton() != removeFromLibrary && !deleteLocalFile)
-            return;
+            return false;
     }
 
     const bool wasCurrent = song.id == m_currentSongId;
+    bool ok = false;
     if (!song.isOnline()) {
         m_library.removeSong(song.id);
-        if (deleteLocalFile)
-            QFile::remove(song.filePath);
+        ok = m_library.songById(song.id).id <= 0;
+        if (deleteLocalFile && QFileInfo::exists(song.filePath))
+            ok = QFile::remove(song.filePath) && ok;
     } else if (song.isDownloaded()) {
-        m_library.removeSongDownload(song.id);
+        const QString path = song.downloadPath;
+        ok = m_library.removeSongDownload(song.id);
+        if (ok && !path.isEmpty() && QFileInfo::exists(path))
+            ok = false;
     } else if (song.isCached()) {
         m_library.invalidateSongCache(song.id);
+        ok = !m_library.songById(song.id).isCached();
     } else {
         m_library.removeSong(song.id);
+        ok = m_library.songById(song.id).id <= 0;
     }
-    if (wasCurrent && !m_player.playlist().isEmpty())
+    if (ok && wasCurrent && !m_player.playlist().isEmpty())
         m_player.next();
+    return ok;
 }
 
 void MainWindow::handleBatchFavorite(const QList<core::Song> &songs, bool favorite)
 {
-    int changed = 0;
-    for (const core::Song &song : songs) {
-        if (song.id <= 0 || m_playlists.isFavorite(song.id) == favorite)
-            continue;
-        if (m_playlists.setFavorite(song.id, favorite))
-            ++changed;
-    }
-    QToolTip::showText(QCursor::pos(), QStringLiteral("已更新 %1 首歌曲的收藏状态").arg(changed), this, QRect(), 1800);
+    QList<qint64> songIds;
+    for (const core::Song &song : songs)
+        songIds.append(song.id);
+    const core::PlaylistController::BatchResult result =
+        m_playlists.setFavoritesBatch(songIds, favorite);
+    if (!result.success)
+        return;
+    const QString action = favorite ? QStringLiteral("收藏") : QStringLiteral("取消收藏");
+    QToolTip::showText(QCursor::pos(),
+                       QStringLiteral("已%1 %2 首，跳过 %3 首")
+                           .arg(action).arg(result.changed).arg(result.unchanged),
+                       this, QRect(), 2600);
 }
 
 void MainWindow::handleBatchAddToPlaylist(const QList<core::Song> &songs, int playlistId)
 {
-    int added = 0;
+    QList<qint64> songIds;
     for (const core::Song &song : songs)
-        if (song.id > 0 && m_playlists.addSong(playlistId, song.id))
-            ++added;
-    QToolTip::showText(QCursor::pos(), QStringLiteral("已添加 %1 首歌曲到歌单").arg(added), this, QRect(), 1800);
+        songIds.append(song.id);
+    const core::PlaylistController::BatchResult result =
+        m_playlists.addSongsBatch(playlistId, songIds);
+    if (!result.success)
+        return;
+    QToolTip::showText(QCursor::pos(),
+                       QStringLiteral("已添加 %1 首到歌单，跳过 %2 首")
+                           .arg(result.changed).arg(result.unchanged),
+                       this, QRect(), 2600);
 }
 
 void MainWindow::handleBatchCreatePlaylist(const QList<core::Song> &songs)
