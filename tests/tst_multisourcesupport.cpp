@@ -242,6 +242,30 @@ void MultiSourceSupportTest::neteaseCategorizedSearchAndDiscovery()
         if (url.path() == QStringLiteral("/cloudsearch")) {
             const QUrlQuery query(url);
             const QString type = query.queryItemValue(QStringLiteral("type"));
+            if (type == QStringLiteral("1")) {
+                return QJsonObject{
+                    { QStringLiteral("result"), QJsonObject{
+                        { QStringLiteral("songCount"), 1 },
+                        { QStringLiteral("songs"), QJsonArray{
+                            QJsonObject{
+                                { QStringLiteral("id"), QStringLiteral("restricted-song") },
+                                { QStringLiteral("name"), QStringLiteral("受限歌曲") },
+                                { QStringLiteral("pop"), 99.0 },
+                                { QStringLiteral("privilege"), QJsonObject{
+                                    { QStringLiteral("st"), -5 }
+                                } },
+                                { QStringLiteral("ar"), QJsonArray{
+                                    QJsonObject{ { QStringLiteral("name"), QStringLiteral("受限歌手") } }
+                                } },
+                                { QStringLiteral("al"), QJsonObject{
+                                    { QStringLiteral("id"), QStringLiteral("restricted-album") },
+                                    { QStringLiteral("name"), QStringLiteral("受限专辑") }
+                                } }
+                            }
+                        } }
+                    } }
+                };
+            }
             if (type == QStringLiteral("100")) {
                 return QJsonObject{
                     { QStringLiteral("result"), QJsonObject{
@@ -335,6 +359,21 @@ void MultiSourceSupportTest::neteaseCategorizedSearchAndDiscovery()
     QCOMPARE(artistResponse.items.constFirst().type, SearchItemType::Artist);
     QCOMPARE(artistResponse.items.constFirst().remoteId, QStringLiteral("netease-artist"));
 
+    request.category = SearchCategory::Songs;
+    request.generation = 104;
+    bool songDone = false;
+    SearchResponse songResponse;
+    source.search(request, [&](const SearchResponse &response) {
+        songResponse = response;
+        songDone = true;
+    });
+    QTRY_VERIFY_WITH_TIMEOUT(songDone, 3000);
+    QCOMPARE(songResponse.items.size(), 1);
+    QVERIFY(!songResponse.items.constFirst().playable);
+    QCOMPARE(songResponse.items.constFirst().availabilityError,
+             QStringLiteral("网易云版权或地区限制"));
+    QCOMPARE(songResponse.items.constFirst().popularity, 99.0);
+
     request.category = SearchCategory::Lyrics;
     request.generation = 102;
     bool lyricDone = false;
@@ -362,10 +401,11 @@ void MultiSourceSupportTest::neteaseCategorizedSearchAndDiscovery()
     QCOMPARE(allResponse.category, SearchCategory::All);
     QCOMPARE(allResponse.generation, quint64(103));
     QCOMPARE(allResponse.offset, 10);
-    QCOMPARE(allResponse.items.size(), 2);
+    QCOMPARE(allResponse.items.size(), 3);
     QCOMPARE(allResponse.items.at(0).type, SearchItemType::Artist);
     QCOMPARE(allResponse.items.at(0).sourceRank, 3);
-    QCOMPARE(allResponse.items.at(1).type, SearchItemType::Lyric);
+    QCOMPARE(allResponse.items.at(1).type, SearchItemType::Song);
+    QCOMPARE(allResponse.items.at(2).type, SearchItemType::Lyric);
 
     bool suggestionDone = false;
     QList<SearchSuggestion> suggestions;

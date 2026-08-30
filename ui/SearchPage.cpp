@@ -212,6 +212,8 @@ void SearchPage::performSearch(const QString &query)
     m_onlineLoading = false;
     m_albumCoverLookups.clear();
     m_sourceStates.clear();
+    m_onlineItems.clear();
+    m_onlineGroups.clear();
     m_onlineSongs.clear();
     m_onlineList->setSongs({});
     m_onlineHeader->hide();
@@ -313,8 +315,8 @@ void SearchPage::updateOnlineHeader()
         if (it == m_sourceStates.constEnd())
             continue;
         int count = 0;
-        for (const core::Song &song : std::as_const(m_onlineSongs)) {
-            if (song.sourceId() == sourceId)
+        for (const core::SearchResultItem &item : std::as_const(m_onlineItems)) {
+            if (item.source == sourceId && item.type == core::SearchItemType::Song)
                 ++count;
         }
         QString status;
@@ -372,8 +374,11 @@ void SearchPage::loadOnlinePage(int offset)
     auto pending = std::make_shared<int>(sources.size());
     auto hasMore = std::make_shared<bool>(false);
     const QPointer<SearchPage> guard(this);
-    if (offset == 0)
+    if (offset == 0) {
+        m_onlineItems.clear();
+        m_onlineGroups.clear();
         m_onlineSongs.clear();
+    }
     for (core::MusicSource *source : std::as_const(sources)) {
         core::SearchSourceState state;
         state.source = source->sourceId();
@@ -387,7 +392,7 @@ void SearchPage::loadOnlinePage(int offset)
     const auto renderResults = [guard, generation, offset, hasMore](bool finished) {
         if (!guard || generation != guard->m_searchGeneration)
             return;
-        guard->m_onlineList->setSongs(guard->m_onlineSongs);
+        guard->rebuildAggregatedOnlineResults();
         guard->updateOnlineHeader();
         if (finished) {
             guard->m_onlineOffset = offset;
@@ -438,20 +443,11 @@ void SearchPage::loadOnlinePage(int offset)
             return;
         *settled = true;
         *hasMore = *hasMore || response.hasMore;
-        for (const core::SearchResultItem &item : response.items) {
-            if (item.type != core::SearchItemType::Song)
+        for (const core::SearchResultItem &sourceItem : response.items) {
+            if (sourceItem.type != core::SearchItemType::Song)
                 continue;
-            const core::Song s0 = item.song;
-            bool duplicate = false;
-            for (const core::Song &existing : std::as_const(guard->m_onlineSongs)) {
-                if (existing.stableIdentity() == s0.stableIdentity()) {
-                    duplicate = true;
-                    break;
-                }
-            }
-            if (duplicate)
-                continue;
-            core::Song s = s0;
+            core::SearchResultItem item = sourceItem;
+            core::Song s = item.song;
             const core::Song stored = guard->m_lib->songByRemoteId(
                 s.source, s.effectiveRemoteId());
             if (stored.id > 0) {
@@ -460,8 +456,31 @@ void SearchPage::loadOnlinePage(int offset)
                 s.cachePath = stored.cachePath;
                 s.downloadPath = stored.downloadPath;
                 s.lyricPath = stored.lyricPath;
+                s.playCount = stored.playCount;
+                s.lastPlayedMs = stored.lastPlayedMs;
             }
-            guard->m_onlineSongs.append(s);
+            item.song = s;
+            item.source = s.sourceId();
+            item.remoteId = s.effectiveRemoteId();
+            if (item.title.isEmpty())
+                item.title = s.title;
+            if (item.artist.isEmpty())
+                item.artist = s.artist;
+            if (item.album.isEmpty())
+                item.album = s.album;
+            if (item.durationMs <= 0)
+                item.durationMs = s.durationMs;
+            const QString identity = item.stableIdentity();
+            bool replaced = false;
+            for (core::SearchResultItem &existing : guard->m_onlineItems) {
+                if (existing.stableIdentity() == identity) {
+                    existing = item;
+                    replaced = true;
+                    break;
+                }
+            }
+            if (!replaced)
+                guard->m_onlineItems.append(item);
         }
         auto state = guard->m_sourceStates.value(sourceKey);
         state.state = core::SearchLoadState::Ready;
@@ -482,12 +501,32 @@ void SearchPage::loadOnlinePage(int offset)
     }
 }
 
+void SearchPage::rebuildAggregatedOnlineResults()
+{
+    core::SearchAggregateOptions options;
+    options.query = m_query;
+    options.sortMode = m_sortMode;
+    options.preferredSource = m_preferredSource;
+    m_onlineGroups = core::SearchAggregator::aggregate(m_onlineItems, options);
+    m_onlineSongs.clear();
+    m_onlineSongs.reserve(m_onlineGroups.size());
+    for (const core::SearchResultGroup &group : std::as_const(m_onlineGroups)) {
+        const core::Song song = group.preferredSong();
+        if (song.isOnline() && song.hasRemoteIdentity())
+            m_onlineSongs.append(song);
+    }
+    m_onlineList->setSongs(m_onlineSongs);
+}
+
 void SearchPage::refreshOnlineCovers()
 {
-    if (!m_lib || m_onlineSongs.isEmpty())
+    if (!m_lib || m_onlineItems.isEmpty())
         return;
     bool changed = false;
-    for (core::Song &song : m_onlineSongs) {
+    for (core::SearchResultItem &item : m_onlineItems) {
+        if (item.type != core::SearchItemType::Song)
+            continue;
+        core::Song &song = item.song;
         core::Song stored = m_lib->songById(song.id);
         if (stored.id <= 0 && song.hasRemoteIdentity())
             stored = m_lib->songByRemoteId(song.source, song.effectiveRemoteId());
@@ -504,7 +543,23 @@ void SearchPage::refreshOnlineCovers()
         }
     }
     if (changed)
-        m_onlineList->setSongs(m_onlineSongs);
+        rebuildAggregatedOnlineResults();
+}
+
+void SearchPage::setSortMode(core::SearchSortMode mode)
+{
+    if (m_sortMode == mode)
+        return;
+    m_sortMode = mode;
+    rebuildAggregatedOnlineResults();
+}
+
+void SearchPage::setPreferredSource(core::SourceId source)
+{
+    if (m_preferredSource == source)
+        return;
+    m_preferredSource = source;
+    rebuildAggregatedOnlineResults();
 }
 
 QList<core::Song> SearchPage::currentSongs() const
@@ -513,6 +568,11 @@ QList<core::Song> SearchPage::currentSongs() const
     // 旧实现始终返回本地结果，在线歌曲收藏/加入歌单时会写入错误 id，
     // 本地结果为空时则完全不会持久化。
     return m_stack && m_stack->currentIndex() == 1 ? m_onlineSongs : m_results;
+}
+
+QList<core::SearchResultGroup> SearchPage::onlineResultGroups() const
+{
+    return m_onlineGroups;
 }
 
 void SearchPage::setPlaylistMenuItems(const QList<QPair<int, QString>> &items)
@@ -586,6 +646,14 @@ void SearchPage::ensureCover(const core::Song &song)
 void SearchPage::setOnlineCover(const QString &stableIdentity, const QString &path)
 {
     bool changed = false;
+    for (core::SearchResultItem &item : m_onlineItems) {
+        if (item.type == core::SearchItemType::Song
+            && item.song.stableIdentity() == stableIdentity
+            && item.song.coverPath != path) {
+            item.song.coverPath = path;
+            changed = true;
+        }
+    }
     for (core::Song &song : m_onlineSongs) {
         if (song.stableIdentity() == stableIdentity && song.coverPath != path) {
             song.coverPath = path;
@@ -593,7 +661,7 @@ void SearchPage::setOnlineCover(const QString &stableIdentity, const QString &pa
         }
     }
     if (changed)
-        m_onlineList->setSongs(m_onlineSongs);
+        rebuildAggregatedOnlineResults();
 }
 
 } // namespace ui

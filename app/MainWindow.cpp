@@ -175,6 +175,7 @@ MainWindow::MainWindow(QWidget *parent)
         restoreGeometry(geometry);
 
     m_titleBar = new ui::TitleBar(this);
+    m_titleBar->setMaximizedState(isMaximized());
     m_sideBar = new ui::SideBar(this);
     m_playerBar = new ui::PlayerBar(this);
     m_accountPanel = new ui::AccountPanel(this);
@@ -1588,7 +1589,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
 
 void MainWindow::changeEvent(QEvent *event)
 {
-    if (event->type() == QEvent::WindowStateChange)
+    if (event->type() == QEvent::WindowStateChange && m_titleBar)
         m_titleBar->setMaximizedState(isMaximized());
     QMainWindow::changeEvent(event);
 }

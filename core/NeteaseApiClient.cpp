@@ -92,6 +92,18 @@ SearchResultItem songSearchItem(const NeteaseApiClient *source, const QJsonObjec
     item.durationMs = item.song.durationMs;
     item.sourceRank = rank;
     item.popularity = object.value(QStringLiteral("pop")).toDouble(-1.0);
+    const QJsonObject privilege = object.value(QStringLiteral("privilege")).toObject();
+    const int privilegeState = privilege.value(QStringLiteral("st")).toInt(0);
+    const bool noCopyright = object.value(QStringLiteral("noCopyrightRcmd")).isObject()
+        || object.value(QStringLiteral("noCopyrightRcmd")).isString();
+    if (privilegeState < 0 || noCopyright) {
+        item.playable = false;
+        item.availabilityError = QStringLiteral("网易云版权或地区限制");
+    } else if (object.value(QStringLiteral("fee")).toInt(0) > 0) {
+        // 会员账号可能仍可正常播放，因此这里仅保留提示；最终可播放性
+        // 继续以播放前实时解析出的媒体地址为准。
+        item.availabilityError = QStringLiteral("可能需要会员或付费权限");
+    }
     if (type == SearchItemType::Lyric) {
         const QJsonArray lyrics = object.value(QStringLiteral("lyrics")).toArray();
         for (const QJsonValue &value : lyrics) {

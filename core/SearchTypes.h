@@ -78,7 +78,8 @@ struct SearchResultItem
 
     QString stableIdentity() const
     {
-        if (type == SearchItemType::Song && song.hasRemoteIdentity())
+        if (type == SearchItemType::Song
+            && (song.hasRemoteIdentity() || !song.filePath.isEmpty()))
             return song.stableIdentity();
         return QStringLiteral("%1:%2:%3")
             .arg(int(source)).arg(int(type)).arg(remoteId.trimmed());

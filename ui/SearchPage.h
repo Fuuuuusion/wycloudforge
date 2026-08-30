@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/MusicSource.h"
+#include "core/SearchAggregator.h"
 #include "core/Song.h"
 
 #include <QWidget>
@@ -41,7 +42,10 @@ public:
     void performSearch(const QString &query);
     void refreshLocalResults();
     void refreshOnlineCovers();
+    void setSortMode(core::SearchSortMode mode);
+    void setPreferredSource(core::SourceId source);
     QList<core::Song> currentSongs() const;
+    QList<core::SearchResultGroup> onlineResultGroups() const;
     void setPlaylistMenuItems(const QList<QPair<int, QString>> &items);
 
 signals:
@@ -57,6 +61,7 @@ private:
     void loadOnlinePage(int offset);
     void startLocalSearch();
     void renderLocalGroups();
+    void rebuildAggregatedOnlineResults();
     void cancelActiveSearch();
     void updateOnlineHeader();
     void ensureCover(const core::Song &song);
@@ -69,11 +74,15 @@ private:
     QVBoxLayout *m_albumLayout = nullptr;
     QList<core::Song> m_results;
     QList<core::Song> m_onlineSongs;
+    QList<core::SearchResultItem> m_onlineItems;
+    QList<core::SearchResultGroup> m_onlineGroups;
     QString m_query;
     int m_onlineOffset = 0;
     int m_onlinePageSize = 30;
     quint64 m_searchGeneration = 0;
     quint64 m_localRequestGeneration = 0;
+    core::SearchSortMode m_sortMode = core::SearchSortMode::Comprehensive;
+    core::SourceId m_preferredSource = core::SourceId::Local;
     bool m_onlineLoading = false;
     int m_sourceTimeoutMs = 15000;
     QHash<int, core::SearchSourceState> m_sourceStates;
