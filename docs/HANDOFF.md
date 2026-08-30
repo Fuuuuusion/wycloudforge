@@ -325,3 +325,13 @@ a4dcb21  SongListModel 改多列表 + 登录补齐uid/昵称 + QPointer防闪退
 
 - `NeteaseClone`、`tst_playlistcontroller`、`tst_songlistview` 首次编译均成功，无源码编译错误。
 - 首轮六项 `ctest -j1` 中，LRC、标签、歌单、播放器和新增批量 UI 五项通过，`tst_multisourcesupport` 在受限进程中无诊断退出。根因与既有记录一致：该测试包含 Windows DPAPI，受限进程没有完整桌面用户配置文件。可行方案仍是保持 DPAPI 实现，在正常桌面用户上下文单独重跑；本轮重跑 `EXIT=0`，不需要修改代码或系统配置。
+
+---
+
+## 10) 折中搜索方案实施记录（2026-08-30）
+
+### 阶段 1 编译记录
+
+- 首次正式构建在链接 `bin/NeteaseClone.exe` 时失败：`ld.exe: cannot open output file ... Permission denied`。此前 core、ui 和 `MainWindow.cpp` 均已编译成功。根因是正式应用进程仍在运行并锁定旧 EXE，链接器无法原地覆盖；这不是源码或工具链配置错误。可行方案是先向明确位于本项目构建目录的 `NeteaseClone` 进程发送正常关闭请求，等待 SQLite checkpoint 和进程退出后重新运行单线程 Ninja；禁止为解决文件锁直接强制结束应用。
+- 正常关闭应用后重新链接成功；随后单线程构建正式应用和全部测试目标成功。6 项 Qt 自动化测试全部通过，其中 `tst_playerservice` 已增加统一搜索 DTO、字符串远端 ID、来源名次、generation 透传和不支持分类错误测试。
+- 使用隔离数据库打开搜索页并执行 `--smoke`，正式应用退出码为 0；未触碰真实音乐库。

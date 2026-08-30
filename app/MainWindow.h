@@ -67,6 +67,7 @@ private:
     void openSettings();
     void openPlaylistEditor(int playlistId);
     void playSongs(const QList<core::Song> &songs, int index);
+    core::Song materializeSongForAction(const core::Song &song);
     void addSongToPlaylist(const core::Song &song, int playlistId);
     QList<ui::SideBar::PlaylistItem> selfPlaylistInfos() const;
     void refreshSidebar();

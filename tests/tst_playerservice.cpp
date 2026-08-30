@@ -51,8 +51,26 @@ public:
             ok(result);
     }
 
+    void searchSongsPage(const QString &keywords, int limit, int offset,
+                         MusicSource::JsonArrayFn ok,
+                         MusicSource::ErrFn err = {}) override
+    {
+        Q_UNUSED(err)
+        searchKeywords = keywords;
+        searchLimit = limit;
+        searchOffset = offset;
+        ++searchRequests;
+        if (ok)
+            ok(searchPayload);
+    }
+
     QStringList requests;
     int emptyResponsesRemaining = 0;
+    QJsonArray searchPayload;
+    QString searchKeywords;
+    int searchLimit = 0;
+    int searchOffset = 0;
+    int searchRequests = 0;
 
 private:
     QHash<QString, QString> m_urls;
@@ -116,6 +134,8 @@ private slots:
     void onlineUrlRetriesOnce();
     void cachedOnlineSongPlayback();
     void downloadedOnlineSongPlayback();
+    void unifiedSearchContract();
+    void unifiedSearchRejectsUnsupportedCategory();
 };
 
 void PlayerServiceTest::playlistNavigation()
@@ -156,6 +176,88 @@ void PlayerServiceTest::playlistNavigation()
     player.setMode(PlayerService::Shuffle);
     player.next();
     QVERIFY(player.currentIndex() >= 0 && player.currentIndex() <= 1);
+}
+
+void PlayerServiceTest::unifiedSearchContract()
+{
+    LocalUrlSource<NeteaseApiClient> source;
+    source.searchPayload = {
+        QJsonObject{
+            { QStringLiteral("id"), QStringLiteral("9223372036854775808124") },
+            { QStringLiteral("name"), QStringLiteral("测试搜索歌曲") },
+            { QStringLiteral("dt"), 234000 },
+            { QStringLiteral("ar"), QJsonArray{
+                QJsonObject{
+                    { QStringLiteral("id"), QStringLiteral("artist-id") },
+                    { QStringLiteral("name"), QStringLiteral("测试歌手") }
+                }
+            } },
+            { QStringLiteral("al"), QJsonObject{
+                { QStringLiteral("id"), QStringLiteral("album-id") },
+                { QStringLiteral("name"), QStringLiteral("测试专辑") },
+                { QStringLiteral("picUrl"), QStringLiteral("https://example.test/cover.jpg") }
+            } }
+        }
+    };
+
+    SearchRequest request;
+    request.keywords = QStringLiteral("  测试搜索  ");
+    request.category = SearchCategory::Songs;
+    request.scope = SearchScope::Netease;
+    request.limit = 12;
+    request.offset = 24;
+    request.generation = 77;
+
+    bool completed = false;
+    QString failure;
+    SearchResponse response;
+    source.search(request, [&](const SearchResponse &value) {
+        response = value;
+        completed = true;
+    }, [&](const QString &message) {
+        failure = message;
+    });
+
+    QVERIFY2(failure.isEmpty(), qPrintable(failure));
+    QVERIFY(completed);
+    QCOMPARE(source.searchRequests, 1);
+    QCOMPARE(source.searchKeywords, QStringLiteral("测试搜索"));
+    QCOMPARE(source.searchLimit, 12);
+    QCOMPARE(source.searchOffset, 24);
+    QCOMPARE(response.source, SourceId::Netease);
+    QCOMPARE(response.category, SearchCategory::Songs);
+    QCOMPARE(response.generation, quint64(77));
+    QCOMPARE(response.offset, 24);
+    QCOMPARE(response.items.size(), 1);
+    const SearchResultItem item = response.items.constFirst();
+    QCOMPARE(item.type, SearchItemType::Song);
+    QCOMPARE(item.remoteId, QStringLiteral("9223372036854775808124"));
+    QCOMPARE(item.song.effectiveRemoteId(), item.remoteId);
+    QCOMPARE(item.song.stableIdentity(),
+             QStringLiteral("1:9223372036854775808124"));
+    QCOMPARE(item.sourceRank, 24);
+}
+
+void PlayerServiceTest::unifiedSearchRejectsUnsupportedCategory()
+{
+    LocalUrlSource<NeteaseApiClient> source;
+    SearchRequest request;
+    request.keywords = QStringLiteral("歌手");
+    request.category = SearchCategory::Artists;
+    request.limit = 10;
+    request.generation = 3;
+
+    bool completed = false;
+    QString failure;
+    source.search(request, [&](const SearchResponse &) {
+        completed = true;
+    }, [&](const QString &message) {
+        failure = message;
+    });
+
+    QVERIFY(!completed);
+    QCOMPARE(source.searchRequests, 0);
+    QVERIFY(failure.contains(QStringLiteral("暂不支持")));
 }
 
 void PlayerServiceTest::playPauseAndPosition()

@@ -5,6 +5,7 @@
 
 #include <QWidget>
 
+#include <QHash>
 #include <QSet>
 
 class QLabel;
@@ -52,8 +53,10 @@ signals:
 
 private:
     void loadOnlinePage(int offset);
+    void cancelActiveSearch();
+    void updateOnlineHeader();
     void ensureCover(const core::Song &song);
-    void setOnlineCover(qint64 songId, const QString &path);
+    void setOnlineCover(const QString &stableIdentity, const QString &path);
 
     QLabel *m_title = nullptr;
     QStackedWidget *m_stack = nullptr;
@@ -65,10 +68,12 @@ private:
     QString m_query;
     int m_onlineOffset = 0;
     int m_onlinePageSize = 30;
-    int m_searchGeneration = 0;
+    quint64 m_searchGeneration = 0;
     bool m_onlineLoading = false;
+    int m_sourceTimeoutMs = 15000;
+    QHash<int, core::SearchSourceState> m_sourceStates;
     QSet<QString> m_albumCoverLookups;
-    QSet<qint64> m_coverDownloads;
+    QSet<QString> m_coverDownloads;
     QSet<int> m_enabledSourceIds;
     core::MusicSource *m_source = nullptr;
     core::MusicSourceRegistry *m_registry = nullptr;

@@ -20,6 +20,58 @@ void MusicSource::songUrls(const QList<qint64> &ids, JsonArrayFn ok, ErrFn err)
     songUrls(stringIds(ids), std::move(ok), std::move(err));
 }
 
+void MusicSource::search(const SearchRequest &request, SearchResponseFn ok, ErrFn err)
+{
+    if (!request.isValid()) {
+        if (err)
+            err(QStringLiteral("搜索关键词或分页参数无效"));
+        return;
+    }
+    if (request.category != SearchCategory::All
+        && request.category != SearchCategory::Songs) {
+        if (err)
+            err(QStringLiteral("%1暂不支持该搜索分类").arg(sourceName()));
+        return;
+    }
+
+    searchSongsPage(request.keywords.trimmed(), request.limit, request.offset,
+                    [this, request, ok = std::move(ok)](const QJsonArray &array) mutable {
+        SearchResponse response;
+        response.source = sourceId();
+        response.category = request.category;
+        response.offset = request.offset;
+        response.generation = request.generation;
+        response.hasMore = array.size() >= request.limit;
+        response.items.reserve(array.size());
+        int rank = request.offset;
+        for (const QJsonValue &value : array) {
+            const Song song = songFromJson(value.toObject());
+            if (!song.hasRemoteIdentity())
+                continue;
+            SearchResultItem item;
+            item.type = SearchItemType::Song;
+            item.source = sourceId();
+            item.remoteId = song.effectiveRemoteId();
+            item.title = song.title;
+            item.subtitle = song.artist;
+            item.artist = song.artist;
+            item.album = song.album;
+            item.coverUrl = song.coverUrl;
+            item.durationMs = song.durationMs;
+            item.sourceRank = rank++;
+            item.song = song;
+            response.items.append(item);
+        }
+        if (ok)
+            ok(response);
+    }, std::move(err));
+}
+
+void MusicSource::cancelSearch(quint64 generation)
+{
+    Q_UNUSED(generation)
+}
+
 void MusicSource::lyric(qint64 id, String3Fn ok, ErrFn err) { lyric(QString::number(id), std::move(ok), std::move(err)); }
 void MusicSource::songDetail(qint64 id, OkFn ok, ErrFn err) { songDetail(QString::number(id), std::move(ok), std::move(err)); }
 void MusicSource::albumDetail(qint64 id, OkFn ok, ErrFn err) { albumDetail(QString::number(id), std::move(ok), std::move(err)); }

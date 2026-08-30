@@ -22,6 +22,7 @@ add_library(neteclone_core STATIC
     PlayerService.cpp
     PlaylistController.h
     PlaylistController.cpp
+    SearchTypes.h
     SearchService.h
     SearchService.cpp
     NeteaseApiClient.h

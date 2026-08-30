@@ -516,12 +516,12 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_search, &ui::SearchPage::artistClicked, this, &MainWindow::openArtist);
     connect(m_search, &ui::SearchPage::albumClicked, this, &MainWindow::openAlbum);
     connect(m_search, &ui::SearchPage::heartRequested, this, [this](int row) {
-        const core::Song s = m_search->currentSongs().value(row);
+        const core::Song s = materializeSongForAction(m_search->currentSongs().value(row));
         if (s.id > 0)
             m_playlists.setFavorite(s.id, !m_playlists.isFavorite(s.id));
     });
     connect(m_search, &ui::SearchPage::addToPlaylistRequested, this, [this](int row, int plId) {
-        const core::Song s = m_search->currentSongs().value(row);
+        const core::Song s = materializeSongForAction(m_search->currentSongs().value(row));
         if (s.id > 0)
             addSongToPlaylist(s, plId);
     });
@@ -1001,6 +1001,18 @@ void MainWindow::playSongs(const QList<core::Song> &songs, int index)
     m_player.play();
 }
 
+core::Song MainWindow::materializeSongForAction(const core::Song &song)
+{
+    if (!song.isOnline() || song.id > 0 || !song.hasRemoteIdentity())
+        return song;
+    core::Song result = song;
+    result.id = m_library.upsertOnlineSong(result);
+    if (result.id <= 0)
+        return result;
+    const core::Song stored = m_library.songById(result.id);
+    return stored.id > 0 ? stored : result;
+}
+
 void MainWindow::addSongToPlaylist(const core::Song &song, int playlistId)
 {
     if (song.id <= 0 || playlistId <= 0)
@@ -1348,9 +1360,11 @@ void MainWindow::connectSongListActions()
         connect(view, &ui::SongListView::batchDownloadRequested, this,
                 [this](const QList<core::Song> &songs) {
             QList<core::Song> pending;
-            for (const core::Song &song : songs)
-                if (song.isOnline() && !song.isDownloaded())
+            for (const core::Song &candidate : songs) {
+                const core::Song song = materializeSongForAction(candidate);
+                if (song.isOnline() && song.id > 0 && !song.isDownloaded())
                     pending.append(song);
+            }
             if (pending.isEmpty()) {
                 QToolTip::showText(QCursor::pos(), QStringLiteral("所选歌曲均不可下载或已经下载"),
                                    this, QRect(), 2200);
@@ -1419,9 +1433,10 @@ void MainWindow::connectSongListActions()
 
 void MainWindow::handleSongDownload(const core::Song &song)
 {
-    if (!song.isOnline() || song.id <= 0 || song.isDownloaded())
+    const core::Song stored = materializeSongForAction(song);
+    if (!stored.isOnline() || stored.id <= 0 || stored.isDownloaded())
         return;
-    if (m_downloads.enqueue(song) > 0)
+    if (m_downloads.enqueue(stored) > 0)
         showPage(7);
 }
 
@@ -1472,8 +1487,13 @@ bool MainWindow::handleSongDelete(const core::Song &song, bool batch)
 void MainWindow::handleBatchFavorite(const QList<core::Song> &songs, bool favorite)
 {
     QList<qint64> songIds;
-    for (const core::Song &song : songs)
-        songIds.append(song.id);
+    for (const core::Song &candidate : songs) {
+        const core::Song song = materializeSongForAction(candidate);
+        if (song.id > 0)
+            songIds.append(song.id);
+    }
+    if (songIds.isEmpty())
+        return;
     const core::PlaylistController::BatchResult result =
         m_playlists.setFavoritesBatch(songIds, favorite);
     if (!result.success)
@@ -1488,8 +1508,13 @@ void MainWindow::handleBatchFavorite(const QList<core::Song> &songs, bool favori
 void MainWindow::handleBatchAddToPlaylist(const QList<core::Song> &songs, int playlistId)
 {
     QList<qint64> songIds;
-    for (const core::Song &song : songs)
-        songIds.append(song.id);
+    for (const core::Song &candidate : songs) {
+        const core::Song song = materializeSongForAction(candidate);
+        if (song.id > 0)
+            songIds.append(song.id);
+    }
+    if (songIds.isEmpty())
+        return;
     const core::PlaylistController::BatchResult result =
         m_playlists.addSongsBatch(playlistId, songIds);
     if (!result.success)
