@@ -265,10 +265,21 @@
     $("playingBg").className = "playing-bg g" + song.g;
     $("lyricsTitle").textContent = song.t + " - " + song.a;
     // 播放/暂停图标
-    var playSvg = $("playBtn").querySelectorAll(".ic");
-    playSvg[0].classList.toggle("hidden", state.playing);
-    playSvg[1].classList.toggle("hidden", !state.playing);
-    $("playBtn").title = state.playing ? "暂停" : "播放";
+    var playButton = $("playBtn");
+    var previousPlaying = playButton.dataset.playing;
+    var currentPlaying = state.playing ? "true" : "false";
+    if (previousPlaying && previousPlaying !== currentPlaying) {
+      playButton.classList.remove("is-animated");
+      void playButton.offsetWidth;
+      playButton.classList.toggle("is-playing", state.playing);
+      playButton.classList.add("is-animated");
+    } else {
+      playButton.classList.toggle("is-playing", state.playing);
+    }
+    playButton.dataset.playing = currentPlaying;
+    playButton.title = state.playing ? "暂停" : "播放";
+    playButton.setAttribute("aria-label", playButton.title);
+    playButton.setAttribute("aria-pressed", currentPlaying);
     // 列表高亮
     document.querySelectorAll(".song-row.playing").forEach(function (r) { r.classList.remove("playing"); });
     var lists = [$("libSongList"), $("plSongList"), $("searchSongList")];

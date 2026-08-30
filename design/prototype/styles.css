@@ -444,16 +444,42 @@ mark { background: rgba(236, 65, 65, 0.3); color: #FF9A9A; border-radius: 3px; p
 }
 .ctrl-btn:hover { color: var(--text-primary); background: var(--control-hover); }
 .play-btn {
+  position: relative;
   width: 40px; height: 40px; border-radius: 50%;
-  background: var(--primary); color: #fff;
+  background: transparent; color: #D8D8E0;
   display: grid; place-items: center;
-  box-shadow: var(--shadow-play);
-  transition: background .15s, transform .1s;
+  transition: color .15s;
 }
-.play-btn:hover { background: var(--primary-hover); }
-.play-btn:active { transform: scale(0.94); }
-.play-btn .ic { width: 19px; height: 19px; }
-.play-btn .ic-play { margin-left: 2px; }
+.play-btn:hover { color: #E8E8E8; }
+.play-btn:active { color: #C8C8D0; }
+.play-btn:focus-visible { outline: 2px solid #6E6E7A; outline-offset: 2px; }
+.play-btn:disabled { color: #6E6E7A; cursor: default; }
+.play-btn .ic {
+  position: absolute;
+  width: 30px; height: 30px;
+  transform-origin: center;
+}
+.play-btn .pause-icon,
+.play-btn.is-playing .play-icon { opacity: 0; transform: scale(0); }
+.play-btn .play-icon,
+.play-btn.is-playing .pause-icon { opacity: 1; transform: none; }
+.play-btn.is-animated.is-playing .play-icon,
+.play-btn.is-animated:not(.is-playing) .pause-icon {
+  animation: play-toggle-exit 500ms ease both;
+}
+.play-btn.is-animated.is-playing .pause-icon,
+.play-btn.is-animated:not(.is-playing) .play-icon {
+  animation: play-toggle-enter 500ms ease both;
+}
+@keyframes play-toggle-enter {
+  0% { opacity: 0; transform: rotate(-180deg) scale(0); }
+  50% { opacity: 1; transform: rotate(-10deg) scale(1.2); }
+  100% { opacity: 1; transform: rotate(0) scale(1); }
+}
+@keyframes play-toggle-exit {
+  0% { opacity: 1; transform: rotate(0) scale(1); }
+  100% { opacity: 0; transform: rotate(180deg) scale(0); }
+}
 .volume { display: flex; align-items: center; gap: 6px; }
 .vol-slider {
   width: 90px; height: 4px; border-radius: 2px; background: var(--progress-track);
