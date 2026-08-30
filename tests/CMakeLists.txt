@@ -4,6 +4,7 @@ set(NETECLONE_TESTS
     tst_playlistcontroller
     tst_playerservice
     tst_multisourcesupport
+    tst_searchservice
     tst_songlistview
 )
 

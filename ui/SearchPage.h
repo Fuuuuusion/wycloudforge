@@ -23,6 +23,7 @@ class SongListView;
 namespace core {
 class LibraryService;
 class MusicSourceRegistry;
+class SearchService;
 }
 
 namespace ui {
@@ -36,8 +37,9 @@ public:
     void setSourceProvider(core::MusicSource *source, core::LibraryService *library);
     void setSourceRegistry(core::MusicSourceRegistry *registry);
     void setOnlineSourceEnabled(core::SourceId sourceId, bool enabled);
-    void performSearch(const QList<core::Song> &allSongs, const QString &query);
-    void refreshLocalResults(const QList<core::Song> &allSongs);
+    void setLocalSongs(const QList<core::Song> &songs);
+    void performSearch(const QString &query);
+    void refreshLocalResults();
     void refreshOnlineCovers();
     QList<core::Song> currentSongs() const;
     void setPlaylistMenuItems(const QList<QPair<int, QString>> &items);
@@ -53,6 +55,8 @@ signals:
 
 private:
     void loadOnlinePage(int offset);
+    void startLocalSearch();
+    void renderLocalGroups();
     void cancelActiveSearch();
     void updateOnlineHeader();
     void ensureCover(const core::Song &song);
@@ -69,6 +73,7 @@ private:
     int m_onlineOffset = 0;
     int m_onlinePageSize = 30;
     quint64 m_searchGeneration = 0;
+    quint64 m_localRequestGeneration = 0;
     bool m_onlineLoading = false;
     int m_sourceTimeoutMs = 15000;
     QHash<int, core::SearchSourceState> m_sourceStates;
@@ -78,6 +83,7 @@ private:
     core::MusicSource *m_source = nullptr;
     core::MusicSourceRegistry *m_registry = nullptr;
     core::LibraryService *m_lib = nullptr;
+    core::SearchService *m_localSearch = nullptr;
     QLabel *m_onlineHeader = nullptr;
     SongListView *m_onlineList = nullptr;
     QPushButton *m_onlineMore = nullptr;

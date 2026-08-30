@@ -52,6 +52,7 @@ QString sourceLabel(core::SourceId source)
 SearchPage::SearchPage(QWidget *parent)
     : QWidget(parent)
 {
+    m_localSearch = new core::SearchService(this);
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(28, 24, 28, 24);
     layout->setSpacing(12);
@@ -156,6 +157,23 @@ SearchPage::SearchPage(QWidget *parent)
         if (!m_onlineLoading && !m_query.isEmpty())
             loadOnlinePage(m_onlineOffset + m_onlinePageSize);
     });
+    connect(m_localSearch, &core::SearchService::searchFinished, this,
+            [this](quint64 generation, const QString &query,
+                   const QList<core::Song> &songs, int totalMatches) {
+        if (generation != m_localRequestGeneration || query != m_query)
+            return;
+        m_results = songs;
+        if (totalMatches > m_results.size()) {
+            m_title->setText(QStringLiteral("搜索 \"%1\" · 显示前 %2 / 共 %3 个结果")
+                                 .arg(m_query).arg(m_results.size()).arg(totalMatches));
+        } else {
+            m_title->setText(QStringLiteral("搜索 \"%1\" · %2 个结果")
+                                 .arg(m_query).arg(m_results.size()));
+        }
+        m_songList->setSongs(m_results);
+        m_songList->setHighlightQuery(m_query);
+        renderLocalGroups();
+    });
 }
 
 void SearchPage::setSourceProvider(core::MusicSource *source, core::LibraryService *library)
@@ -179,7 +197,13 @@ void SearchPage::setOnlineSourceEnabled(core::SourceId sourceId, bool enabled)
         m_enabledSourceIds.remove(int(sourceId));
 }
 
-void SearchPage::performSearch(const QList<core::Song> &allSongs, const QString &query)
+void SearchPage::setLocalSongs(const QList<core::Song> &songs)
+{
+    m_localRequestGeneration = 0;
+    m_localSearch->updateSnapshot(songs);
+}
+
+void SearchPage::performSearch(const QString &query)
 {
     cancelActiveSearch();
     m_query = query.trimmed();
@@ -192,19 +216,23 @@ void SearchPage::performSearch(const QList<core::Song> &allSongs, const QString 
     m_onlineList->setSongs({});
     m_onlineHeader->hide();
     m_onlineMore->hide();
-    refreshLocalResults(allSongs);
+    startLocalSearch();
 
     // 在线结果
     if ((m_source || m_registry) && m_lib && !m_query.isEmpty())
         loadOnlinePage(0);
 
+}
+
+void SearchPage::renderLocalGroups()
+{
     while (QLayoutItem *item = m_artistLayout->takeAt(0)) {
         delete item->widget();
         delete item;
     }
     const auto artists = core::SearchService::artists(m_results);
     for (const auto &a : artists) {
-        if (!a.name.contains(query, Qt::CaseInsensitive))
+        if (!a.name.contains(m_query, Qt::CaseInsensitive))
             continue;
         auto *row = makeResultRow(a.name, QStringLiteral("%1 首").arg(a.count), this);
         connect(row, &QPushButton::clicked, this, [this, name = a.name] {
@@ -220,7 +248,8 @@ void SearchPage::performSearch(const QList<core::Song> &allSongs, const QString 
     }
     const auto albums = core::SearchService::albums(m_results);
     for (const auto &a : albums) {
-        if (!a.name.contains(query, Qt::CaseInsensitive) && !a.artist.contains(query, Qt::CaseInsensitive))
+        if (!a.name.contains(m_query, Qt::CaseInsensitive)
+            && !a.artist.contains(m_query, Qt::CaseInsensitive))
             continue;
         auto *row = makeResultRow(a.name, a.artist + QStringLiteral(" · %1 首").arg(a.count), this);
         connect(row, &QPushButton::clicked, this, [this, name = a.name, artist = a.artist] {
@@ -231,24 +260,31 @@ void SearchPage::performSearch(const QList<core::Song> &allSongs, const QString 
     m_albumLayout->addStretch(1);
 }
 
-void SearchPage::refreshLocalResults(const QList<core::Song> &allSongs)
+void SearchPage::startLocalSearch()
 {
+    m_localSearch->cancelAsync();
+    m_localRequestGeneration = 0;
+    m_results.clear();
+    m_songList->setSongs({});
+    renderLocalGroups();
     if (m_query.isEmpty()) {
-        m_results.clear();
-        m_songList->setSongs({});
+        m_title->setText(QStringLiteral("搜索"));
         return;
     }
-    m_results.clear();
-    const auto results = core::SearchService::search(allSongs, m_query);
-    for (const auto &r : results)
-        m_results.append(allSongs[r.index]);
-    m_title->setText(QStringLiteral("搜索 \"%1\" · %2 个结果").arg(m_query).arg(m_results.size()));
-    m_songList->setSongs(m_results);
+    m_title->setText(QStringLiteral("正在搜索 \"%1\"").arg(m_query));
     m_songList->setHighlightQuery(m_query);
+    m_localRequestGeneration = m_localSearch->searchAsync(m_query, 200);
+}
+
+void SearchPage::refreshLocalResults()
+{
+    startLocalSearch();
 }
 
 void SearchPage::cancelActiveSearch()
 {
+    m_localSearch->cancelAsync();
+    m_localRequestGeneration = 0;
     if (m_searchGeneration == 0)
         return;
     const QList<core::MusicSource *> sources = m_registry ? m_registry->onlineSources()

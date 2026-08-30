@@ -259,7 +259,7 @@ MainWindow::MainWindow(QWidget *parent)
             showPage(m_lastPage);
             return;
         }
-        m_search->performSearch(m_library.allSongs(), text);
+        m_search->performSearch(text);
         showPage(6);
         if (m_qqApiReady)
             return;
@@ -268,7 +268,7 @@ MainWindow::MainWindow(QWidget *parent)
             m_search->setOnlineSourceEnabled(core::SourceId::QqMusic, true);
             m_qqClient.setBaseUrl(m_qqApiService.apiBase());
             if (m_searchQuery == text)
-                m_search->performSearch(m_library.allSongs(), text);
+                m_search->performSearch(text);
         }, [this](const QString &) {
             m_qqApiReady = false;
             m_search->setOnlineSourceEnabled(core::SourceId::QqMusic, false);
@@ -1066,8 +1066,9 @@ void MainWindow::refreshLibraryViews()
 {
     const auto all = m_library.allSongs();
     m_libraryPage->setSongs(all, m_currentSongId);
+    m_search->setLocalSongs(all);
     if (!m_searchQuery.isEmpty())
-        m_search->refreshLocalResults(all);
+        m_search->refreshLocalResults();
     m_search->refreshOnlineCovers();
 }
 

@@ -67,22 +67,31 @@ void drawHighlightedText(QPainter &p, const QRectF &rect, const QString &text, c
         p.restore();
         return;
     }
-    const auto r = ranges.constFirst();
-    const QString before = elided.left(r.first);
-    const QString match = elided.mid(r.first, r.second - r.first);
-    const QString after = elided.mid(r.second);
-    const int wBefore = fm.horizontalAdvance(before);
-    const int wMatch = fm.horizontalAdvance(match);
     QRectF base = rect;
     if (align & Qt::AlignRight)
         base.setLeft(base.right() - fm.horizontalAdvance(elided));
-    p.drawText(QRectF(base.left(), base.top(), wBefore, base.height()), Qt::AlignVCenter, before);
-    QRectF matchRect(base.left() + wBefore, base.top(), wMatch, base.height());
-    p.fillRect(matchRect.adjusted(0, 2, 0, -2), QColor(236, 65, 65, 80));
-    p.setPen(kPrimary);
-    p.drawText(matchRect, Qt::AlignVCenter, match);
+    int textPosition = 0;
+    qreal drawX = base.left();
+    for (const auto &range : ranges) {
+        const QString before = elided.mid(textPosition, range.first - textPosition);
+        const int beforeWidth = fm.horizontalAdvance(before);
+        p.setPen(QPen(normal, 1));
+        p.drawText(QRectF(drawX, base.top(), beforeWidth, base.height()),
+                   Qt::AlignVCenter, before);
+        drawX += beforeWidth;
+
+        const QString match = elided.mid(range.first, range.second - range.first);
+        const int matchWidth = fm.horizontalAdvance(match);
+        const QRectF matchRect(drawX, base.top(), matchWidth, base.height());
+        p.fillRect(matchRect.adjusted(0, 2, 0, -2), QColor(236, 65, 65, 80));
+        p.setPen(kPrimary);
+        p.drawText(matchRect, Qt::AlignVCenter, match);
+        drawX += matchWidth;
+        textPosition = range.second;
+    }
+    const QString after = elided.mid(textPosition);
     p.setPen(QPen(normal, 1));
-    p.drawText(QRectF(matchRect.right(), base.top(), base.width() - wBefore - wMatch, base.height()),
+    p.drawText(QRectF(drawX, base.top(), qMax<qreal>(0, base.right() - drawX), base.height()),
                Qt::AlignVCenter, after);
     p.restore();
 }
