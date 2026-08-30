@@ -64,28 +64,9 @@ protected:
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing);
 
-        QColor background = blendColor(QColor(0x1B, 0x1B, 0x24), QColor(0x2A, 0x2A, 0x36), m_progress);
         QColor track = blendColor(QColor(0xB8, 0xB8, 0xC4), QColor(0xE8, 0xE8, 0xE8), m_progress);
-        QColor accent = blendColor(QColor(0xEC, 0x41, 0x41), QColor(0xF0, 0x4A, 0x4A), m_progress);
-        if (!isEnabled()) {
-            background = QColor(0x16, 0x16, 0x1E);
+        if (!isEnabled())
             track = QColor(0x6E, 0x6E, 0x7A);
-            accent = QColor(0x6E, 0x6E, 0x7A);
-        } else if (isDown()) {
-            background = QColor(0x2A, 0x2A, 0x36);
-            accent = QColor(0xD6, 0x38, 0x38);
-        }
-
-        const QRectF buttonRect = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(background);
-        painter.drawRoundedRect(buttonRect, 6.0, 6.0);
-
-        if (hasFocus() && isEnabled()) {
-            painter.setBrush(Qt::NoBrush);
-            painter.setPen(QPen(accent, 2.0));
-            painter.drawRoundedRect(buttonRect.adjusted(1.0, 1.0, -1.0, -1.0), 5.0, 5.0);
-        }
 
         constexpr qreal left = 6.0;
         constexpr qreal right = 22.0;
@@ -104,8 +85,6 @@ protected:
             const QPointF center(left + (right - left) * position, ys[i]);
             painter.setBrush(track);
             painter.drawEllipse(center, 3.0, 3.0);
-            painter.setBrush(accent);
-            painter.drawEllipse(center, 1.7, 1.7);
         }
     }
 
