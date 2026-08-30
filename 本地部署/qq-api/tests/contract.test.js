@@ -101,3 +101,69 @@ test('normalizes playlist, album and artist identities as text', () => {
   assert.equal(artist.artist.remoteId, 'ARTIST_MID');
   assert.equal(artist.artist.name, '测试歌手');
 });
+
+test('normalizes categorized search results into stable typed items', () => {
+  const fixture = JSON.parse(fs.readFileSync(
+    path.join(__dirname, 'fixtures/search-categories-response.json'), 'utf8',
+  ));
+  const songs = contract.searchItems(fixture, 'songs');
+  const lyrics = contract.searchItems(fixture, 'lyrics');
+  const artists = contract.searchItems(fixture, 'artists');
+  const albums = contract.searchItems(fixture, 'albums');
+  const playlists = contract.searchItems(fixture, 'playlists');
+  assert.equal(songs.length, 1);
+  assert.equal(songs[0].type, 'song');
+  assert.equal(songs[0].remoteId, 'SONG_MID');
+  assert.equal(lyrics.length, 1);
+  assert.equal(lyrics[0].type, 'lyric');
+  assert.equal(lyrics[0].subtitle, '命中的歌词片段');
+  assert.deepEqual(artists, [{
+    type: 'artist',
+    remoteId: 'ARTIST_MID',
+    title: '分类测试歌手',
+    subtitle: '',
+    coverUrl: 'https://example.test/artist.jpg',
+  }]);
+  assert.equal(albums.length, 1);
+  assert.equal(albums[0].type, 'album');
+  assert.equal(albums[0].remoteId, 'ALBUM_MID');
+  assert.equal(albums[0].artistRemoteId, 'ARTIST_MID');
+  assert.deepEqual(playlists, [{
+    type: 'playlist',
+    remoteId: 'PLAYLIST_ID_AS_TEXT',
+    title: '分类测试歌单',
+    subtitle: '歌单创建者',
+    coverUrl: 'https://example.test/playlist.jpg',
+    popularity: 987654,
+  }]);
+});
+
+test('normalizes hot terms and smartbox suggestions', () => {
+  const fixture = JSON.parse(fs.readFileSync(
+    path.join(__dirname, 'fixtures/search-discovery-response.json'), 'utf8',
+  ));
+  assert.deepEqual(contract.hotKeys(fixture), [
+    { text: '热门关键词一', description: '热度说明', score: 987654 },
+    { text: '热门关键词二', description: '', score: 123456 },
+  ]);
+  assert.deepEqual(contract.suggestions(fixture, 3), [
+    {
+      type: 'artist',
+      remoteId: 'SUGGEST_ARTIST',
+      text: '联想歌手',
+      subtitle: '',
+    },
+    {
+      type: 'song',
+      remoteId: 'SUGGEST_SONG',
+      text: '联想歌曲',
+      subtitle: '联想歌手',
+    },
+    {
+      type: 'album',
+      remoteId: 'SUGGEST_ALBUM',
+      text: '联想专辑',
+      subtitle: '联想歌手',
+    },
+  ]);
+});

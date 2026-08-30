@@ -8,6 +8,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QRegularExpression>
 #include <QSaveFile>
 #include <QTimer>
 #include <QUrl>
@@ -31,6 +32,132 @@ QJsonObject parseObject(QNetworkReply *reply, QString *error)
     return doc.object();
 }
 
+QString objectId(const QJsonObject &object, const QString &key = QStringLiteral("id"))
+{
+    return object.value(key).toVariant().toString().trimmed();
+}
+
+QString artistNames(const QJsonObject &object)
+{
+    QJsonArray artists = object.value(QStringLiteral("ar")).toArray();
+    if (artists.isEmpty())
+        artists = object.value(QStringLiteral("artists")).toArray();
+    QStringList names;
+    for (const QJsonValue &value : artists) {
+        const QString name = value.toObject().value(QStringLiteral("name")).toString().trimmed();
+        if (!name.isEmpty())
+            names.append(name);
+    }
+    if (names.isEmpty()) {
+        const QString name = object.value(QStringLiteral("artist")).toObject()
+                                 .value(QStringLiteral("name")).toString().trimmed();
+        if (!name.isEmpty())
+            names.append(name);
+    }
+    return names.join(QLatin1Char('/'));
+}
+
+QJsonArray firstArray(const QJsonObject &object, const QStringList &keys)
+{
+    for (const QString &key : keys) {
+        const QJsonValue value = object.value(key);
+        if (value.isArray())
+            return value.toArray();
+    }
+    return {};
+}
+
+QJsonObject firstObject(const QJsonObject &object, const QStringList &keys)
+{
+    for (const QString &key : keys) {
+        const QJsonValue value = object.value(key);
+        if (value.isObject())
+            return value.toObject();
+    }
+    return {};
+}
+
+SearchResultItem songSearchItem(const NeteaseApiClient *source, const QJsonObject &object,
+                                SearchItemType type, int rank)
+{
+    SearchResultItem item;
+    item.type = type;
+    item.source = SourceId::Netease;
+    item.song = source->songFromJson(object);
+    item.remoteId = item.song.effectiveRemoteId();
+    item.title = item.song.title;
+    item.artist = item.song.artist;
+    item.album = item.song.album;
+    item.coverUrl = item.song.coverUrl;
+    item.durationMs = item.song.durationMs;
+    item.sourceRank = rank;
+    item.popularity = object.value(QStringLiteral("pop")).toDouble(-1.0);
+    if (type == SearchItemType::Lyric) {
+        const QJsonArray lyrics = object.value(QStringLiteral("lyrics")).toArray();
+        for (const QJsonValue &value : lyrics) {
+            QString text = value.isString()
+                ? value.toString()
+                : value.toObject().value(QStringLiteral("txt")).toString();
+            text.remove(QRegularExpression(QStringLiteral("<[^>]+>")));
+            text = text.trimmed();
+            if (!text.isEmpty()) {
+                item.subtitle = text;
+                break;
+            }
+        }
+        if (item.subtitle.isEmpty())
+            item.subtitle = item.artist;
+    } else {
+        item.subtitle = item.artist;
+    }
+    return item;
+}
+
+SearchResultItem artistSearchItem(const QJsonObject &object, int rank)
+{
+    SearchResultItem item;
+    item.type = SearchItemType::Artist;
+    item.source = SourceId::Netease;
+    item.remoteId = objectId(object);
+    item.title = object.value(QStringLiteral("name")).toString();
+    item.subtitle = firstArray(object, { QStringLiteral("alias"), QStringLiteral("alia") })
+                        .toVariantList().value(0).toString();
+    item.coverUrl = object.value(QStringLiteral("picUrl")).toString();
+    if (item.coverUrl.isEmpty())
+        item.coverUrl = object.value(QStringLiteral("img1v1Url")).toString();
+    item.sourceRank = rank;
+    return item;
+}
+
+SearchResultItem albumSearchItem(const QJsonObject &object, int rank)
+{
+    SearchResultItem item;
+    item.type = SearchItemType::Album;
+    item.source = SourceId::Netease;
+    item.remoteId = objectId(object);
+    item.title = object.value(QStringLiteral("name")).toString();
+    item.artist = artistNames(object);
+    item.subtitle = item.artist;
+    item.coverUrl = object.value(QStringLiteral("picUrl")).toString();
+    item.sourceRank = rank;
+    return item;
+}
+
+SearchResultItem playlistSearchItem(const QJsonObject &object, int rank)
+{
+    SearchResultItem item;
+    item.type = SearchItemType::Playlist;
+    item.source = SourceId::Netease;
+    item.remoteId = objectId(object);
+    item.title = object.value(QStringLiteral("name")).toString();
+    item.subtitle = object.value(QStringLiteral("creator")).toObject()
+                        .value(QStringLiteral("nickname")).toString();
+    item.coverUrl = object.value(QStringLiteral("coverImgUrl")).toString();
+    item.sourceRank = rank;
+    item.popularity = object.value(QStringLiteral("playCount")).toDouble(-1.0);
+    return item;
+}
+
 } // namespace
 
 NeteaseApiClient::NeteaseApiClient(QObject *parent)
@@ -39,7 +166,8 @@ NeteaseApiClient::NeteaseApiClient(QObject *parent)
     m_nam = new QNetworkAccessManager(this);
 }
 
-void NeteaseApiClient::get(const QString &path, const QUrlQuery &query, OkFn ok, ErrFn err)
+void NeteaseApiClient::get(const QString &path, const QUrlQuery &query, OkFn ok, ErrFn err,
+                           quint64 searchGeneration)
 {
     QUrl url(m_base + path);
     QUrlQuery q = query;
@@ -53,7 +181,18 @@ void NeteaseApiClient::get(const QString &path, const QUrlQuery &query, OkFn ok,
     req.setTransferTimeout(15000);
 
     QNetworkReply *reply = m_nam->get(req);
-    connect(reply, &QNetworkReply::finished, this, [reply, ok = std::move(ok), err = std::move(err)]() mutable {
+    if (searchGeneration > 0)
+        m_searchReplies[searchGeneration].append(reply);
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply, searchGeneration, ok = std::move(ok), err = std::move(err)]() mutable {
+        if (searchGeneration > 0) {
+            auto it = m_searchReplies.find(searchGeneration);
+            if (it != m_searchReplies.end()) {
+                it->removeAll(reply);
+                if (it->isEmpty())
+                    m_searchReplies.erase(it);
+            }
+        }
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
             if (err)
@@ -100,6 +239,275 @@ void NeteaseApiClient::searchSongsPage(const QString &keywords, int limit, int o
     get(QStringLiteral("/search"), q,
         [ok](const QJsonObject &obj) { ok(obj.value(QStringLiteral("result")).toObject().value(QStringLiteral("songs")).toArray()); },
         err);
+}
+
+void NeteaseApiClient::search(const SearchRequest &request, SearchResponseFn ok, ErrFn err)
+{
+    if (!request.isValid()) {
+        if (err)
+            err(QStringLiteral("搜索关键词或分页参数无效"));
+        return;
+    }
+
+    if (request.category == SearchCategory::All) {
+        struct AggregateState {
+            int pending = 0;
+            int succeeded = 0;
+            QHash<int, SearchResponse> responses;
+            QStringList errors;
+        };
+        const QList<SearchCategory> categories = {
+            SearchCategory::Songs,
+            SearchCategory::Artists,
+            SearchCategory::Albums,
+            SearchCategory::Playlists,
+            SearchCategory::Lyrics
+        };
+        auto state = std::make_shared<AggregateState>();
+        state->pending = categories.size();
+        const auto finish = [request, state, ok, err] {
+            if (--state->pending > 0)
+                return;
+            if (state->succeeded == 0) {
+                if (err)
+                    err(state->errors.isEmpty() ? QStringLiteral("网易云综合搜索失败")
+                                                : state->errors.join(QStringLiteral("；")));
+                return;
+            }
+            SearchResponse response;
+            response.source = SourceId::Netease;
+            response.category = SearchCategory::All;
+            response.offset = request.offset;
+            response.generation = request.generation;
+            const QList<SearchCategory> order = {
+                SearchCategory::Artists,
+                SearchCategory::Songs,
+                SearchCategory::Albums,
+                SearchCategory::Playlists,
+                SearchCategory::Lyrics
+            };
+            for (SearchCategory category : order) {
+                const auto it = state->responses.constFind(int(category));
+                if (it == state->responses.constEnd())
+                    continue;
+                response.items.append(it->items);
+                response.hasMore = response.hasMore || it->hasMore;
+            }
+            if (ok)
+                ok(response);
+        };
+        const int categoryLimit = qMax(3, (request.limit + categories.size() - 1)
+                                               / categories.size());
+        const int categoryOffset = (request.offset / request.limit) * categoryLimit;
+        for (SearchCategory category : categories) {
+            SearchRequest child = request;
+            child.category = category;
+            child.limit = categoryLimit;
+            child.offset = categoryOffset;
+            search(child, [state, category, finish](const SearchResponse &response) {
+                ++state->succeeded;
+                state->responses.insert(int(category), response);
+                finish();
+            }, [state, finish](const QString &message) {
+                state->errors.append(message);
+                finish();
+            });
+        }
+        return;
+    }
+
+    int type = 1;
+    switch (request.category) {
+    case SearchCategory::All: break;
+    case SearchCategory::Songs: type = 1; break;
+    case SearchCategory::Artists: type = 100; break;
+    case SearchCategory::Albums: type = 10; break;
+    case SearchCategory::Playlists: type = 1000; break;
+    case SearchCategory::Lyrics: type = 1006; break;
+    }
+
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("keywords"), request.keywords.trimmed());
+    query.addQueryItem(QStringLiteral("type"), QString::number(type));
+    query.addQueryItem(QStringLiteral("limit"), QString::number(request.limit));
+    query.addQueryItem(QStringLiteral("offset"), QString::number(request.offset));
+    get(QStringLiteral("/cloudsearch"), query,
+        [this, request, ok = std::move(ok)](const QJsonObject &root) mutable {
+        const QJsonObject result = root.value(QStringLiteral("result")).toObject();
+        SearchResponse response;
+        response.source = SourceId::Netease;
+        response.category = request.category;
+        response.offset = request.offset;
+        response.generation = request.generation;
+        int rank = request.offset;
+
+        const auto appendSongs = [this, &response, &rank](const QJsonArray &items,
+                                                          SearchItemType type) {
+            for (const QJsonValue &value : items) {
+                SearchResultItem item = songSearchItem(this, value.toObject(), type, rank++);
+                if (!item.remoteId.isEmpty())
+                    response.items.append(item);
+            }
+        };
+        const auto appendArtists = [&response, &rank](const QJsonArray &items) {
+            for (const QJsonValue &value : items) {
+                SearchResultItem item = artistSearchItem(value.toObject(), rank++);
+                if (!item.remoteId.isEmpty())
+                    response.items.append(item);
+            }
+        };
+        const auto appendAlbums = [&response, &rank](const QJsonArray &items) {
+            for (const QJsonValue &value : items) {
+                SearchResultItem item = albumSearchItem(value.toObject(), rank++);
+                if (!item.remoteId.isEmpty())
+                    response.items.append(item);
+            }
+        };
+        const auto appendPlaylists = [&response, &rank](const QJsonArray &items) {
+            for (const QJsonValue &value : items) {
+                SearchResultItem item = playlistSearchItem(value.toObject(), rank++);
+                if (!item.remoteId.isEmpty())
+                    response.items.append(item);
+            }
+        };
+
+        qint64 total = 0;
+        if (request.category == SearchCategory::All) {
+            const QJsonObject songBlock = firstObject(
+                result, { QStringLiteral("song"), QStringLiteral("songs") });
+            const QJsonObject artistBlock = firstObject(
+                result, { QStringLiteral("artist"), QStringLiteral("artists") });
+            const QJsonObject albumBlock = firstObject(
+                result, { QStringLiteral("album"), QStringLiteral("albums") });
+            const QJsonObject playlistBlock = firstObject(
+                result, { QStringLiteral("playList"), QStringLiteral("playlist"),
+                          QStringLiteral("playlists") });
+            appendSongs(firstArray(songBlock, { QStringLiteral("songs"),
+                                                QStringLiteral("items") }),
+                        SearchItemType::Song);
+            appendArtists(firstArray(artistBlock, { QStringLiteral("artists"),
+                                                    QStringLiteral("items") }));
+            appendAlbums(firstArray(albumBlock, { QStringLiteral("albums"),
+                                                  QStringLiteral("items") }));
+            appendPlaylists(firstArray(playlistBlock, { QStringLiteral("playLists"),
+                                                        QStringLiteral("playlists"),
+                                                        QStringLiteral("items") }));
+        } else if (request.category == SearchCategory::Songs) {
+            const QJsonArray items = firstArray(result, { QStringLiteral("songs") });
+            appendSongs(items, SearchItemType::Song);
+            total = result.value(QStringLiteral("songCount")).toVariant().toLongLong();
+        } else if (request.category == SearchCategory::Artists) {
+            const QJsonArray items = firstArray(result, { QStringLiteral("artists") });
+            appendArtists(items);
+            total = result.value(QStringLiteral("artistCount")).toVariant().toLongLong();
+        } else if (request.category == SearchCategory::Albums) {
+            const QJsonArray items = firstArray(result, { QStringLiteral("albums") });
+            appendAlbums(items);
+            total = result.value(QStringLiteral("albumCount")).toVariant().toLongLong();
+        } else if (request.category == SearchCategory::Playlists) {
+            const QJsonArray items = firstArray(
+                result, { QStringLiteral("playlists"), QStringLiteral("playLists") });
+            appendPlaylists(items);
+            total = result.value(QStringLiteral("playlistCount")).toVariant().toLongLong();
+        } else {
+            const QJsonArray items = firstArray(result, { QStringLiteral("songs") });
+            appendSongs(items, SearchItemType::Lyric);
+            total = result.value(QStringLiteral("songCount")).toVariant().toLongLong();
+        }
+        response.hasMore = total > request.offset + response.items.size()
+            || (total <= 0 && response.items.size() >= request.limit);
+        if (ok)
+            ok(response);
+    }, std::move(err), request.generation);
+}
+
+void NeteaseApiClient::searchSuggestions(const QString &keywords, int limit,
+                                         SearchSuggestionsFn ok, ErrFn err)
+{
+    const QString text = keywords.trimmed();
+    if (text.isEmpty() || limit <= 0) {
+        if (ok)
+            ok({});
+        return;
+    }
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("keywords"), text);
+    query.addQueryItem(QStringLiteral("type"), QStringLiteral("mobile"));
+    get(QStringLiteral("/search/suggest"), query,
+        [limit, ok = std::move(ok)](const QJsonObject &root) mutable {
+        QList<SearchSuggestion> suggestions;
+        const QJsonArray matches = root.value(QStringLiteral("result")).toObject()
+                                       .value(QStringLiteral("allMatch")).toArray();
+        for (const QJsonValue &value : matches) {
+            const QJsonObject object = value.toObject();
+            const QString keyword = object.value(QStringLiteral("keyword")).toString().trimmed();
+            if (keyword.isEmpty())
+                continue;
+            SearchSuggestion suggestion;
+            suggestion.source = SourceId::Netease;
+            suggestion.text = keyword;
+            const int type = object.value(QStringLiteral("type")).toInt(1);
+            suggestion.type = type == 100 ? SearchItemType::Artist
+                : type == 10 ? SearchItemType::Album
+                : type == 1000 ? SearchItemType::Playlist : SearchItemType::Song;
+            suggestions.append(suggestion);
+            if (suggestions.size() >= limit)
+                break;
+        }
+        if (ok)
+            ok(suggestions);
+    }, std::move(err));
+}
+
+void NeteaseApiClient::hotSearch(int limit, HotSearchFn ok, ErrFn err)
+{
+    if (limit <= 0) {
+        if (ok)
+            ok({});
+        return;
+    }
+    get(QStringLiteral("/search/hot/detail"), QUrlQuery(),
+        [limit, ok = std::move(ok)](const QJsonObject &root) mutable {
+        QList<HotSearchTerm> terms;
+        const QJsonArray data = root.value(QStringLiteral("data")).toArray();
+        for (int i = 0; i < data.size() && terms.size() < limit; ++i) {
+            const QJsonObject object = data.at(i).toObject();
+            const QString text = object.value(QStringLiteral("searchWord")).toString().trimmed();
+            if (text.isEmpty())
+                continue;
+            HotSearchTerm term;
+            term.source = SourceId::Netease;
+            term.text = text;
+            term.description = object.value(QStringLiteral("content")).toString();
+            term.score = object.value(QStringLiteral("score")).toDouble(-1.0);
+            term.rank = i;
+            terms.append(term);
+        }
+        if (ok)
+            ok(terms);
+    }, std::move(err));
+}
+
+void NeteaseApiClient::defaultSearchText(StringFn ok, ErrFn err)
+{
+    get(QStringLiteral("/search/default"), QUrlQuery(),
+        [ok = std::move(ok)](const QJsonObject &root) mutable {
+        const QJsonObject data = root.value(QStringLiteral("data")).toObject();
+        QString text = data.value(QStringLiteral("showKeyword")).toString().trimmed();
+        if (text.isEmpty())
+            text = data.value(QStringLiteral("realkeyword")).toString().trimmed();
+        if (ok)
+            ok(text);
+    }, std::move(err));
+}
+
+void NeteaseApiClient::cancelSearch(quint64 generation)
+{
+    const QList<QPointer<QNetworkReply>> replies = m_searchReplies.take(generation);
+    for (const QPointer<QNetworkReply> &reply : replies) {
+        if (reply)
+            reply->abort();
+    }
 }
 
 void NeteaseApiClient::matchSong(const QString &title, const QString &artist, const QString &album,

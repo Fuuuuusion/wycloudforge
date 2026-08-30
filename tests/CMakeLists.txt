@@ -16,7 +16,9 @@ foreach(test_name ${NETECLONE_TESTS})
     else()
         target_link_libraries(${test_name} PRIVATE neteclone_core Qt6::Test)
     endif()
-    add_test(NAME ${test_name} COMMAND ${test_name})
+    # Windows GUI/QtTest executables may otherwise send the detailed report to
+    # the debugger channel, leaving CTest with only a non-zero exit code.
+    add_test(NAME ${test_name} COMMAND ${test_name} -o -,txt)
     if(WIN32)
         # The Windows deployment used by this project ships qwindows.dll, while
         # qoffscreen.dll is not present in the test runtime directory.

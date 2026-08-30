@@ -1,0 +1,29 @@
+{
+  "data": {
+    "hotkey": [
+      { "k": "热门关键词一", "n": 987654, "d": "热度说明" },
+      { "keyword": "热门关键词二", "score": 123456 }
+    ],
+    "result": {
+      "singerList": [
+        { "singerMID": "SUGGEST_ARTIST", "singerName": "联想歌手" }
+      ],
+      "songList": [
+        {
+          "songmid": "SUGGEST_SONG",
+          "songname": "联想歌曲",
+          "singer": [{ "mid": "SUGGEST_ARTIST", "name": "联想歌手" }],
+          "album": { "mid": "SUGGEST_ALBUM", "name": "联想专辑" }
+        }
+      ],
+      "albumList": [
+        {
+          "albumMID": "SUGGEST_ALBUM",
+          "albumName": "联想专辑",
+          "singerMID": "SUGGEST_ARTIST",
+          "singerName": "联想歌手"
+        }
+      ]
+    }
+  }
+}

@@ -233,12 +233,135 @@ async function pollAttempt(attempt) {
   return { ...mapped, method: attempt.method, credential, profile };
 }
 
-async function searchSongs(body) {
+const searchCategoryConfig = {
+  all: { type: 0, remoteplace: 'song' },
+  songs: { type: 0, remoteplace: 'song' },
+  artists: { type: 1, remoteplace: 'singer' },
+  albums: { type: 2, remoteplace: 'album' },
+  playlists: { type: 3, remoteplace: 'playlist' },
+  lyrics: { type: 7, remoteplace: 'lyric' },
+};
+
+async function searchPlaylists(body, limit, page) {
+  const keywords = String(body.keywords || '').trim();
+  const raw = await fetchJson('https://u.y.qq.com/cgi-bin/musicu.fcg', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Referer: 'https://y.qq.com/',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+    },
+    body: JSON.stringify({
+      comm: { ct: '19', cv: '1859', uin: '0' },
+      req: {
+        method: 'DoSearchForQQMusicDesktop',
+        module: 'music.search.SearchCgiService',
+        param: {
+          grp: 1,
+          num_per_page: limit,
+          page_num: page,
+          query: keywords,
+          search_type: 3,
+        },
+      },
+    }),
+  }, 'QQ 歌单搜索');
+  const response = raw && raw.req;
+  if (!response || Number(response.code) !== 0 || Number(response.data?.code) !== 0)
+    throw new Error('QQ 歌单搜索返回了异常业务状态');
+  const meta = response.data?.meta || {};
+  return {
+    items: contract.searchItems(response.data, 'playlists').slice(0, limit),
+    hasMore: Number(meta.nextpage || 0) > page
+      || Number(meta.sum || 0) > page * limit,
+  };
+}
+
+async function searchResults(body) {
   const limit = Math.max(1, Math.min(100, Number(body.limit || 30)));
   const offset = Math.max(0, Number(body.offset || 0));
   const page = Math.floor(offset / limit) + 1;
-  const raw = contract.unwrap(await sdk.search({ key: String(body.keywords || ''), limit, page }));
-  return contract.collectSongs(raw).slice(0, limit);
+  const category = Object.prototype.hasOwnProperty.call(searchCategoryConfig, body.category)
+    ? String(body.category) : 'songs';
+  if (category === 'all') {
+    const categories = ['songs', 'artists', 'albums', 'playlists', 'lyrics'];
+    const categoryLimit = Math.max(3, Math.ceil(limit / categories.length));
+    const categoryOffset = Math.floor(offset / limit) * categoryLimit;
+    const settled = await Promise.allSettled(categories.map((item) => searchResults({
+      ...body,
+      category: item,
+      limit: categoryLimit,
+      offset: categoryOffset,
+    })));
+    const successful = settled.filter((item) => item.status === 'fulfilled')
+      .map((item) => item.value);
+    if (!successful.length) {
+      const firstFailure = settled.find((item) => item.status === 'rejected');
+      throw (firstFailure && firstFailure.reason) || new Error('QQ 综合搜索失败');
+    }
+    const order = ['artists', 'songs', 'albums', 'playlists', 'lyrics'];
+    successful.sort((left, right) => order.indexOf(left.category) - order.indexOf(right.category));
+    const items = successful.flatMap((item) => item.items);
+    return {
+      category,
+      items,
+      songs: items.filter((item) => item.type === 'song'),
+      hasMore: successful.some((item) => item.hasMore),
+    };
+  }
+  const config = searchCategoryConfig[category];
+  const keywords = String(body.keywords || '').trim();
+  if (!keywords) throw new Error('搜索关键词不能为空');
+  if (category === 'playlists') {
+    const result = await searchPlaylists(body, limit, page);
+    return {
+      category,
+      items: result.items,
+      songs: [],
+      hasMore: result.hasMore,
+    };
+  }
+  const raw = contract.unwrap(await services.getSearchByKey({
+    method: 'get',
+    params: {
+      w: keywords,
+      n: limit,
+      p: page,
+      t: config.type,
+      catZhida: 1,
+      remoteplace: 'txt.yqq.' + config.remoteplace,
+    },
+    option: {},
+  }));
+  const items = contract.searchItems(raw, category).slice(0, limit);
+  return {
+    category,
+    items,
+    songs: items.filter((item) => item.type === 'song'),
+    hasMore: items.length >= limit,
+  };
+}
+
+async function searchHotTerms(body) {
+  const limit = Math.max(1, Math.min(50, Number(body.limit || 20)));
+  const raw = contract.unwrap(await services.getHotKey({
+    method: 'get',
+    params: {},
+    option: {},
+  }));
+  return contract.hotKeys(raw).slice(0, limit);
+}
+
+async function searchSuggestions(body) {
+  const limit = Math.max(1, Math.min(30, Number(body.limit || 10)));
+  const keywords = String(body.keywords || '').trim();
+  if (!keywords) return [];
+  const raw = contract.unwrap(await services.getSmartbox({
+    method: 'get',
+    params: { key: keywords },
+    option: {},
+  }));
+  return contract.suggestions(raw, limit);
 }
 
 async function mediaAddresses(body) {
@@ -393,7 +516,13 @@ async function route(request, response) {
   if (url.pathname === '/v1/account/playlists') {
     return success(response, { playlists: await accountPlaylists(body) });
   }
-  if (url.pathname === '/v1/search') return success(response, { songs: await searchSongs(body) });
+  if (url.pathname === '/v1/search') return success(response, await searchResults(body));
+  if (url.pathname === '/v1/search/hot') {
+    return success(response, { terms: await searchHotTerms(body) });
+  }
+  if (url.pathname === '/v1/search/suggest') {
+    return success(response, { suggestions: await searchSuggestions(body) });
+  }
   if (url.pathname === '/v1/media') return success(response, { addresses: await mediaAddresses(body) });
   if (url.pathname === '/v1/lyrics') return success(response, await lyrics(body));
   if (url.pathname === '/v1/playlist/detail') return success(response, await playlistDetail(body));

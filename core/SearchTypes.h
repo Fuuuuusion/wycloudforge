@@ -95,6 +95,24 @@ struct SearchResponse
     quint64 generation = 0;
 };
 
+struct SearchSuggestion
+{
+    SourceId source = SourceId::Local;
+    SearchItemType type = SearchItemType::Song;
+    QString text;
+    QString subtitle;
+    QString remoteId;
+};
+
+struct HotSearchTerm
+{
+    SourceId source = SourceId::Local;
+    QString text;
+    QString description;
+    double score = -1.0;
+    int rank = -1;
+};
+
 struct SearchSourceState
 {
     SourceId source = SourceId::Local;
@@ -111,4 +129,5 @@ Q_DECLARE_METATYPE(core::SearchCategory)
 Q_DECLARE_METATYPE(core::SearchScope)
 Q_DECLARE_METATYPE(core::SearchItemType)
 Q_DECLARE_METATYPE(core::SearchLoadState)
-
+Q_DECLARE_METATYPE(core::SearchSuggestion)
+Q_DECLARE_METATYPE(core::HotSearchTerm)

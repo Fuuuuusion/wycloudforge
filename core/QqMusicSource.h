@@ -22,7 +22,20 @@ public:
     QString sourceScheme() const override { return QStringLiteral("qqmusic"); }
     SourceCapabilities capabilities() const override
     {
-        return { true, true, true, true, true, true, false };
+        SourceCapabilities value;
+        value.search = true;
+        value.recommendations = true;
+        value.playlists = true;
+        value.account = true;
+        value.lyrics = true;
+        value.downloads = true;
+        value.searchSuggestions = true;
+        value.hotSearch = true;
+        value.searchArtists = true;
+        value.searchAlbums = true;
+        value.searchPlaylists = true;
+        value.searchLyrics = true;
+        return value;
     }
 
     void setBaseUrl(const QString &url) { m_base = url; }
@@ -30,7 +43,8 @@ public:
     void setCookie(const QString &cookie) override { m_cookie = cookie; }
     QString cookie() const override { return m_cookie; }
 
-    void post(const QString &path, const QJsonObject &payload, OkFn ok, ErrFn err = {});
+    void post(const QString &path, const QJsonObject &payload, OkFn ok, ErrFn err = {},
+              quint64 searchGeneration = 0);
     void startQrLogin(const QString &method, OkFn ok, ErrFn err = {});
     void pollQrLogin(const QString &attemptId, OkFn ok, ErrFn err = {});
     void cancelQrLogin(const QString &attemptId, OkFn ok = {}, ErrFn err = {});
@@ -40,6 +54,11 @@ public:
     void searchSongs(const QString &keywords, int limit, JsonArrayFn ok, ErrFn err = {}) override;
     void searchSongsPage(const QString &keywords, int limit, int offset,
                          JsonArrayFn ok, ErrFn err = {}) override;
+    void search(const SearchRequest &request, SearchResponseFn ok, ErrFn err = {}) override;
+    void searchSuggestions(const QString &keywords, int limit,
+                           SearchSuggestionsFn ok, ErrFn err = {}) override;
+    void hotSearch(int limit, HotSearchFn ok, ErrFn err = {}) override;
+    void cancelSearch(quint64 generation) override;
     void songUrls(const QStringList &ids, JsonArrayFn ok, ErrFn err = {}) override;
     void lyric(const QString &id, String3Fn ok, ErrFn err = {}) override;
     void songDetail(const QString &id, OkFn ok, ErrFn err = {}) override;
@@ -75,6 +94,7 @@ private:
 
     QNetworkAccessManager *m_nam = nullptr;
     QHash<DownloadId, QPointer<QNetworkReply>> m_downloads;
+    QHash<quint64, QList<QPointer<QNetworkReply>>> m_searchReplies;
     QHash<QString, QString> m_qrImages;
     DownloadId m_nextDownloadId = 1;
     QString m_base = QStringLiteral("http://127.0.0.1:3200");

@@ -211,7 +211,7 @@ void PlayerServiceTest::unifiedSearchContract()
     bool completed = false;
     QString failure;
     SearchResponse response;
-    source.search(request, [&](const SearchResponse &value) {
+    source.MusicSource::search(request, [&](const SearchResponse &value) {
         response = value;
         completed = true;
     }, [&](const QString &message) {
@@ -249,7 +249,7 @@ void PlayerServiceTest::unifiedSearchRejectsUnsupportedCategory()
 
     bool completed = false;
     QString failure;
-    source.search(request, [&](const SearchResponse &) {
+    source.MusicSource::search(request, [&](const SearchResponse &) {
         completed = true;
     }, [&](const QString &message) {
         failure = message;

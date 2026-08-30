@@ -23,7 +23,22 @@ public:
     QString sourceScheme() const override { return QStringLiteral("netease"); }
     SourceCapabilities capabilities() const override
     {
-        return { true, true, true, true, true, true, true };
+        SourceCapabilities value;
+        value.search = true;
+        value.recommendations = true;
+        value.playlists = true;
+        value.account = true;
+        value.lyrics = true;
+        value.downloads = true;
+        value.likes = true;
+        value.searchSuggestions = true;
+        value.hotSearch = true;
+        value.searchArtists = true;
+        value.searchAlbums = true;
+        value.searchPlaylists = true;
+        value.searchLyrics = true;
+        value.defaultSearch = true;
+        return value;
     }
 
     using MusicSource::albumDetail;
@@ -45,12 +60,19 @@ public:
     void setCookie(const QString &cookie) override { m_cookie = cookie; }
     QString cookie() const override { return m_cookie; }
 
-    void get(const QString &path, const QUrlQuery &query, OkFn ok, ErrFn err = {});
+    void get(const QString &path, const QUrlQuery &query, OkFn ok, ErrFn err = {},
+             quint64 searchGeneration = 0);
     void checkReachable(BoolFn done);
 
     void searchSongs(const QString &keywords, int limit, JsonArrayFn ok, ErrFn err = {}) override;
     void searchSongsPage(const QString &keywords, int limit, int offset,
                          JsonArrayFn ok, ErrFn err = {}) override;
+    void search(const SearchRequest &request, SearchResponseFn ok, ErrFn err = {}) override;
+    void searchSuggestions(const QString &keywords, int limit,
+                           SearchSuggestionsFn ok, ErrFn err = {}) override;
+    void hotSearch(int limit, HotSearchFn ok, ErrFn err = {}) override;
+    void defaultSearchText(StringFn ok, ErrFn err = {}) override;
+    void cancelSearch(quint64 generation) override;
     void matchSong(const QString &title, const QString &artist, const QString &album,
                    qint64 durationMs, const QString &md5, JsonArrayFn ok, ErrFn err = {});
     void songUrls(const QStringList &ids, JsonArrayFn ok, ErrFn err = {}) override;
@@ -86,6 +108,7 @@ public:
 private:
     QNetworkAccessManager *m_nam = nullptr;
     QHash<DownloadId, QPointer<QNetworkReply>> m_downloads;
+    QHash<quint64, QList<QPointer<QNetworkReply>>> m_searchReplies;
     DownloadId m_nextDownloadId = 1;
     QString m_base = QStringLiteral("http://127.0.0.1:3000");
     QString m_cookie;

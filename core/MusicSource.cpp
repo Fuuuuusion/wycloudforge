@@ -72,6 +72,24 @@ void MusicSource::cancelSearch(quint64 generation)
     Q_UNUSED(generation)
 }
 
+void MusicSource::searchSuggestions(const QString &, int, SearchSuggestionsFn, ErrFn err)
+{
+    if (err)
+        err(QStringLiteral("%1暂不支持搜索联想").arg(sourceName()));
+}
+
+void MusicSource::hotSearch(int, HotSearchFn, ErrFn err)
+{
+    if (err)
+        err(QStringLiteral("%1暂不支持热搜").arg(sourceName()));
+}
+
+void MusicSource::defaultSearchText(StringFn, ErrFn err)
+{
+    if (err)
+        err(QStringLiteral("%1暂不支持默认搜索词").arg(sourceName()));
+}
+
 void MusicSource::lyric(qint64 id, String3Fn ok, ErrFn err) { lyric(QString::number(id), std::move(ok), std::move(err)); }
 void MusicSource::songDetail(qint64 id, OkFn ok, ErrFn err) { songDetail(QString::number(id), std::move(ok), std::move(err)); }
 void MusicSource::albumDetail(qint64 id, OkFn ok, ErrFn err) { albumDetail(QString::number(id), std::move(ok), std::move(err)); }
