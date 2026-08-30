@@ -167,15 +167,15 @@ QPushButton[class="ctrlBtn"]:hover {
 }
 QPushButton#playPauseBtn {
     border: none;
-    border-radius: 18px;
-    background: #EC4141;
+    border-radius: 20px;
+    background: transparent;
     padding: 0;
 }
 QPushButton#playPauseBtn:hover {
-    background: #FF5A5A;
+    background: transparent;
 }
 QPushButton#playPauseBtn:pressed {
-    background: #D63838;
+    background: transparent;
 }
 
 /* ---------- 滚动条 ---------- */

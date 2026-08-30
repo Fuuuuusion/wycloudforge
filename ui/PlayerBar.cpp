@@ -4,10 +4,13 @@
 #include "ui/SvgIcon.h"
 
 #include <QFileInfo>
+#include <QFocusEvent>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPainter>
 #include <QPushButton>
+#include <QSvgRenderer>
+#include <QVariantAnimation>
 #include <QVBoxLayout>
 
 namespace ui {
@@ -33,6 +36,167 @@ QPixmap placeholderCover(const QString &text)
     p.drawText(pm.rect(), Qt::AlignCenter, text.left(1));
     return pm;
 }
+
+QPixmap tintedSvg(const QString &path, const QColor &color, qreal dpr)
+{
+    QSvgRenderer renderer(path);
+    const int pixels = qMax(1, qRound(30.0 * dpr));
+    QPixmap pixmap(pixels, pixels);
+    pixmap.fill(Qt::transparent);
+
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+    renderer.render(&painter, QRectF(0, 0, pixels, pixels));
+    painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+    painter.fillRect(pixmap.rect(), color);
+    painter.end();
+
+    pixmap.setDevicePixelRatio(dpr);
+    return pixmap;
+}
+
+class AnimatedPlayPauseButton final : public QPushButton
+{
+public:
+    explicit AnimatedPlayPauseButton(QWidget *parent = nullptr)
+        : QPushButton(parent)
+    {
+        setObjectName(QStringLiteral("playPauseBtn"));
+        setFixedSize(40, 40);
+        setCursor(Qt::PointingHandCursor);
+        setToolTip(QStringLiteral("播放"));
+        setAccessibleName(QStringLiteral("播放"));
+
+        m_animation.setDuration(500);
+        m_animation.setStartValue(0.0);
+        m_animation.setEndValue(1.0);
+        connect(&m_animation, &QVariantAnimation::valueChanged, this, [this] { update(); });
+        connect(&m_animation, &QVariantAnimation::finished, this, [this] {
+            m_fromPlaying = m_playing;
+            update();
+        });
+    }
+
+    void setPlaying(bool playing)
+    {
+        if (m_playing == playing)
+            return;
+
+        m_fromPlaying = m_playing;
+        m_playing = playing;
+        m_animation.stop();
+        m_animation.start();
+        update();
+    }
+
+protected:
+    void focusInEvent(QFocusEvent *event) override
+    {
+        m_showFocusRing = event->reason() == Qt::TabFocusReason
+                          || event->reason() == Qt::BacktabFocusReason
+                          || event->reason() == Qt::ShortcutFocusReason;
+        QPushButton::focusInEvent(event);
+        update();
+    }
+
+    void focusOutEvent(QFocusEvent *event) override
+    {
+        m_showFocusRing = false;
+        QPushButton::focusOutEvent(event);
+        update();
+    }
+
+    void paintEvent(QPaintEvent *) override
+    {
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+
+        if (hasFocus() && m_showFocusRing) {
+            QPen focusPen(QColor(QStringLiteral("#6E6E7A")), 2.0);
+            painter.setPen(focusPen);
+            painter.setBrush(Qt::NoBrush);
+            painter.drawEllipse(QRectF(rect()).adjusted(3, 3, -3, -3));
+        }
+
+        QColor color(QStringLiteral("#D8D8E0"));
+        if (!isEnabled())
+            color = QColor(QStringLiteral("#6E6E7A"));
+        else if (isDown())
+            color = QColor(QStringLiteral("#C8C8D0"));
+        else if (underMouse())
+            color = QColor(QStringLiteral("#E8E8E8"));
+        ensurePixmaps(color);
+
+        if (m_animation.state() != QAbstractAnimation::Running) {
+            drawIcon(painter, m_playing, 1.0, 0.0, 1.0);
+            return;
+        }
+
+        const qreal progress = m_animation.currentValue().toReal();
+        const qreal outgoingProgress = qMin<qreal>(1.0, progress * 2.0);
+        drawIcon(painter,
+                 m_fromPlaying,
+                 1.0 - outgoingProgress,
+                 180.0 * outgoingProgress,
+                 1.0 - outgoingProgress);
+
+        qreal incomingRotation = 0.0;
+        qreal incomingScale = 1.0;
+        qreal incomingOpacity = 1.0;
+        if (progress <= 0.5) {
+            const qreal firstHalf = progress * 2.0;
+            incomingRotation = -180.0 + 170.0 * firstHalf;
+            incomingScale = 1.2 * firstHalf;
+            incomingOpacity = firstHalf;
+        } else {
+            const qreal secondHalf = (progress - 0.5) * 2.0;
+            incomingRotation = -10.0 + 10.0 * secondHalf;
+            incomingScale = 1.2 - 0.2 * secondHalf;
+        }
+        drawIcon(painter, m_playing, incomingOpacity, incomingRotation, incomingScale);
+    }
+
+private:
+    void ensurePixmaps(const QColor &color)
+    {
+        const qreal dpr = devicePixelRatioF();
+        if (m_cachedColor == color && qFuzzyCompare(m_cachedDpr, dpr))
+            return;
+
+        m_cachedColor = color;
+        m_cachedDpr = dpr;
+        m_playPixmap = tintedSvg(QStringLiteral(":/icons/icon-play-white.svg"), color, dpr);
+        m_pausePixmap = tintedSvg(QStringLiteral(":/icons/icon-pause-white.svg"), color, dpr);
+    }
+
+    void drawIcon(QPainter &painter,
+                  bool playing,
+                  qreal opacity,
+                  qreal rotation,
+                  qreal scale)
+    {
+        if (opacity <= 0.0 || scale <= 0.0)
+            return;
+
+        const QPixmap &pixmap = playing ? m_pausePixmap : m_playPixmap;
+        painter.save();
+        painter.setOpacity(opacity);
+        painter.translate(QRectF(rect()).center());
+        painter.rotate(rotation);
+        painter.scale(scale, scale);
+        painter.drawPixmap(QPointF(-15.0, -15.0), pixmap);
+        painter.restore();
+    }
+
+    QVariantAnimation m_animation;
+    QPixmap m_playPixmap;
+    QPixmap m_pausePixmap;
+    QColor m_cachedColor;
+    qreal m_cachedDpr = 0.0;
+    bool m_playing = false;
+    bool m_fromPlaying = false;
+    bool m_showFocusRing = false;
+};
 }
 
 PlayerBar::PlayerBar(QWidget *parent)
@@ -135,13 +299,7 @@ PlayerBar::PlayerBar(QWidget *parent)
 
     m_modeBtn = makeCtrlButton(QStringLiteral(":/icons/icon-loop.svg"), QStringLiteral("列表循环"));
     m_prevBtn = makeCtrlButton(QStringLiteral(":/icons/icon-prev.svg"), QStringLiteral("上一首"));
-    m_playBtn = new QPushButton(this);
-    m_playBtn->setObjectName("playPauseBtn");
-    m_playBtn->setIcon(makeSvgIcon(QStringLiteral(":/icons/icon-play-white.svg"), 17));
-    m_playBtn->setIconSize(QSize(17, 17));
-    m_playBtn->setFixedSize(36, 36);
-    m_playBtn->setCursor(Qt::PointingHandCursor);
-    m_playBtn->setToolTip(QStringLiteral("播放"));
+    m_playBtn = new AnimatedPlayPauseButton(this);
     m_nextBtn = makeCtrlButton(QStringLiteral(":/icons/icon-next.svg"), QStringLiteral("下一首"));
 
     m_muteBtn = makeCtrlButton(QStringLiteral(":/icons/icon-volume.svg"), QStringLiteral("静音"));
@@ -305,9 +463,10 @@ void PlayerBar::setMode(int mode)
 
 void PlayerBar::updatePlayIcon()
 {
-    m_playBtn->setIcon(makeSvgIcon(m_playing ? QStringLiteral(":/icons/icon-pause-white.svg")
-                                       : QStringLiteral(":/icons/icon-play-white.svg"), 17));
-    m_playBtn->setToolTip(m_playing ? QStringLiteral("暂停") : QStringLiteral("播放"));
+    static_cast<AnimatedPlayPauseButton *>(m_playBtn)->setPlaying(m_playing);
+    const QString accessibleText = m_playing ? QStringLiteral("暂停") : QStringLiteral("播放");
+    m_playBtn->setToolTip(accessibleText);
+    m_playBtn->setAccessibleName(accessibleText);
 }
 
 void PlayerBar::updateVolumeIcon()

@@ -44,6 +44,8 @@ cmd /v:on /c "C:\Users\Fusssssion\AppData\Local\Temp\netease_build\run_ninja1.ba
 - 2026-08-30:备份诊断脚本首次打印 JSON 报 `UnicodeEncodeError: gbk codec can't encode character`。根因是 PowerShell 控制台默认 GBK，备份歌曲元数据包含 GBK 不可表示字符；可行方案是显式把 Python `stdout` 设为 UTF-8。数据库查询本身没有失败。
 - 2026-08-30:永久下载清单首轮回归中 `tst_playlistcontroller` 的 `downloadedLyricsSurviveReload` 1 项失败，重载后测试目录外的有效下载路径被按清单文件名错误迁到当前下载目录，导致旁挂 LRC 找不到。根因是清单读取无条件优先 `fileName`；修复为“有效绝对 `storedPath` 优先，原路径失效时才按当前下载目录 + `fileName` 迁移”，完整测试随后 `EXIT=0`。该问题不是环境配置缺失。
 - 2026-08-30:UI worktree 首次配置独立 `%TEMP%\netease_ui_build` 时 CMake 报 `No CMAKE_CXX_COMPILER could be found`，显式传入编译器后旧失败缓存仍保留 `CMAKE_CXX_COMPILER-NOTFOUND`。根因是受限 PowerShell 进程未把 MinGW/Ninja 加入 `PATH`，且失败构建目录已缓存未找到状态，属于环境配置问题。已验证解决方案：在同一 PowerShell 进程把 `C:\Qt\Tools\mingw1310_64\bin` 与 `C:\Qt\Tools\Ninja` 加入 `PATH`，使用新的英文构建目录 `%TEMP%\netease_ui_controls_build`，并显式传入 `C:/Qt/Tools/mingw1310_64/bin/g++.exe`；Release 正式应用随后完整构建并链接成功。
+- 2026-08-30:PlayerBar 播放按钮视觉改动后的 `tst_playerservice` 在受限进程及部分桌面重跑中，`playPauseAndPosition` / `cachedOnlineSongPlayback` 偶发进入 Playing 后 3 秒内 position 不推进，分别出现 2 项失败；同一未变测试二进制也有完整 `12 passed / 0 failed / 1 skipped` 的通过记录，失败用例单独重跑可通过。根因是当前 Windows 音频输出与 FFmpeg 后端的非确定性时序，不是本轮只涉及 `ui/PlayerBar.cpp` 与 QSS 的源码回归。已验证方案：保持 `QT_MEDIA_BACKEND=ffmpeg`，通过 `Start-Process -Wait` 在桌面用户上下文运行并对失败的音频位置用例重跑；不得因此修改 core、降低断言或把受限进程的音频位置结果误判为 UI 回归。
+- 2026-08-30:播放按钮最终截图复核中，专用 UI 构建的 `--screenshot` 进程以 `-1073741819 (0xC0000005)` 退出且未生成图片；覆盖为空音乐目录、独立数据库及独立 `APPDATA/LOCALAPPDATA` 后仍复现，因此不是 `.mgg` 扫描或真实数据库问题。正式构建无错误，且同一构建此前已用正常可见窗口完成按钮尺寸、颜色和布局检查。已验证替代方案：避免在当前多实例状态使用 `--screenshot`，只在没有其他 NeteaseClone 实例时启动正常可见 UI 窗口验收；不得为截图便利修改 MainWindow、core 或单实例逻辑。
 - 以后每次编译或测试失败都在本节追加:命令、关键错误、根因、是否属于环境问题、已验证解决方案。现有解决方案失效且需要改变本机配置时先询问用户。
 
 ### 运行(必须沙箱外,否则窗口落在隔离桌面看不到)
