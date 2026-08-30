@@ -12,18 +12,24 @@
 #include <QFileInfo>
 #include <QFileSystemWatcher>
 #include <QHash>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QSqlRecord>
+#include <QSaveFile>
 #include <QSet>
 #include <QStandardPaths>
 #include <QThread>
 #include <QTimer>
+#include <QUuid>
 #include <QVariant>
 #include <QDebug>
 #include <QRegularExpression>
 
 #include <algorithm>
+#include <utility>
 
 namespace core {
 namespace {
@@ -83,6 +89,239 @@ QString downloadBaseName(const QString &titleValue, const QString &artistValue, 
     return safeDownloadPart(artist) + QStringLiteral(" - ") + safeDownloadPart(title);
 }
 
+constexpr auto kDownloadManifestName = ".wycloudforge-downloads.json";
+
+struct DownloadManifestRecord
+{
+    Song song;
+    QString filePath;
+};
+
+QString databaseIntegrityError(const QSqlDatabase &db);
+
+QString downloadIdentityKey(int source, const QString &remoteId)
+{
+    return QStringLiteral("%1:%2").arg(source).arg(remoteId.trimmed());
+}
+
+QString virtualSongPath(int source, const QString &remoteId)
+{
+    if (source == int(SourceId::Netease))
+        return QStringLiteral("netease://") + remoteId;
+    if (source == int(SourceId::QqMusic))
+        return QStringLiteral("qqmusic://") + remoteId;
+    return QStringLiteral("online://%1/%2").arg(source).arg(remoteId);
+}
+
+QString downloadManifestPath(const QString &directory)
+{
+    return QDir(directory).filePath(QString::fromLatin1(kDownloadManifestName));
+}
+
+QJsonObject downloadRecordToJson(const DownloadManifestRecord &record)
+{
+    QJsonObject object;
+    object.insert(QStringLiteral("source"), record.song.source);
+    object.insert(QStringLiteral("remoteId"), record.song.effectiveRemoteId());
+    object.insert(QStringLiteral("fileName"), QFileInfo(record.filePath).fileName());
+    object.insert(QStringLiteral("storedPath"), QDir::toNativeSeparators(
+                      QFileInfo(record.filePath).absoluteFilePath()));
+    object.insert(QStringLiteral("virtualPath"), record.song.filePath);
+    object.insert(QStringLiteral("title"), record.song.title);
+    object.insert(QStringLiteral("artist"), record.song.artist);
+    object.insert(QStringLiteral("album"), record.song.album);
+    object.insert(QStringLiteral("durationMs"), QString::number(record.song.durationMs));
+    object.insert(QStringLiteral("coverPath"), record.song.coverPath);
+    object.insert(QStringLiteral("coverUrl"), record.song.coverUrl);
+    object.insert(QStringLiteral("albumRemoteId"), record.song.effectiveAlbumRemoteId());
+    object.insert(QStringLiteral("artistRemoteId"), record.song.artistRemoteId);
+    return object;
+}
+
+bool downloadRecordFromJson(const QJsonObject &object, const QString &directory,
+                            DownloadManifestRecord *record)
+{
+    if (!record)
+        return false;
+    record->song.source = object.value(QStringLiteral("source")).toInt();
+    record->song.remoteId = object.value(QStringLiteral("remoteId")).toString().trimmed();
+    if (record->song.source <= int(SourceId::Local) || record->song.remoteId.isEmpty())
+        return false;
+
+    const QString fileName = QFileInfo(object.value(QStringLiteral("fileName")).toString()).fileName();
+    const QString storedPath = object.value(QStringLiteral("storedPath")).toString();
+    QString filePath = !storedPath.isEmpty() && QFileInfo(storedPath).isAbsolute()
+        && QFileInfo(storedPath).isFile() ? storedPath : QString();
+    if (filePath.isEmpty() && !fileName.isEmpty())
+        filePath = QDir(directory).filePath(fileName);
+    if (filePath.isEmpty())
+        filePath = storedPath;
+    if (filePath.isEmpty())
+        return false;
+
+    record->filePath = QDir::toNativeSeparators(QFileInfo(filePath).absoluteFilePath());
+    record->song.downloadPath = record->filePath;
+    record->song.filePath = object.value(QStringLiteral("virtualPath")).toString();
+    if (record->song.filePath.isEmpty())
+        record->song.filePath = virtualSongPath(record->song.source, record->song.remoteId);
+    record->song.title = object.value(QStringLiteral("title")).toString();
+    record->song.artist = object.value(QStringLiteral("artist")).toString();
+    record->song.album = object.value(QStringLiteral("album")).toString();
+    record->song.durationMs = object.value(QStringLiteral("durationMs")).toString().toLongLong();
+    record->song.coverPath = object.value(QStringLiteral("coverPath")).toString();
+    record->song.coverUrl = object.value(QStringLiteral("coverUrl")).toString();
+    record->song.albumRemoteId = object.value(QStringLiteral("albumRemoteId")).toString();
+    record->song.artistRemoteId = object.value(QStringLiteral("artistRemoteId")).toString();
+    if (record->song.source == int(SourceId::Netease)) {
+        record->song.onlineId = record->song.remoteId.toLongLong();
+        record->song.albumId = record->song.albumRemoteId.toLongLong();
+    }
+    return true;
+}
+
+bool loadDownloadManifest(const QString &directory, QList<DownloadManifestRecord> *records,
+                          bool *exists = nullptr)
+{
+    if (!records)
+        return false;
+    records->clear();
+    const QString path = downloadManifestPath(directory);
+    const bool fileExists = QFileInfo::exists(path);
+    if (exists)
+        *exists = fileExists;
+    if (!fileExists)
+        return true;
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return false;
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject())
+        return false;
+    const QJsonObject root = document.object();
+    if (root.value(QStringLiteral("version")).toInt() != 1
+        || !root.value(QStringLiteral("downloads")).isArray())
+        return false;
+
+    QSet<QString> identities;
+    for (const QJsonValue &value : root.value(QStringLiteral("downloads")).toArray()) {
+        if (!value.isObject())
+            continue;
+        DownloadManifestRecord record;
+        if (!downloadRecordFromJson(value.toObject(), directory, &record))
+            continue;
+        const QString identity = downloadIdentityKey(record.song.source, record.song.remoteId);
+        if (identities.contains(identity))
+            continue;
+        identities.insert(identity);
+        records->append(record);
+    }
+    return true;
+}
+
+bool saveDownloadManifest(const QString &directory, QList<DownloadManifestRecord> records)
+{
+    if (!QDir().mkpath(directory))
+        return false;
+    std::sort(records.begin(), records.end(), [](const DownloadManifestRecord &left,
+                                                 const DownloadManifestRecord &right) {
+        return downloadIdentityKey(left.song.source, left.song.effectiveRemoteId())
+            < downloadIdentityKey(right.song.source, right.song.effectiveRemoteId());
+    });
+    QJsonArray downloads;
+    QSet<QString> identities;
+    for (const DownloadManifestRecord &record : std::as_const(records)) {
+        if (!record.song.hasRemoteIdentity() || record.filePath.isEmpty())
+            continue;
+        const QString identity = downloadIdentityKey(record.song.source,
+                                                     record.song.effectiveRemoteId());
+        if (identities.contains(identity))
+            continue;
+        identities.insert(identity);
+        downloads.append(downloadRecordToJson(record));
+    }
+    QJsonObject root;
+    root.insert(QStringLiteral("version"), 1);
+    root.insert(QStringLiteral("downloads"), downloads);
+    QSaveFile file(downloadManifestPath(directory));
+    if (!file.open(QIODevice::WriteOnly))
+        return false;
+    if (file.write(QJsonDocument(root).toJson(QJsonDocument::Indented)) < 0)
+        return false;
+    return file.commit();
+}
+
+void mergeDownloadRecord(QList<DownloadManifestRecord> *records,
+                         const DownloadManifestRecord &replacement)
+{
+    if (!records || !replacement.song.hasRemoteIdentity() || replacement.filePath.isEmpty())
+        return;
+    const QString identity = downloadIdentityKey(replacement.song.source,
+                                                 replacement.song.effectiveRemoteId());
+    for (DownloadManifestRecord &record : *records) {
+        if (downloadIdentityKey(record.song.source, record.song.effectiveRemoteId()) == identity) {
+            record = replacement;
+            return;
+        }
+    }
+    records->append(replacement);
+}
+
+bool persistDownloadRecord(const QString &directory, const DownloadManifestRecord &record)
+{
+    QList<DownloadManifestRecord> records;
+    bool exists = false;
+    if (!loadDownloadManifest(directory, &records, &exists)) {
+        if (exists) {
+            const QString invalidCopy = downloadManifestPath(directory)
+                + QStringLiteral(".invalid-")
+                + QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss-zzz"));
+            QFile::copy(downloadManifestPath(directory), invalidCopy);
+        }
+        records.clear();
+    }
+    mergeDownloadRecord(&records, record);
+    return saveDownloadManifest(directory, records);
+}
+
+bool removeDownloadRecord(const QString &directory, int source, const QString &remoteId)
+{
+    QList<DownloadManifestRecord> records;
+    bool exists = false;
+    if (!loadDownloadManifest(directory, &records, &exists))
+        return false;
+    if (!exists)
+        return true;
+    const QString identity = downloadIdentityKey(source, remoteId);
+    records.erase(std::remove_if(records.begin(), records.end(), [&identity](const auto &record) {
+        return downloadIdentityKey(record.song.source, record.song.effectiveRemoteId()) == identity;
+    }), records.end());
+    return saveDownloadManifest(directory, records);
+}
+
+QString standaloneDatabaseIntegrityError(const QString &databasePath)
+{
+    const QString connectionName = QStringLiteral("standalone_integrity_%1")
+                                       .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+    QString error;
+    {
+        QSqlDatabase database = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+        database.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY;QSQLITE_OPEN_URI"));
+        const QString uri = QStringLiteral("file:")
+            + QDir::fromNativeSeparators(QFileInfo(databasePath).absoluteFilePath())
+            + QStringLiteral("?immutable=1");
+        database.setDatabaseName(uri);
+        if (!database.open())
+            error = database.lastError().text();
+        else
+            error = databaseIntegrityError(database);
+        database.close();
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return error;
+}
+
 QString coverCacheDir()
 {
     const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
@@ -103,6 +342,87 @@ QString databaseIntegrityError(const QSqlDatabase &db)
             errors.append(message);
     }
     return errors.join(QStringLiteral("; "));
+}
+
+QList<DownloadManifestRecord> downloadRecordsFromBackup(
+    const QString &databasePath, const QSet<QString> &wantedPaths)
+{
+    QList<DownloadManifestRecord> records;
+    if (wantedPaths.isEmpty() || !QFileInfo(databasePath).isFile())
+        return records;
+
+    const QString connectionName = QStringLiteral("download_backup_%1")
+                                       .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+    {
+        QSqlDatabase database = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+        database.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY;QSQLITE_OPEN_URI"));
+        const QString uri = QStringLiteral("file:")
+            + QDir::fromNativeSeparators(QFileInfo(databasePath).absoluteFilePath())
+            + QStringLiteral("?immutable=1");
+        database.setDatabaseName(uri);
+        if (database.open()) {
+            QSet<QString> columns;
+            QSqlQuery info(database);
+            if (info.exec(QStringLiteral("PRAGMA table_info(songs)"))) {
+                while (info.next())
+                    columns.insert(info.value(1).toString());
+            }
+            info.finish();
+            if (columns.contains(QStringLiteral("source"))
+                && columns.contains(QStringLiteral("download_path"))) {
+                const auto columnOr = [&columns](const QString &name, const QString &fallback) {
+                    return columns.contains(name) ? name
+                                                  : fallback + QStringLiteral(" AS ") + name;
+                };
+                QString sql = QStringLiteral(
+                    "SELECT path,title,artist,album,duration_ms,cover_path,source,");
+                sql += columnOr(QStringLiteral("remote_id"),
+                                columns.contains(QStringLiteral("online_id"))
+                                    ? QStringLiteral("CAST(online_id AS TEXT)")
+                                    : QStringLiteral("''"));
+                sql += QLatin1Char(',') + columnOr(QStringLiteral("online_id"), QStringLiteral("0"));
+                sql += QLatin1Char(',') + columnOr(QStringLiteral("cover_url"), QStringLiteral("''"));
+                sql += QLatin1Char(',') + columnOr(QStringLiteral("album_remote_id"),
+                                                   columns.contains(QStringLiteral("album_id"))
+                                                       ? QStringLiteral("CAST(album_id AS TEXT)")
+                                                       : QStringLiteral("''"));
+                sql += QLatin1Char(',') + columnOr(QStringLiteral("album_id"), QStringLiteral("0"));
+                sql += QLatin1Char(',') + columnOr(QStringLiteral("artist_remote_id"), QStringLiteral("''"));
+                sql += QStringLiteral(",download_path FROM songs NOT INDEXED "
+                                      "WHERE source>0 AND download_path<>'' ORDER BY id");
+                QSqlQuery query(database);
+                if (query.exec(sql)) {
+                    while (query.next()) {
+                        const QString filePath = QDir::toNativeSeparators(
+                            QFileInfo(query.value(13).toString()).absoluteFilePath());
+                        if (!wantedPaths.contains(normalizedFileKey(filePath)))
+                            continue;
+                        DownloadManifestRecord record;
+                        record.song.filePath = query.value(0).toString();
+                        record.song.title = query.value(1).toString();
+                        record.song.artist = query.value(2).toString();
+                        record.song.album = query.value(3).toString();
+                        record.song.durationMs = query.value(4).toLongLong();
+                        record.song.coverPath = query.value(5).toString();
+                        record.song.source = query.value(6).toInt();
+                        record.song.remoteId = query.value(7).toString();
+                        record.song.onlineId = query.value(8).toLongLong();
+                        record.song.coverUrl = query.value(9).toString();
+                        record.song.albumRemoteId = query.value(10).toString();
+                        record.song.albumId = query.value(11).toLongLong();
+                        record.song.artistRemoteId = query.value(12).toString();
+                        record.song.downloadPath = filePath;
+                        record.filePath = filePath;
+                        if (record.song.hasRemoteIdentity())
+                            records.append(record);
+                    }
+                }
+            }
+            database.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    return records;
 }
 
 QString backupDatabaseFiles(const QString &dbPath)
@@ -711,31 +1031,27 @@ bool LibraryService::openDatabase()
     QString integrityError = databaseIntegrityError(m_db);
     if (!integrityError.isEmpty()) {
         QString checkpointError;
-        QString repairError;
         QString backupPath;
         {
             QSqlQuery checkpoint(m_db);
             if (!checkpoint.exec(QStringLiteral("PRAGMA wal_checkpoint(FULL)")))
                 checkpointError = checkpoint.lastError().text();
+            checkpoint.finish();
             backupPath = backupDatabaseFiles(m_dbPath);
-            QSqlQuery repair(m_db);
-            if (!repair.exec(QStringLiteral("REINDEX")))
-                repairError = repair.lastError().text();
         }
 
-        // REINDEX 即使报告某个旧索引读取失败，也必须依据新的完整性检查结果
-        // 决定是否继续，不能直接把应用判定为启动失败。
-        integrityError = databaseIntegrityError(m_db);
-        if (!integrityError.isEmpty()) {
-            if (backupPath.isEmpty()) {
-                m_lastError = QStringLiteral("数据库损坏且无法创建安全备份：%1")
-                                  .arg(integrityError);
-                return false;
-            }
+        if (backupPath.isEmpty()) {
+            m_lastError = QStringLiteral("数据库损坏且无法创建安全备份：%1")
+                              .arg(integrityError);
+            return false;
+        }
 
-            // 现场问题是 WAL 损坏而已落盘的主数据库仍然健康。先关闭所有句柄，
-            // 再丢弃已经完整备份的 WAL/SHM，并重新验证主库，避免用户被困在
-            // “自动修复失败”的启动弹窗中。
+        // 先以 immutable 只读方式验证刚备份的主数据库，明确区分“主库损坏”
+        // 与“WAL 损坏”。禁止在带损坏 WAL 的连接上先执行 REINDEX：现场曾因此
+        // 把原本健康且包含永久下载记录的主库也改坏，随后恢复只能丢掉这些行。
+        const QString backupMain = QDir(backupPath).filePath(QFileInfo(m_dbPath).fileName());
+        const QString standaloneError = standaloneDatabaseIntegrityError(backupMain);
+        if (standaloneError.isEmpty()) {
             closeDatabaseConnection(&m_db);
             const bool removedWal = !QFileInfo::exists(m_dbPath + QStringLiteral("-wal"))
                 || QFile::remove(m_dbPath + QStringLiteral("-wal"));
@@ -749,10 +1065,28 @@ bool LibraryService::openDatabase()
             }
             integrityError = databaseIntegrityError(m_db);
             if (!integrityError.isEmpty()) {
+                m_lastError = QStringLiteral("丢弃损坏 WAL 后主库检查失败：%1；备份：%2")
+                                  .arg(integrityError, backupPath);
+                return false;
+            }
+            qWarning() << "Recovered database by preserving the healthy main file and discarding WAL; backup:"
+                       << backupPath << "checkpoint:" << checkpointError;
+        } else {
+            QString repairError;
+            QSqlQuery repair(m_db);
+            if (!repair.exec(QStringLiteral("REINDEX")))
+                repairError = repair.lastError().text();
+            repair.finish();
+            integrityError = databaseIntegrityError(m_db);
+            if (!integrityError.isEmpty()) {
+                // 主库本身不健康时，先从仍挂载 WAL 的连接提取可读行；这样即使
+                // WAL 只有部分损坏，已经提交但未 checkpoint 的下载、歌单等数据
+                // 仍有机会进入重建库，而不是先删 WAL 再恢复。
                 QString recoveryError;
                 if (!recoverCorruptDatabase(backupPath, &recoveryError)) {
                     m_lastError = QStringLiteral("数据库重建失败：%1；备份：%2")
-                                      .arg(recoveryError.isEmpty() ? integrityError : recoveryError, backupPath);
+                                      .arg(recoveryError.isEmpty() ? integrityError : recoveryError,
+                                           backupPath);
                     return false;
                 }
                 integrityError = databaseIntegrityError(m_db);
@@ -761,13 +1095,13 @@ bool LibraryService::openDatabase()
                                       .arg(integrityError, backupPath);
                     return false;
                 }
-                qWarning() << "Recovered database by rebuilding readable rows; backup:" << backupPath;
+                qWarning() << "Recovered database by rebuilding readable rows including WAL; backup:"
+                           << backupPath << "standalone:" << standaloneError
+                           << "checkpoint:" << checkpointError << "reindex:" << repairError;
+            } else {
+                qWarning() << "Repaired database indexes; backup:" << backupPath
+                           << "standalone:" << standaloneError << "reindex:" << repairError;
             }
-            qWarning() << "Recovered database by discarding corrupt WAL; backup:" << backupPath
-                       << "checkpoint:" << checkpointError << "reindex:" << repairError;
-        } else {
-            qWarning() << "Repaired database indexes; backup:" << backupPath
-                       << "reindex:" << repairError;
         }
     }
 
@@ -969,41 +1303,120 @@ void LibraryService::reconcileManagedDownloads()
     if (managedDownloadDir.isEmpty() || !directory.exists())
         return;
 
+    QList<DownloadManifestRecord> manifestRecords;
+    bool manifestExists = false;
+    const bool manifestValid = loadDownloadManifest(managedDownloadDir, &manifestRecords,
+                                                    &manifestExists);
+    if (!manifestValid) {
+        if (manifestExists) {
+            const QString invalidCopy = downloadManifestPath(managedDownloadDir)
+                + QStringLiteral(".invalid-")
+                + QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss-zzz"));
+            QFile::copy(downloadManifestPath(managedDownloadDir), invalidCopy);
+        }
+        manifestRecords.clear();
+    }
+
+    const auto restoreRecord = [this](const DownloadManifestRecord &record) {
+        const QString remoteId = record.song.effectiveRemoteId();
+        if (record.song.source <= int(SourceId::Local) || remoteId.isEmpty()
+            || record.filePath.isEmpty())
+            return false;
+        const QString virtualPath = record.song.filePath.isEmpty()
+            ? virtualSongPath(record.song.source, remoteId) : record.song.filePath;
+        const QString normalizedPath = QDir::toNativeSeparators(
+            QFileInfo(record.filePath).absoluteFilePath());
+        const qint64 onlineId = record.song.source == int(SourceId::Netease)
+            ? (record.song.onlineId > 0 ? record.song.onlineId : remoteId.toLongLong()) : 0;
+        const qint64 albumId = record.song.source == int(SourceId::Netease)
+            ? (record.song.albumId > 0 ? record.song.albumId
+                                       : record.song.effectiveAlbumRemoteId().toLongLong()) : 0;
+        QSqlQuery query(m_db);
+        query.prepare(QStringLiteral(
+            "INSERT INTO songs(path,title,artist,album,duration_ms,cover_path,has_cover,missing,"
+            "source,remote_id,online_id,cover_url,album_remote_id,album_id,artist_remote_id,download_path) "
+            "VALUES(?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(source,remote_id) WHERE source>0 AND remote_id<>'' DO UPDATE SET "
+            "title=CASE WHEN songs.title='' THEN excluded.title ELSE songs.title END,"
+            "artist=CASE WHEN songs.artist='' THEN excluded.artist ELSE songs.artist END,"
+            "album=CASE WHEN songs.album='' THEN excluded.album ELSE songs.album END,"
+            "duration_ms=CASE WHEN songs.duration_ms<=0 THEN excluded.duration_ms ELSE songs.duration_ms END,"
+            "cover_path=CASE WHEN songs.cover_path='' THEN excluded.cover_path ELSE songs.cover_path END,"
+            "has_cover=CASE WHEN songs.cover_path='' THEN excluded.has_cover ELSE songs.has_cover END,"
+            "cover_url=CASE WHEN songs.cover_url='' THEN excluded.cover_url ELSE songs.cover_url END,"
+            "online_id=CASE WHEN songs.online_id<=0 THEN excluded.online_id ELSE songs.online_id END,"
+            "album_remote_id=CASE WHEN songs.album_remote_id='' THEN excluded.album_remote_id ELSE songs.album_remote_id END,"
+            "album_id=CASE WHEN songs.album_id<=0 THEN excluded.album_id ELSE songs.album_id END,"
+            "artist_remote_id=CASE WHEN songs.artist_remote_id='' THEN excluded.artist_remote_id ELSE songs.artist_remote_id END,"
+            "download_path=excluded.download_path,missing=0"));
+        query.addBindValue(virtualPath);
+        query.addBindValue(record.song.title);
+        query.addBindValue(record.song.artist);
+        query.addBindValue(record.song.album);
+        query.addBindValue(record.song.durationMs);
+        query.addBindValue(record.song.coverPath);
+        query.addBindValue(record.song.coverPath.isEmpty() ? 0 : 1);
+        query.addBindValue(record.song.source);
+        query.addBindValue(remoteId);
+        query.addBindValue(onlineId);
+        query.addBindValue(record.song.coverUrl);
+        query.addBindValue(record.song.effectiveAlbumRemoteId());
+        query.addBindValue(albumId);
+        query.addBindValue(record.song.artistRemoteId);
+        query.addBindValue(normalizedPath);
+        return query.exec();
+    };
+
+    // JSON 清单是永久下载身份的数据库外事实来源。即使 songs 行在数据库恢复
+    // 时丢失，也能按 (source, remote_id) 重建，而不是再猜“歌手 - 歌名”。
+    for (const DownloadManifestRecord &record : std::as_const(manifestRecords))
+        restoreRecord(record);
+
     struct DownloadRow {
-        qint64 id = -1;
-        QString remoteId;
-        QString title;
-        QString artist;
+        Song song;
         QString storedPath;
         QString baseKey;
         bool assigned = false;
     };
 
-    QList<DownloadRow> rows;
-    QSet<QString> claimedPaths;
-    QSqlQuery songs(m_db);
-    if (!songs.exec(QStringLiteral(
-            "SELECT id,remote_id,title,artist,download_path FROM songs "
-            "WHERE source>0 AND remote_id<>'' ORDER BY id")))
-        return;
-    while (songs.next()) {
-        DownloadRow row;
-        row.id = songs.value(0).toLongLong();
-        row.remoteId = songs.value(1).toString();
-        row.title = songs.value(2).toString();
-        row.artist = songs.value(3).toString();
-        row.storedPath = songs.value(4).toString();
-        row.baseKey = downloadBaseName(row.title, row.artist, row.remoteId).toCaseFolded();
-        row.assigned = !row.storedPath.isEmpty() && QFileInfo(row.storedPath).isFile()
-            && QFileInfo(row.storedPath).size() > 0;
-        if (row.assigned)
-            claimedPaths.insert(normalizedFileKey(row.storedPath));
-        rows.append(row);
-    }
-    songs.finish();
+    const auto readRows = [this] {
+        QList<DownloadRow> rows;
+        QSqlQuery songs(m_db);
+        if (!songs.exec(QStringLiteral(
+                "SELECT id,path,title,artist,album,duration_ms,cover_path,source,remote_id,online_id,"
+                "cover_url,album_remote_id,album_id,artist_remote_id,download_path FROM songs "
+                "WHERE source>0 AND remote_id<>'' ORDER BY id")))
+            return rows;
+        while (songs.next()) {
+            DownloadRow row;
+            row.song.id = songs.value(0).toLongLong();
+            row.song.filePath = songs.value(1).toString();
+            row.song.title = songs.value(2).toString();
+            row.song.artist = songs.value(3).toString();
+            row.song.album = songs.value(4).toString();
+            row.song.durationMs = songs.value(5).toLongLong();
+            row.song.coverPath = songs.value(6).toString();
+            row.song.source = songs.value(7).toInt();
+            row.song.remoteId = songs.value(8).toString();
+            row.song.onlineId = songs.value(9).toLongLong();
+            row.song.coverUrl = songs.value(10).toString();
+            row.song.albumRemoteId = songs.value(11).toString();
+            row.song.albumId = songs.value(12).toLongLong();
+            row.song.artistRemoteId = songs.value(13).toString();
+            row.storedPath = songs.value(14).toString();
+            row.song.downloadPath = row.storedPath;
+            row.baseKey = downloadBaseName(row.song.title, row.song.artist,
+                                           row.song.effectiveRemoteId()).toCaseFolded();
+            row.assigned = !row.storedPath.isEmpty() && QFileInfo(row.storedPath).isFile()
+                && QFileInfo(row.storedPath).size() > 0;
+            rows.append(row);
+        }
+        return rows;
+    };
 
     QHash<QString, QString> exactFiles;
     QHash<QString, QList<QPair<int, QString>>> numberedFiles;
+    QSet<QString> validFilePaths;
     const QRegularExpression numberedSuffix(QStringLiteral(R"(^(.*) \((\d+)\)$)"));
     const QFileInfoList files = directory.entryInfoList(QDir::Files | QDir::NoDotAndDotDot,
                                                         QDir::Name | QDir::IgnoreCase);
@@ -1011,6 +1424,7 @@ void LibraryService::reconcileManagedDownloads()
         if (!isSupportedFile(file.absoluteFilePath()) || file.size() <= 0)
             continue;
         const QString path = QDir::toNativeSeparators(file.absoluteFilePath());
+        validFilePaths.insert(normalizedFileKey(path));
         const QString completeBase = file.completeBaseName();
         exactFiles.insert(completeBase.toCaseFolded(), path);
         const QRegularExpressionMatch match = numberedSuffix.match(completeBase);
@@ -1026,16 +1440,55 @@ void LibraryService::reconcileManagedDownloads()
         });
     }
 
+    QList<DownloadRow> rows = readRows();
+    QSet<QString> claimedPaths;
+    for (const DownloadRow &row : std::as_const(rows)) {
+        if (row.assigned)
+            claimedPaths.insert(normalizedFileKey(row.storedPath));
+    }
+
+    // 旧版没有清单时，从最近数据库备份的“主库文件”只读恢复与现存音频精确
+    // 同路径的下载记录。immutable=1 明确忽略旁边可能损坏的 WAL，不修改备份。
+    QSet<QString> orphanPaths = validFilePaths;
+    orphanPaths.subtract(claimedPaths);
+    if (!orphanPaths.isEmpty()) {
+        const QDir backupRoot(QFileInfo(m_dbPath).absolutePath() + QStringLiteral("/db-backups"));
+        const QFileInfoList backupDirectories = backupRoot.entryInfoList(
+            QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time);
+        for (const QFileInfo &backupDirectory : backupDirectories) {
+            const QString backupDatabase = QDir(backupDirectory.absoluteFilePath())
+                                               .filePath(QFileInfo(m_dbPath).fileName());
+            const QList<DownloadManifestRecord> recovered =
+                downloadRecordsFromBackup(backupDatabase, orphanPaths);
+            for (const DownloadManifestRecord &record : recovered) {
+                const QString pathKey = normalizedFileKey(record.filePath);
+                if (!orphanPaths.contains(pathKey) || !restoreRecord(record))
+                    continue;
+                mergeDownloadRecord(&manifestRecords, record);
+                orphanPaths.remove(pathKey);
+            }
+            if (orphanPaths.isEmpty())
+                break;
+        }
+        rows = readRows();
+        claimedPaths.clear();
+        for (const DownloadRow &row : std::as_const(rows)) {
+            if (row.assigned)
+                claimedPaths.insert(normalizedFileKey(row.storedPath));
+        }
+    }
+
     const auto assignPath = [this, &claimedPaths](DownloadRow &row, const QString &candidate) {
         if (candidate.isEmpty() || claimedPaths.contains(normalizedFileKey(candidate)))
             return false;
         QSqlQuery update(m_db);
         update.prepare(QStringLiteral("UPDATE songs SET download_path=? WHERE id=? AND source>0"));
         update.addBindValue(candidate);
-        update.addBindValue(row.id);
+        update.addBindValue(row.song.id);
         if (!update.exec() || update.numRowsAffected() != 1)
             return false;
         row.storedPath = candidate;
+        row.song.downloadPath = candidate;
         row.assigned = true;
         claimedPaths.insert(normalizedFileKey(candidate));
         return true;
@@ -1055,6 +1508,22 @@ void LibraryService::reconcileManagedDownloads()
                 break;
         }
     }
+
+    // 兼容旧库按文件名恢复成功后立即补写清单；已有数据库记录的元数据优先于
+    // 旧清单，封面和字符串远端 ID 也随之独立保存。
+    rows = readRows();
+    for (const DownloadRow &row : std::as_const(rows)) {
+        if (row.storedPath.isEmpty())
+            continue;
+        DownloadManifestRecord record;
+        record.song = row.song;
+        record.filePath = QDir::toNativeSeparators(
+            QFileInfo(row.storedPath).absoluteFilePath());
+        mergeDownloadRecord(&manifestRecords, record);
+    }
+    if (!saveDownloadManifest(managedDownloadDir, manifestRecords))
+        qWarning() << "Failed to persist permanent download manifest:"
+                   << downloadManifestPath(managedDownloadDir);
 }
 
 void LibraryService::removeManagedDownloadImports()
@@ -1496,6 +1965,13 @@ void LibraryService::setSongCoverPath(qint64 songId, const QString &path)
     for (Song &s : m_songs) {
         if (s.id == songId) {
             s.coverPath = path;
+            if (!s.downloadPath.isEmpty()) {
+                DownloadManifestRecord record;
+                record.song = s;
+                record.filePath = s.downloadPath;
+                if (!persistDownloadRecord(downloadDir(), record))
+                    qWarning() << "Failed to update downloaded song cover in manifest:" << songId;
+            }
             break;
         }
     }
@@ -1788,24 +2264,36 @@ bool LibraryService::setSongDownloaded(qint64 songId, const QString &path)
     if (!m_db.isOpen() || songId <= 0 || path.isEmpty()
         || !QFileInfo(path).isFile() || QFileInfo(path).size() <= 0)
         return false;
+    const QString normalizedPath = QDir::toNativeSeparators(QFileInfo(path).absoluteFilePath());
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral("UPDATE songs SET download_path=? WHERE id=? AND source>0"));
-    q.addBindValue(QDir::toNativeSeparators(QFileInfo(path).absoluteFilePath()));
+    q.addBindValue(normalizedPath);
     q.addBindValue(songId);
     if (!q.exec() || q.numRowsAffected() != 1)
         return false;
     bool found = false;
+    Song downloadedSong;
     for (Song &song : m_songs) {
         if (song.id == songId) {
             song.lyricPath.clear();
-            song.downloadPath = QDir::toNativeSeparators(QFileInfo(path).absoluteFilePath());
+            song.downloadPath = normalizedPath;
             refreshLyricPath(song);
+            downloadedSong = song;
             found = true;
             break;
         }
     }
-    if (!found)
+    if (!found) {
         reloadSongs();
+        downloadedSong = songById(songId);
+    }
+    if (downloadedSong.hasRemoteIdentity()) {
+        DownloadManifestRecord record;
+        record.song = downloadedSong;
+        record.filePath = normalizedPath;
+        if (!persistDownloadRecord(downloadDir(), record))
+            qWarning() << "Downloaded song was saved but manifest update failed:" << songId;
+    }
     emit libraryChanged();
     return true;
 }
@@ -1814,6 +2302,7 @@ bool LibraryService::removeSongDownload(qint64 songId)
 {
     if (!m_db.isOpen() || songId <= 0)
         return false;
+    const Song downloadedSong = songById(songId);
     const QString path = downloadPathFor(songId);
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral("UPDATE songs SET download_path='' WHERE id=? AND source>0"));
@@ -1825,6 +2314,10 @@ bool LibraryService::removeSongDownload(qint64 songId)
         QFile::remove(LyricsLoader::sidecarPathFor(path));
         LyricsLoader::invalidate(path);
     }
+    if (downloadedSong.hasRemoteIdentity()
+        && !removeDownloadRecord(downloadDir(), downloadedSong.source,
+                                 downloadedSong.effectiveRemoteId()))
+        qWarning() << "Failed to remove permanent download manifest entry:" << songId;
     for (Song &song : m_songs) {
         if (song.id == songId) {
             song.lyricPath.clear();

@@ -40,6 +40,9 @@ cmd /v:on /c "C:\Users\Fusssssion\AppData\Local\Temp\netease_build\run_ninja1.ba
 
 - 2026-08-29:直接调用 `%TEMP%\netease_build` 的 Ninja 时,`g++.exe` 在编译阶段无诊断退出。原因是当前终端没有把 `C:\Qt\Tools\mingw1310_64\bin` 加入 `PATH`;可行方案是使用 `run_ninja1.bat`,或在同一 `cmd` 会话中先加入 `C:\Qt\Tools\Ninja` 与 MinGW bin 后再运行 Ninja。无需重配 Qt。
 - 2026-08-29:`LibraryService.cpp` 把含引号/斜杠的原始正则字符串移到 `Q_OBJECT` 类之前后,AutoMoc 报 `No relevant classes found`,链接时报 `undefined reference to ScanWorker::staticMetaObject/vtable`。原因是 MOC 误解析原始字符串;可行方案是改用普通转义字符串,并确认 AutoMoc 重新生成后再链接。
+- 2026-08-30:为诊断下载关联直接在中文工作区调用 `gcc/cmake`，复现 `cc1` 0 CPU 挂起、无诊断退出以及 CMake `-1073740791`；系统 `cmake` 也不在 PATH。根因是已知的中文源码路径与直接工具调用环境问题，不是本轮 C++ 源码错误。可行方案：数据库只读诊断使用 Codex 运行时显式 Python；正式构建继续使用 ASCII `%TEMP%\netease_build` 和已配置 MinGW PATH 的 Ninja 脚本。
+- 2026-08-30:备份诊断脚本首次打印 JSON 报 `UnicodeEncodeError: gbk codec can't encode character`。根因是 PowerShell 控制台默认 GBK，备份歌曲元数据包含 GBK 不可表示字符；可行方案是显式把 Python `stdout` 设为 UTF-8。数据库查询本身没有失败。
+- 2026-08-30:永久下载清单首轮回归中 `tst_playlistcontroller` 的 `downloadedLyricsSurviveReload` 1 项失败，重载后测试目录外的有效下载路径被按清单文件名错误迁到当前下载目录，导致旁挂 LRC 找不到。根因是清单读取无条件优先 `fileName`；修复为“有效绝对 `storedPath` 优先，原路径失效时才按当前下载目录 + `fileName` 迁移”，完整测试随后 `EXIT=0`。该问题不是环境配置缺失。
 - 以后每次编译或测试失败都在本节追加:命令、关键错误、根因、是否属于环境问题、已验证解决方案。现有解决方案失效且需要改变本机配置时先询问用户。
 
 ### 运行(必须沙箱外,否则窗口落在隔离桌面看不到)
@@ -154,8 +157,8 @@ Start-Process $exe -ArgumentList "--folder `"$tmp`"","--db `"$tmp\t.db`"","--pag
 ### (L) 真实库扫描期间重启导致歌单空白 / 播放有进度但无声
 
 - 后台扫描连接曾在 `QSqlQuery` / `QSqlDatabase` 句柄仍存活时调用 `removeDatabase()`，退出又只等待 3 秒；现在扫描支持中断，严格先析构查询和连接句柄，再移除连接，退出会等待安全收尾。
-- 主库启动执行 `PRAGMA quick_check`；索引损坏时先把 db/wal/shm 备份到 `db-backups/automatic-*`，再 `REINDEX` 并复检，同时清理悬空 `song_cache` / `playlist_songs`。
-- 数据库恢复现在使用 `FULL` checkpoint 后的毫秒级唯一备份；`REINDEX` 报错后仍以复检结果为准。若确认是 WAL 损坏，会在安全备份后关闭全部连接、丢弃 WAL/SHM 并重新验证已落盘主库。正常退出还会执行 `TRUNCATE` checkpoint。
+- 主库启动执行 `PRAGMA quick_check`；异常时先把 db/wal/shm 备份到 `db-backups/automatic-*`，再以 `immutable=1` 只读检查备份主库。主库健康即判定为 WAL 问题，关闭连接后只丢弃 WAL/SHM；禁止在带损坏 WAL 的连接上先执行 `REINDEX`。
+- 只有主库本身也不健康时才尝试 `REINDEX`；仍失败则先从尚未丢弃 WAL 的连接用 `NOT INDEXED` 提取可读行，避免先删 WAL 导致已提交但未 checkpoint 的下载、歌单等记录永久丢失。正常退出继续执行 `TRUNCATE` checkpoint。
 - 如果主库本身仍无法通过检查，会从 `NOT INDEXED` 扫描中尽可能迁移歌曲、歌单、歌单关联、缓存和最近播放记录到新库；损坏源文件会随自动备份保留，无法读取的个别行会被跳过并记录警告。
 - 正式应用使用 `QLockFile` 限制为单实例，避免两个播放器进程同时维护同一个 SQLite/WAL；带 `--db` 的隔离测试不受此限制。再次启动时不再弹出并滞留“已有窗口”提示，而是恢复、置顶并激活现有主窗口后退出第二进程。
 - 播放前重新绑定 Windows 当前默认音频输出；优先使用 `Song::cachePath`，缓存无法解码时清掉失效记录并回退在线地址，播放失败会在播放器来源徽标显示原因。
@@ -171,6 +174,16 @@ Start-Process $exe -ArgumentList "--folder `"$tmp`"","--db `"$tmp\t.db`"","--pag
 - 歌词编辑器现在写入真实下载/缓存/本地音频旁的 LRC，不再尝试写入 `netease://` 虚拟路径；在线歌曲没有本地音频时明确禁用保存。
 - 验证：新增在线下载 LRC、显式路径优先级、缺失文件、数据库重载回归测试；四项自动化测试全部通过。用真实库副本恢复孙燕姿《风衣》，截图已确认展示作词/作曲和后续逐行歌词，不再显示“暂无歌词”。
 - 本轮正式构建和四项测试未发生编译/测试错误。本机 `sqlite3` 和系统 `python` 不在 PATH；需要隔离查询 SQLite 时的可行替代是使用 Codex 工作区依赖中的显式 Python 路径及标准库 `sqlite3`。
+
+### (N) QQ 功能重启后永久下载文件存在但应用不显示
+
+- 现场证据：当前 `library.db` 的 `integrity_check=ok`，有 213 行歌曲但 `download_path` 非空数为 0；下载目录 4 个音频均有效。`automatic-20260830-084618-285/library.db` 以 `immutable=1` 忽略损坏 WAL 后完整性为 `ok`，其中仍有网易云 `1:287398`《我不难过》、`1:516657213`《风衣》、`1:3422037209` GoldenCake 歌曲，以及微信登录 QQ 音乐下载的 `2:004NQRUH4anAYS`《了解》，四行路径和封面都完整。
+- 直接根因：QQ 微信账号修复只改了 Node 包装层，并未执行删除歌曲的 SQL；但为加载新包装层多次强制结束正式应用，启动后命中损坏 WAL 修复。旧修复顺序先在带坏 WAL 的连接上 `REINDEX`，把原本健康的主库也改坏，随后从受损主库重建时丢了下载行；这就是“功能加完后”才出现的触发链。
+- 放大因素：永久下载身份此前只保存在 `songs.download_path`；启动重关联只能把“歌手 - 歌名”文件匹配到当前仍存在的在线歌曲行。恢复后对应行已经不存在，文件名又没有 `source + remote_id`，所以 UI 的 `Song::isDownloaded()` 永远为假，并非本地页筛选自身出错。
+- 修复：下载目录新增原子写入的 `.wycloudforge-downloads.json`，每首保存来源、字符串远端 ID、虚拟路径、歌名/歌手/专辑、封面、文件名及原路径。下载完成和封面落盘时同步更新，删除永久下载时同步移除；启动时清单可重建丢失歌曲行。旧版无清单且发现孤立音频时，只读扫描最近数据库备份主库并按完整路径恢复，成功后立即补写清单。
+- **避错清单**：后端脚本更新需要重启时，优先正常关闭窗口并等待 SQLite `TRUNCATE` checkpoint，禁止直接 `Stop-Process -Force` 正式应用；只结束命令行明确属于项目的 Node 监听 PID，禁止停止所有 Node；永久下载身份必须以 `(source, remote_id)` 持久化，文件名只能展示或做旧版回退；数据库恢复前后必须核对“下载目录有效音频数 / 清单数 / 有效 `download_path` 数 / UI 已下载数”；WAL 异常必须先只读验证主库，禁止先 `REINDEX`；恢复或迁移不得删除下载清单，完成后必须重新导入下载关联。
+- 回归覆盖：清单可在歌曲行被删除后恢复 QQ 字符串身份、元数据、封面和下载路径；网易云/QQ 同名歌曲不会串绑；无清单孤立文件可从 immutable 备份主库恢复；有效绝对路径优先，原路径失效时才按当前下载目录迁移；`tst_playlistcontroller` 完整通过。
+- 真实迁移验收：修改前已备份到 `db-backups/manual-before-download-manifest-20260830-094024-826`；正式应用启动后当前库仍 `integrity_check=ok`，有效 `download_path=4`，下载清单 `version=1/count=4`。实机打开“本地歌单 → 已下载”确认正好显示这 4 首，播放器来源徽标为“已下载”；5 项 Qt 测试和 QQ 包装层 6 项契约测试均通过。
 
 ---
 

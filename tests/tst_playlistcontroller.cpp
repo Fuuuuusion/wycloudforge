@@ -31,6 +31,8 @@ private slots:
     void independentOnlineLyricsSurviveReload();
     void managedDownloadFolderIsNotImported();
     void downloadAssociationsSurviveRestartAndRepair();
+    void downloadManifestRestoresMissingOnlineRow();
+    void downloadBackupRecoversLegacyOrphan();
     void localAvailabilityClassification();
     void stringRemoteIdentityPersists();
 
@@ -44,6 +46,11 @@ void PlaylistControllerTest::init()
 {
     m_dir = new QTemporaryDir;
     QVERIFY(m_dir->isValid());
+    QCoreApplication::setOrganizationName(QStringLiteral("NeteaseClone"));
+    QCoreApplication::setApplicationName(QStringLiteral("NeteaseClone"));
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, m_dir->path());
+    SettingsService::setOnlineDownloadDir(m_dir->filePath(QStringLiteral("downloads")));
     LibraryService::setDatabasePathOverride(m_dir->filePath(QStringLiteral("t.db")));
     m_library = new LibraryService;
     QVERIFY2(m_library->openDatabase(), qPrintable(m_library->lastError()));
@@ -498,6 +505,138 @@ void PlaylistControllerTest::downloadAssociationsSurviveRestartAndRepair()
         QSettings().remove(QStringLiteral("online/downloadDir"));
     else
         SettingsService::setOnlineDownloadDir(oldDownloadDir);
+}
+
+void PlaylistControllerTest::downloadManifestRestoresMissingOnlineRow()
+{
+    const QString managedDir = m_dir->filePath(QStringLiteral("manifest-downloads"));
+    QVERIFY(QDir().mkpath(managedDir));
+    SettingsService::setOnlineDownloadDir(managedDir);
+
+    const QString coverPath = m_dir->filePath(QStringLiteral("qq-cover.jpg"));
+    QFile cover(coverPath);
+    QVERIFY(cover.open(QIODevice::WriteOnly));
+    QVERIFY(cover.write("cover") > 0);
+    cover.close();
+
+    Song qq;
+    qq.filePath = QStringLiteral("qqmusic://004NQRUH4anAYS");
+    qq.title = QStringLiteral("了解");
+    qq.artist = QStringLiteral("孙燕姿");
+    qq.album = QStringLiteral("未完成");
+    qq.durationMs = 286640;
+    qq.coverPath = coverPath;
+    qq.source = int(SourceId::QqMusic);
+    qq.remoteId = QStringLiteral("004NQRUH4anAYS");
+    qq.albumRemoteId = QStringLiteral("000-album-mid");
+    qq.artistRemoteId = QStringLiteral("000-artist-mid");
+    const qint64 qqId = m_library->upsertOnlineSong(qq);
+    QVERIFY(qqId > 0);
+
+    Song sameName = qq;
+    sameName.filePath = QStringLiteral("netease://287412");
+    sameName.source = int(SourceId::Netease);
+    sameName.remoteId = QStringLiteral("287412");
+    sameName.onlineId = 287412;
+    sameName.albumRemoteId = QStringLiteral("28539");
+    sameName.albumId = 28539;
+    const qint64 neteaseId = m_library->upsertOnlineSong(sameName);
+    QVERIFY(neteaseId > 0);
+
+    const QString downloadPath = QDir(managedDir).filePath(QStringLiteral("孙燕姿 - 了解.mp3"));
+    QFile audio(downloadPath);
+    QVERIFY(audio.open(QIODevice::WriteOnly));
+    QVERIFY(audio.write("downloaded-audio") > 0);
+    audio.close();
+    QVERIFY(m_library->setSongDownloaded(qqId, downloadPath));
+
+    const QString manifestPath = QDir(managedDir).filePath(
+        QStringLiteral(".wycloudforge-downloads.json"));
+    QFile manifest(manifestPath);
+    QVERIFY(manifest.open(QIODevice::ReadOnly));
+    const QByteArray manifestData = manifest.readAll();
+    QVERIFY(manifestData.contains("004NQRUH4anAYS"));
+    manifest.close();
+
+    QSqlQuery remove(m_library->database());
+    remove.prepare(QStringLiteral("DELETE FROM songs WHERE id=?"));
+    remove.addBindValue(qqId);
+    QVERIFY(remove.exec());
+    m_library->reloadDatabase();
+
+    const Song restored = m_library->songByRemoteId(int(SourceId::QqMusic), qq.remoteId);
+    QVERIFY(restored.id > 0);
+    QCOMPARE(restored.title, qq.title);
+    QCOMPARE(restored.album, qq.album);
+    QCOMPARE(restored.albumRemoteId, qq.albumRemoteId);
+    QCOMPARE(restored.coverPath, coverPath);
+    QCOMPARE(QDir::cleanPath(restored.downloadPath), QDir::cleanPath(downloadPath));
+    QVERIFY(restored.isDownloaded());
+    QVERIFY(!m_library->songById(neteaseId).isDownloaded());
+}
+
+void PlaylistControllerTest::downloadBackupRecoversLegacyOrphan()
+{
+    const QString managedDir = m_dir->filePath(QStringLiteral("backup-downloads"));
+    QVERIFY(QDir().mkpath(managedDir));
+    SettingsService::setOnlineDownloadDir(managedDir);
+    const QString downloadPath = QDir(managedDir).filePath(
+        QStringLiteral("备份歌手 - 备份下载.mp3"));
+    QFile audio(downloadPath);
+    QVERIFY(audio.open(QIODevice::WriteOnly));
+    QVERIFY(audio.write("legacy-download") > 0);
+    audio.close();
+
+    const QString backupDir = QFileInfo(m_library->databasePath()).absolutePath()
+        + QStringLiteral("/db-backups/automatic-20990101-000000-000");
+    QVERIFY(QDir().mkpath(backupDir));
+    const QString backupPath = QDir(backupDir).filePath(
+        QFileInfo(m_library->databasePath()).fileName());
+    const QString connectionName = QStringLiteral("legacy_download_backup");
+    {
+        QSqlDatabase backup = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+        backup.setDatabaseName(backupPath);
+        QVERIFY(backup.open());
+        QSqlQuery create(backup);
+        QVERIFY(create.exec(QStringLiteral(
+            "CREATE TABLE songs(id INTEGER PRIMARY KEY,path TEXT,title TEXT,artist TEXT,album TEXT,"
+            "duration_ms INTEGER,cover_path TEXT,source INTEGER,remote_id TEXT,online_id INTEGER,"
+            "cover_url TEXT,album_remote_id TEXT,album_id INTEGER,artist_remote_id TEXT,download_path TEXT)")));
+        QSqlQuery insert(backup);
+        insert.prepare(QStringLiteral(
+            "INSERT INTO songs(path,title,artist,album,duration_ms,cover_path,source,remote_id,"
+            "online_id,cover_url,album_remote_id,album_id,artist_remote_id,download_path) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)"));
+        insert.addBindValue(QStringLiteral("qqmusic://legacy-mid"));
+        insert.addBindValue(QStringLiteral("备份下载"));
+        insert.addBindValue(QStringLiteral("备份歌手"));
+        insert.addBindValue(QStringLiteral("备份专辑"));
+        insert.addBindValue(123000);
+        insert.addBindValue(QStringLiteral("C:/covers/legacy.jpg"));
+        insert.addBindValue(int(SourceId::QqMusic));
+        insert.addBindValue(QStringLiteral("legacy-mid"));
+        insert.addBindValue(0);
+        insert.addBindValue(QStringLiteral("https://example.invalid/legacy.jpg"));
+        insert.addBindValue(QStringLiteral("legacy-album"));
+        insert.addBindValue(0);
+        insert.addBindValue(QStringLiteral("legacy-artist"));
+        insert.addBindValue(downloadPath);
+        QVERIFY(insert.exec());
+        backup.close();
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+
+    m_library->reloadDatabase();
+    const Song restored = m_library->songByRemoteId(int(SourceId::QqMusic),
+                                                    QStringLiteral("legacy-mid"));
+    QVERIFY(restored.id > 0);
+    QVERIFY(restored.isDownloaded());
+    QCOMPARE(restored.title, QStringLiteral("备份下载"));
+    QCOMPARE(restored.albumRemoteId, QStringLiteral("legacy-album"));
+
+    QFile manifest(QDir(managedDir).filePath(QStringLiteral(".wycloudforge-downloads.json")));
+    QVERIFY(manifest.open(QIODevice::ReadOnly));
+    QVERIFY(manifest.readAll().contains("legacy-mid"));
 }
 
 void PlaylistControllerTest::localAvailabilityClassification()
