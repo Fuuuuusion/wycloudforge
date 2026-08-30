@@ -43,6 +43,7 @@ cmd /v:on /c "C:\Users\Fusssssion\AppData\Local\Temp\netease_build\run_ninja1.ba
 - 2026-08-30:为诊断下载关联直接在中文工作区调用 `gcc/cmake`，复现 `cc1` 0 CPU 挂起、无诊断退出以及 CMake `-1073740791`；系统 `cmake` 也不在 PATH。根因是已知的中文源码路径与直接工具调用环境问题，不是本轮 C++ 源码错误。可行方案：数据库只读诊断使用 Codex 运行时显式 Python；正式构建继续使用 ASCII `%TEMP%\netease_build` 和已配置 MinGW PATH 的 Ninja 脚本。
 - 2026-08-30:备份诊断脚本首次打印 JSON 报 `UnicodeEncodeError: gbk codec can't encode character`。根因是 PowerShell 控制台默认 GBK，备份歌曲元数据包含 GBK 不可表示字符；可行方案是显式把 Python `stdout` 设为 UTF-8。数据库查询本身没有失败。
 - 2026-08-30:永久下载清单首轮回归中 `tst_playlistcontroller` 的 `downloadedLyricsSurviveReload` 1 项失败，重载后测试目录外的有效下载路径被按清单文件名错误迁到当前下载目录，导致旁挂 LRC 找不到。根因是清单读取无条件优先 `fileName`；修复为“有效绝对 `storedPath` 优先，原路径失效时才按当前下载目录 + `fileName` 迁移”，完整测试随后 `EXIT=0`。该问题不是环境配置缺失。
+- 2026-08-30:UI worktree 首次配置独立 `%TEMP%\netease_ui_build` 时 CMake 报 `No CMAKE_CXX_COMPILER could be found`，显式传入编译器后旧失败缓存仍保留 `CMAKE_CXX_COMPILER-NOTFOUND`。根因是受限 PowerShell 进程未把 MinGW/Ninja 加入 `PATH`，且失败构建目录已缓存未找到状态，属于环境配置问题。已验证解决方案：在同一 PowerShell 进程把 `C:\Qt\Tools\mingw1310_64\bin` 与 `C:\Qt\Tools\Ninja` 加入 `PATH`，使用新的英文构建目录 `%TEMP%\netease_ui_controls_build`，并显式传入 `C:/Qt/Tools/mingw1310_64/bin/g++.exe`；Release 正式应用随后完整构建并链接成功。
 - 以后每次编译或测试失败都在本节追加:命令、关键错误、根因、是否属于环境问题、已验证解决方案。现有解决方案失效且需要改变本机配置时先询问用户。
 
 ### 运行(必须沙箱外,否则窗口落在隔离桌面看不到)
