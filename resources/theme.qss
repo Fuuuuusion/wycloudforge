@@ -141,7 +141,7 @@ QLabel[class="timeLabel"] {
     color: #6E6E7A;
     font-size: 12px;
 }
-QPushButton[class="sourceSwitch"] {
+QPushButton#neteaseSourceSwitch, QPushButton#qqSourceSwitch {
     border: none;
     border-radius: 8px;
     padding: 0 12px;
@@ -149,16 +149,16 @@ QPushButton[class="sourceSwitch"] {
     color: #9A9AA5;
     font-weight: 500;
 }
-QPushButton[class="sourceSwitch"]:hover {
+QPushButton#neteaseSourceSwitch:hover, QPushButton#qqSourceSwitch:hover {
     background: #24242E;
     color: #F04A4A;
 }
-QPushButton[class="sourceSwitch"]:checked {
+QPushButton#neteaseSourceSwitch:checked, QPushButton#qqSourceSwitch:checked {
     background: #EC4141;
     color: #FFFFFF;
     font-weight: 600;
 }
-QPushButton[class="sourceSwitch"]:pressed {
+QPushButton#neteaseSourceSwitch:pressed, QPushButton#qqSourceSwitch:pressed {
     background: #D63838;
     color: #FFFFFF;
 }
