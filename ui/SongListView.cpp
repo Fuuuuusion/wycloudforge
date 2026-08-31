@@ -10,6 +10,7 @@
 #include <QContextMenuEvent>
 #include <QFocusEvent>
 #include <QHeaderView>
+#include <QHideEvent>
 #include <QIcon>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -19,6 +20,7 @@
 #include <QPainterPath>
 #include <QPushButton>
 #include <QResizeEvent>
+#include <QShowEvent>
 #include <QStyledItemDelegate>
 #include <QTimer>
 #include <QToolButton>
@@ -270,6 +272,19 @@ public:
             if (m_view->isVisible() && !m_view->window()->isMinimized())
                 updateActionRows(m_loadingRows);
         });
+
+        m_playbackTransitionAnimation.setDuration(200);
+        m_playbackTransitionAnimation.setStartValue(0.0);
+        m_playbackTransitionAnimation.setEndValue(1.0);
+        connect(&m_playbackTransitionAnimation, &QVariantAnimation::valueChanged,
+                view, [this] { updatePlayingIndicator(); });
+
+        m_equalizerTimer.setInterval(33);
+        connect(&m_equalizerTimer, &QTimer::timeout, view, [this] {
+            m_equalizerPhaseMs = (m_equalizerPhaseMs + 33) % 1000;
+            if (m_viewVisible && m_view->isVisible() && !m_view->window()->isMinimized())
+                updatePlayingIndicator();
+        });
     }
 
     void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
@@ -320,6 +335,7 @@ public:
                 }
             } else if (playing) {
                 const QPointF c = rect.center() + QPointF(1, 0);
+                const qreal equalizer = equalizerAmount();
                 QPainterPath path;
                 path.moveTo(c.x() - 4, c.y() - 5);
                 path.lineTo(c.x() - 4, c.y() + 5);
@@ -327,7 +343,31 @@ public:
                 path.closeSubpath();
                 painter->setPen(Qt::NoPen);
                 painter->setBrush(kPrimary);
-                painter->drawPath(path);
+                if (equalizer < 1.0) {
+                    painter->save();
+                    painter->setOpacity(1.0 - equalizer);
+                    painter->translate(c);
+                    const qreal scale = 1.0 - 0.12 * equalizer;
+                    painter->scale(scale, scale);
+                    painter->translate(-c);
+                    painter->drawPath(path);
+                    painter->restore();
+                }
+                if (equalizer > 0.0) {
+                    painter->save();
+                    painter->setOpacity(equalizer);
+                    constexpr int phaseOffsets[] = { 0, 200, 400 };
+                    for (int bar = 0; bar < 3; ++bar) {
+                        const qreal phase = qreal((m_equalizerPhaseMs + phaseOffsets[bar]) % 1000)
+                            / 1000.0;
+                        const qreal wave = 0.5 + 0.5 * qSin(phase * 2.0 * M_PI);
+                        const qreal height = 5.0 + 10.0 * wave;
+                        const qreal x = c.x() - 5.0 + bar * 5.0;
+                        painter->drawRoundedRect(QRectF(x - 1.25, c.y() + 7.5 - height,
+                                                        2.5, height), 1.25, 1.25);
+                    }
+                    painter->restore();
+                }
             } else {
                 painter->setPen(active ? QPen(activeTextBrush(rect), 1) : QPen(kText3, 1));
                 painter->drawText(rect, Qt::AlignCenter, QString::number(index.row() + 1));
@@ -590,6 +630,31 @@ public:
         m_downloadCompletionAnimation.start();
     }
 
+    void setPlaybackActive(bool active)
+    {
+        if (m_playbackActive == active)
+            return;
+        m_playbackActive = active;
+        m_playbackTransitionAnimation.stop();
+        m_playbackTransitionAnimation.start();
+        updateEqualizerTimer();
+    }
+
+    void restartPlaybackTransition()
+    {
+        if (!m_playbackActive)
+            return;
+        m_playbackTransitionAnimation.stop();
+        m_playbackTransitionAnimation.start();
+        updateEqualizerTimer();
+    }
+
+    void setViewVisible(bool visible)
+    {
+        m_viewVisible = visible;
+        updateEqualizerTimer();
+    }
+
     int hoverRow() const
     {
         return m_hoverRow;
@@ -607,6 +672,37 @@ public:
     }
 
 private:
+    qreal equalizerAmount() const
+    {
+        if (m_playbackTransitionAnimation.state() != QAbstractAnimation::Running)
+            return m_playbackActive ? 1.0 : 0.0;
+        const qreal progress = m_playbackTransitionAnimation.currentValue().toReal();
+        return m_playbackActive ? progress : 1.0 - progress;
+    }
+
+    void updateEqualizerTimer()
+    {
+        if (m_playbackActive && m_viewVisible) {
+            if (!m_equalizerTimer.isActive())
+                m_equalizerTimer.start();
+        } else {
+            m_equalizerTimer.stop();
+        }
+        updatePlayingIndicator();
+    }
+
+    void updatePlayingIndicator() const
+    {
+        if (!m_view || !m_view->model())
+            return;
+        for (int row = 0; row < m_view->model()->rowCount(); ++row) {
+            if (!m_view->model()->index(row, 0).data(SongListModel::IsPlayingRole).toBool())
+                continue;
+            m_view->viewport()->update(m_view->visualRect(m_view->model()->index(row, 0)));
+            break;
+        }
+    }
+
     qreal rowHoverAmount(int row) const
     {
         if (m_rowHoverAnimation.state() != QAbstractAnimation::Running)
@@ -715,6 +811,7 @@ private:
     int m_actionToRow = -1;
     int m_pressedActionRow = -1;
     int m_loadingAngle = 0;
+    int m_equalizerPhaseMs = 0;
     QSet<int> m_heartAddedRows;
     QSet<int> m_heartRemovedRows;
     QSet<int> m_loadingRows;
@@ -724,7 +821,11 @@ private:
     QVariantAnimation m_heartStateAnimation;
     QVariantAnimation m_actionHoverAnimation;
     QVariantAnimation m_downloadCompletionAnimation;
+    QVariantAnimation m_playbackTransitionAnimation;
     QTimer m_loadingTimer;
+    QTimer m_equalizerTimer;
+    bool m_playbackActive = false;
+    bool m_viewVisible = false;
     SongListView::DownloadActionMode m_downloadMode = SongListView::DownloadAction;
 };
 
@@ -900,7 +1001,21 @@ QList<core::Song> SongListView::songs() const
 
 void SongListView::setPlayingId(qint64 playingId)
 {
+    const bool changed = m_model->playingId() != playingId;
     m_model->setPlayingId(playingId);
+    if (changed && m_playbackActive) {
+        if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate()))
+            delegate->restartPlaybackTransition();
+    }
+}
+
+void SongListView::setPlaybackActive(bool active)
+{
+    if (m_playbackActive == active)
+        return;
+    m_playbackActive = active;
+    if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate()))
+        delegate->setPlaybackActive(active);
 }
 
 void SongListView::setRemovable(bool removable)
@@ -1202,6 +1317,20 @@ void SongListView::resizeEvent(QResizeEvent *event)
         m_batchBar->setGeometry(0, 0, width(), 38);
         updateBatchLayout();
     }
+}
+
+void SongListView::showEvent(QShowEvent *event)
+{
+    QTableView::showEvent(event);
+    if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate()))
+        delegate->setViewVisible(true);
+}
+
+void SongListView::hideEvent(QHideEvent *event)
+{
+    if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate()))
+        delegate->setViewVisible(false);
+    QTableView::hideEvent(event);
 }
 
 void SongListView::contextMenuEvent(QContextMenuEvent *event)

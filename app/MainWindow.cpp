@@ -370,6 +370,10 @@ MainWindow::MainWindow(QWidget *parent)
     // ---------- 播放器信号 → UI ----------
     connect(&m_player, &core::PlayerService::songChanged, this, &MainWindow::onCurrentSongChanged);
     connect(&m_player, &core::PlayerService::playingChanged, m_playerBar, &ui::PlayerBar::setPlaying);
+    connect(&m_player, &core::PlayerService::playingChanged, this, [this](bool playing) {
+        for (ui::SongListView *view : findChildren<ui::SongListView *>())
+            view->setPlaybackActive(playing);
+    });
     connect(&m_player, &core::PlayerService::positionChanged, m_playerBar, &ui::PlayerBar::setPosition);
     connect(&m_player, &core::PlayerService::positionChanged, m_playing, &ui::PlayingPage::setPosition);
     connect(&m_player, &core::PlayerService::durationChanged, m_playerBar, &ui::PlayerBar::setDuration);

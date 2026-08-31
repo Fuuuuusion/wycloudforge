@@ -8,6 +8,8 @@
 class QMenu;
 class QMouseEvent;
 class QResizeEvent;
+class QShowEvent;
+class QHideEvent;
 class QAction;
 class QLabel;
 class QPushButton;
@@ -33,6 +35,8 @@ public:
     bool updateSong(const core::Song &song);
     QList<core::Song> songs() const;
     void setPlayingId(qint64 playingId);
+    void setPlaybackActive(bool active);
+    bool playbackActive() const { return m_playbackActive; }
     void setRemovable(bool removable);
     void setHighlightQuery(const QString &query);
     void setPlaylistMenuItems(const QList<QPair<int, QString>> &items);
@@ -65,6 +69,8 @@ protected:
     void mouseDoubleClickEvent(QMouseEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
     void leaveEvent(QEvent *event) override;
+    void showEvent(QShowEvent *event) override;
+    void hideEvent(QHideEvent *event) override;
 
 private:
     void setBatchMode(bool enabled);
@@ -102,6 +108,7 @@ private:
     bool m_removable = false;
     bool m_batchMode = false;
     bool m_favoriteStateInitialized = false;
+    bool m_playbackActive = false;
     DownloadActionMode m_downloadMode = DownloadAction;
 };
 

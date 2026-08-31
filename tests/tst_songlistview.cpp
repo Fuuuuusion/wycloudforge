@@ -27,6 +27,7 @@ private slots:
     void playerBarDownloadStateKeepsSignalsSeparate();
     void playerBarDirectionalControlsKeepGeometryAndSignals();
     void singleClickPlaysContentOnly();
+    void playbackActivityTracksRealState();
 };
 
 void SongListViewTest::batchEntryAndStableSelection()
@@ -400,6 +401,35 @@ void SongListViewTest::singleClickPlaysContentOnly()
     QCOMPARE(playSpy.count(), 0);
 
     QTest::mouseDClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, titleRect.center());
+    QCOMPARE(playSpy.count(), 0);
+}
+
+void SongListViewTest::playbackActivityTracksRealState()
+{
+    Song song;
+    song.id = 1101;
+    song.filePath = QStringLiteral("C:/music/equalizer.mp3");
+    song.title = QStringLiteral("Equalizer");
+
+    SongListView view;
+    view.resize(900, 240);
+    view.setSongs({ song }, song.id);
+    view.show();
+    QApplication::processEvents();
+    QVERIFY(!view.playbackActive());
+
+    QSignalSpy playSpy(&view, &SongListView::playRequested);
+    view.setPlaybackActive(true);
+    QVERIFY(view.playbackActive());
+    QCOMPARE(playSpy.count(), 0);
+    view.hide();
+    QApplication::processEvents();
+    view.show();
+    QApplication::processEvents();
+
+    view.setPlayingId(song.id);
+    view.setPlaybackActive(false);
+    QVERIFY(!view.playbackActive());
     QCOMPARE(playSpy.count(), 0);
 }
 
