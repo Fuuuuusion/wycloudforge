@@ -9,7 +9,7 @@
 - 用户已确认忽略旧限制文件中普通微动效不超过 `160ms`、禁止循环控件动画等限制。本计划明确列出的 `200ms` 控件动画、播放中均衡器和短时 loading 动画均为已批准例外。
 - 仍延续项目深色主题、现有业务数据来源和稳定歌曲身份；除本计划明确批准的单击播放、已下载按钮转删除外，不改变其他 signal 的参数或业务含义。
 - 仍只在 `C:\Users\Fusssssion\Documents\ChatGPT\仿网易云播放器-ui-controls` 和 `codex/ui-controls-optimization` 分支工作。
-- 不直接修改、合并或推送 `main`；每项 UI 改动单独 commit，并推送到 `origin/codex/ui-controls-optimization`。
+- 每项 UI 改动单独 commit，并推送到 `origin/codex/ui-controls-optimization`；需要同步 `main` 时按用户当次明确指令执行。
 - 后续新增控件或出现本计划未覆盖的业务变化时，继续先评估并取得用户确认。
 
 ## 2. 全局视觉与动效规则
