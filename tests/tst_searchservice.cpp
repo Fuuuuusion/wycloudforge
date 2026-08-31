@@ -2,6 +2,7 @@
 #include "core/SearchCache.h"
 #include "core/SearchService.h"
 
+#include <QDir>
 #include <QFile>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -71,6 +72,7 @@ private slots:
     void rejectsAmbiguousVariantsRegardlessOfArrivalOrder();
     void honorsOptionalSortModes();
     void persistsSearchCacheAndHistory();
+    void ignoresCorruptCacheAndRecoversAfterRewrite();
 };
 
 void SearchServiceTest::ranksTitleMatchesBeforeMetadataMatches()
@@ -511,6 +513,54 @@ void SearchServiceTest::persistsSearchCacheAndHistory()
     QCOMPARE(cache.history(), QStringList({ QStringLiteral("晴天"), QStringLiteral("风衣") }));
     cache.clearHistory();
     QVERIFY(cache.history().isEmpty());
+}
+
+void SearchServiceTest::ignoresCorruptCacheAndRecoversAfterRewrite()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    SearchCache cache(dir.filePath(QStringLiteral("cache")));
+
+    SearchRequest request;
+    request.keywords = QStringLiteral("损坏缓存恢复");
+    request.category = SearchCategory::Songs;
+    request.scope = SearchScope::QqMusic;
+    request.limit = 30;
+    request.generation = 61;
+
+    SearchResponse response;
+    response.source = SourceId::QqMusic;
+    response.category = request.category;
+    response.generation = request.generation;
+    response.items = { makeOnlineItem(SourceId::QqMusic,
+                                      QStringLiteral("qq-corrupt-cache"),
+                                      QStringLiteral("缓存恢复"),
+                                      QStringLiteral("测试歌手")) };
+    QVERIFY(cache.storeResponse(request, response));
+
+    QDir resultsDir(cache.rootPath() + QStringLiteral("/results"));
+    const QStringList entries = resultsDir.entryList(
+        { QStringLiteral("*.json") }, QDir::Files);
+    QCOMPARE(entries.size(), 1);
+    QFile damaged(resultsDir.filePath(entries.constFirst()));
+    QVERIFY(damaged.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    QCOMPARE(damaged.write("{not-valid-json"), qint64(15));
+    damaged.close();
+
+    SearchResponse restored;
+    bool fresh = true;
+    QVERIFY(!cache.loadResponse(request, SourceId::QqMusic, &restored, &fresh));
+    QVERIFY(!fresh);
+
+    request.generation = 62;
+    response.generation = request.generation;
+    QVERIFY(cache.storeResponse(request, response));
+    QVERIFY(cache.loadResponse(request, SourceId::QqMusic, &restored, &fresh));
+    QVERIFY(fresh);
+    QCOMPARE(restored.generation, quint64(62));
+    QCOMPARE(restored.items.size(), 1);
+    QCOMPARE(restored.items.constFirst().stableIdentity(),
+             QStringLiteral("2:qq-corrupt-cache"));
 }
 
 QTEST_GUILESS_MAIN(SearchServiceTest)

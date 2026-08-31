@@ -5,6 +5,8 @@
 #include "core/SettingsService.h"
 
 #include <QCoreApplication>
+#include <QDir>
+#include <QFileInfo>
 #include <QHostAddress>
 #include <QJsonDocument>
 #include <QSettings>
@@ -116,6 +118,7 @@ private slots:
     void rejectsWrongServiceSignature();
     void acceptsExpectedServiceSignature();
     void unavailableServiceDoesNotAutoStartWhenDisabled();
+    void autoStartsRealQqWrapperOnColdPort();
     void neteaseCategorizedSearchAndDiscovery();
     void qqCategorizedSearchAndDiscovery();
 
@@ -231,6 +234,40 @@ void MultiSourceSupportTest::unavailableServiceDoesNotAutoStartWhenDisabled()
                           [&](const QString &message) { failure = message; finished = true; });
     QTRY_VERIFY_WITH_TIMEOUT(finished, 3000);
     QVERIFY(failure.contains(QStringLiteral("未启动")));
+    QVERIFY(!service.isRunning());
+}
+
+void MultiSourceSupportTest::autoStartsRealQqWrapperOnColdPort()
+{
+    const QString apiDir = QqApiService::detectApiDir();
+    QVERIFY2(!apiDir.isEmpty(), "未找到本地 QQ 音乐包装服务目录");
+    QVERIFY2(QFileInfo::exists(QDir(apiDir).filePath(
+                 QStringLiteral("node_modules/@sansenjian/qq-music-api/package.json"))),
+             "QQ 音乐包装服务依赖未安装");
+
+    QTcpServer portProbe;
+    QVERIFY(portProbe.listen(QHostAddress::LocalHost, 0));
+    const QString coldBase = baseUrl(portProbe);
+    portProbe.close();
+
+    SettingsService::setQqApiBase(coldBase);
+    SettingsService::setQqApiDir(apiDir);
+    SettingsService::setQqAutoStart(true);
+
+    QqApiService service;
+    bool finished = false;
+    bool ready = false;
+    QString failure;
+    service.ensureRunning([&] { ready = true; finished = true; },
+                          [&](const QString &message) {
+        failure = message;
+        finished = true;
+    });
+    QTRY_VERIFY_WITH_TIMEOUT(finished, 12000);
+    QVERIFY2(ready, qPrintable(failure));
+    QVERIFY(service.isRunning());
+
+    service.stop();
     QVERIFY(!service.isRunning());
 }
 

@@ -101,6 +101,46 @@ private:
     SearchResultItem m_item;
 };
 
+template <typename Source>
+class DeferredSearchSource final : public Source
+{
+public:
+    struct PendingSearch {
+        SearchRequest request;
+        MusicSource::SearchResponseFn ok;
+        MusicSource::ErrFn err;
+    };
+
+    void search(const SearchRequest &request, MusicSource::SearchResponseFn ok,
+                MusicSource::ErrFn err = {}) override
+    {
+        pending.append({ request, std::move(ok), std::move(err) });
+    }
+
+    void cancelSearch(quint64 generation) override
+    {
+        // 故意保留回调，用于模拟底层取消后仍迟到的网络响应。
+        cancelledGenerations.append(generation);
+    }
+
+    void succeed(int index, const SearchResultItem &item)
+    {
+        QVERIFY(index >= 0 && index < pending.size());
+        PendingSearch value = pending.takeAt(index);
+        SearchResponse response;
+        response.source = this->sourceId();
+        response.category = value.request.category;
+        response.generation = value.request.generation;
+        response.offset = value.request.offset;
+        response.items = { item };
+        if (value.ok)
+            value.ok(response);
+    }
+
+    QList<PendingSearch> pending;
+    QList<quint64> cancelledGenerations;
+};
+
 } // namespace
 
 class SearchPageTest : public QObject
@@ -112,6 +152,8 @@ private slots:
     void routesScopeAndCategoryToSelectedSource();
     void providesHistoryDiscoverySuggestionsAndKeyboardSelection();
     void fallsBackToCacheWithoutClearingHealthySource();
+    void keepsNeteaseResultsWhenQqFails();
+    void ignoresLateResponsesAndDestroyedPageCallbacks();
 };
 
 void SearchPageTest::aggregatesSourcesAndExposesPreferredStableSong()
@@ -318,6 +360,94 @@ void SearchPageTest::fallsBackToCacheWithoutClearingHealthySource()
     QCOMPARE(page.onlineResultItems().size(), 2);
     QCOMPARE(page.onlineResultGroups().size(), 1);
     QCOMPARE(page.onlineResultGroups().constFirst().variants.size(), 2);
+}
+
+void SearchPageTest::keepsNeteaseResultsWhenQqFails()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QCoreApplication::setOrganizationName(QStringLiteral("WyCloudForgeTests"));
+    QCoreApplication::setApplicationName(QStringLiteral("SearchPageQqOffline"));
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, dir.path());
+    QSettings().clear();
+    SettingsService::setOnlineDownloadDir(dir.filePath(QStringLiteral("downloads")));
+    LibraryService::setDatabasePathOverride(dir.filePath(QStringLiteral("library.db")));
+    LibraryService library;
+    QVERIFY2(library.openDatabase(), qPrintable(library.lastError()));
+
+    FixedSearchSource<NeteaseApiClient> healthyNetease(
+        resultItem(SourceId::Netease, QStringLiteral("netease-live"), true));
+    FixedSearchSource<QqMusicSource> offlineQq(
+        resultItem(SourceId::QqMusic, QStringLiteral("unused"), true));
+    offlineQq.failSearch = true;
+    MusicSourceRegistry registry;
+    registry.registerSource(&healthyNetease);
+    registry.registerSource(&offlineQq);
+
+    SearchPage page;
+    page.setSourceProvider(&healthyNetease, &library);
+    page.setSourceRegistry(&registry);
+    page.setOnlineSourceEnabled(SourceId::QqMusic, true);
+    page.performSearch(QStringLiteral("QQ 离线反向隔离"));
+
+    QCOMPARE(page.sourceState(SourceId::Netease).state, SearchLoadState::Ready);
+    QCOMPARE(page.sourceState(SourceId::QqMusic).state, SearchLoadState::Failed);
+    QCOMPARE(page.onlineResultItems().size(), 1);
+    QCOMPARE(page.currentSongs().size(), 1);
+    QCOMPARE(page.currentSongs().constFirst().stableIdentity(),
+             QStringLiteral("1:netease-live"));
+}
+
+void SearchPageTest::ignoresLateResponsesAndDestroyedPageCallbacks()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QCoreApplication::setOrganizationName(QStringLiteral("WyCloudForgeTests"));
+    QCoreApplication::setApplicationName(QStringLiteral("SearchPageLateResponse"));
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, dir.path());
+    QSettings().clear();
+    SettingsService::setOnlineDownloadDir(dir.filePath(QStringLiteral("downloads")));
+    LibraryService::setDatabasePathOverride(dir.filePath(QStringLiteral("library.db")));
+    LibraryService library;
+    QVERIFY2(library.openDatabase(), qPrintable(library.lastError()));
+
+    DeferredSearchSource<NeteaseApiClient> source;
+    MusicSourceRegistry registry;
+    registry.registerSource(&source);
+
+    SearchPage page;
+    page.setSourceProvider(&source, &library);
+    page.setSourceRegistry(&registry);
+    page.setSearchScope(SearchScope::Netease);
+    page.performSearch(QStringLiteral("旧查询"));
+    page.performSearch(QStringLiteral("新查询"));
+    QCOMPARE(source.pending.size(), 2);
+    QCOMPARE(source.cancelledGenerations.size(), 1);
+
+    source.succeed(1, resultItem(SourceId::Netease,
+                                 QStringLiteral("new-response"), true));
+    QCOMPARE(page.currentSongs().size(), 1);
+    QCOMPARE(page.currentSongs().constFirst().effectiveRemoteId(),
+             QStringLiteral("new-response"));
+
+    source.succeed(0, resultItem(SourceId::Netease,
+                                 QStringLiteral("late-old-response"), true));
+    QCOMPARE(page.currentSongs().size(), 1);
+    QCOMPARE(page.currentSongs().constFirst().effectiveRemoteId(),
+             QStringLiteral("new-response"));
+
+    auto *destroyedPage = new SearchPage;
+    destroyedPage->setSourceProvider(&source, &library);
+    destroyedPage->setSourceRegistry(&registry);
+    destroyedPage->setSearchScope(SearchScope::Netease);
+    destroyedPage->performSearch(QStringLiteral("页面销毁"));
+    QCOMPARE(source.pending.size(), 1);
+    delete destroyedPage;
+    source.succeed(0, resultItem(SourceId::Netease,
+                                 QStringLiteral("after-destroy"), true));
+    QVERIFY(source.pending.isEmpty());
 }
 
 QTEST_MAIN(SearchPageTest)
