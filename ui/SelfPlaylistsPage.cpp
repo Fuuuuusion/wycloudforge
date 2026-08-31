@@ -19,7 +19,8 @@ public:
         : CoverCard(parent)
     {
         setFixedCardSize(132, 116);
-        setCover(CoverProvider::placeholder(QStringLiteral("+"), 116, 6));
+        setFullCoverCard(true);
+        setNewPlaylistCard(true);
         setText(QStringLiteral("新建歌单"), QString());
     }
 };

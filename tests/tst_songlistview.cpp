@@ -30,6 +30,7 @@ private slots:
     void singleClickPlaysContentOnly();
     void playbackActivityTracksRealState();
     void fullCoverPlaylistCardKeepsVisibleGeometry();
+    void newPlaylistCardKeepsClickContract();
 };
 
 void SongListViewTest::batchEntryAndStableSelection()
@@ -451,6 +452,26 @@ void SongListViewTest::fullCoverPlaylistCardKeepsVisibleGeometry()
 
     QSignalSpy clickSpy(&card, &CoverCard::clicked);
     QTest::mouseClick(&card, Qt::LeftButton, Qt::NoModifier, QPoint(66, 80));
+    QCOMPARE(clickSpy.count(), 1);
+    QCOMPARE(card.size(), QSize(132, 168));
+}
+
+void SongListViewTest::newPlaylistCardKeepsClickContract()
+{
+    CoverCard card;
+    card.setFixedCardSize(132, 116);
+    card.setFullCoverCard(true);
+    card.setNewPlaylistCard(true);
+    card.setText(QStringLiteral("新建歌单"));
+    QCOMPARE(card.size(), QSize(132, 168));
+    QCOMPARE(card.accessibleName(), QStringLiteral("新建歌单"));
+    card.show();
+    QApplication::processEvents();
+
+    QSignalSpy clickSpy(&card, &CoverCard::clicked);
+    QTest::mouseMove(&card, QPoint(112, 28));
+    QTest::qWait(220);
+    QTest::mouseClick(&card, Qt::LeftButton, Qt::NoModifier, QPoint(112, 28));
     QCOMPARE(clickSpy.count(), 1);
     QCOMPARE(card.size(), QSize(132, 168));
 }

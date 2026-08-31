@@ -10,6 +10,14 @@ namespace {
 const QColor kText(0xE8, 0xE8, 0xE8);
 const QColor kSub(0x6E, 0x6E, 0x7A);
 const QColor kPrimary(0xEC, 0x41, 0x41);
+
+QColor blendedColor(const QColor &from, const QColor &to, qreal progress)
+{
+    const qreal t = qBound<qreal>(0.0, progress, 1.0);
+    return QColor::fromRgbF(from.redF() + (to.redF() - from.redF()) * t,
+                            from.greenF() + (to.greenF() - from.greenF()) * t,
+                            from.blueF() + (to.blueF() - from.blueF()) * t);
+}
 }
 
 CoverCard::CoverCard(QWidget *parent)
@@ -33,6 +41,7 @@ void CoverCard::setText(const QString &name, const QString &sub)
 {
     m_name = name;
     m_sub = sub;
+    setAccessibleName(name);
     update();
 }
 
@@ -64,6 +73,12 @@ void CoverCard::setFullCoverCard(bool enabled)
     update();
 }
 
+void CoverCard::setNewPlaylistCard(bool enabled)
+{
+    m_newPlaylistCard = enabled;
+    update();
+}
+
 void CoverCard::paintEvent(QPaintEvent *)
 {
     QPainter p(this);
@@ -79,7 +94,7 @@ void CoverCard::paintEvent(QPaintEvent *)
         p.setPen(Qt::NoPen);
         p.setBrush(QColor(QStringLiteral("#1B1B24")));
         p.drawRoundedRect(cardRect, 8, 8);
-        if (!m_cover.isNull())
+        if (!m_newPlaylistCard && !m_cover.isNull())
             p.drawPixmap(cardRect.toRect(), m_cover);
 
         p.setClipping(false);
@@ -91,6 +106,33 @@ void CoverCard::paintEvent(QPaintEvent *)
         p.drawText(titlePlate.adjusted(8, 0, -8, 0), Qt::AlignLeft | Qt::AlignVCenter,
                    p.fontMetrics().elidedText(m_name, Qt::ElideRight,
                                               int(titlePlate.width()) - 16));
+
+        if (m_newPlaylistCard) {
+            const qreal progress = hoverProgress();
+            const qreal circleSize = 24.0 + 4.0 * progress;
+            const QRectF plusCircle(cardRect.right() - circleSize - 8.0, cardRect.top() + 8.0,
+                                    circleSize, circleSize);
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(QStringLiteral("#24242E")));
+            p.drawEllipse(plusCircle);
+
+            qreal plusScale;
+            if (progress <= 0.65)
+                plusScale = 0.92 + (1.18 - 0.92) * (progress / 0.65);
+            else
+                plusScale = 1.18 - 0.08 * ((progress - 0.65) / 0.35);
+            if (m_pressed)
+                plusScale = 0.9;
+            const qreal lineLength = (10.0 + 4.0 * progress) * plusScale;
+            const QPointF center = plusCircle.center();
+            p.setPen(QPen(blendedColor(QColor(QStringLiteral("#9A9AA5")),
+                                      QColor(QStringLiteral("#F04A4A")), progress),
+                          1.8, Qt::SolidLine, Qt::RoundCap));
+            p.drawLine(QPointF(center.x() - lineLength / 2.0, center.y()),
+                       QPointF(center.x() + lineLength / 2.0, center.y()));
+            p.drawLine(QPointF(center.x(), center.y() - lineLength / 2.0),
+                       QPointF(center.x(), center.y() + lineLength / 2.0));
+        }
         return;
     }
 

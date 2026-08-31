@@ -18,6 +18,7 @@ public:
     void setRound(bool round);
     void setFixedCardSize(int width, int coverSize);
     void setFullCoverCard(bool enabled);
+    void setNewPlaylistCard(bool enabled);
 
 signals:
     void clicked();
@@ -41,6 +42,7 @@ private:
     bool m_pressed = false;
     bool m_round = false;
     bool m_fullCoverCard = false;
+    bool m_newPlaylistCard = false;
     int m_cardWidth = 150;
     int m_coverSize = 150;
     QVariantAnimation *m_hoverAnimation = nullptr;
