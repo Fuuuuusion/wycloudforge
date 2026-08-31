@@ -986,6 +986,10 @@ SongListView::SongListView(QWidget *parent)
     connect(m_moreDelete, &QAction::triggered, m_deleteSelected, &QPushButton::click);
     setBatchMode(false);
 
+    m_batchBar->installEventFilter(this);
+    for (QWidget *child : m_batchBar->findChildren<QWidget *>())
+        child->installEventFilter(this);
+
 }
 
 void SongListView::setSongs(const QList<core::Song> &songs, qint64 playingId)
@@ -1277,6 +1281,15 @@ void SongListView::mouseMoveEvent(QMouseEvent *event)
     else
         m_pointerGuardTimer->stop();
     QTableView::mouseMoveEvent(event);
+}
+
+bool SongListView::eventFilter(QObject *watched, QEvent *event)
+{
+    if ((watched == m_batchBar || (m_batchBar && m_batchBar->isAncestorOf(qobject_cast<QWidget *>(watched))))
+        && (event->type() == QEvent::Enter || event->type() == QEvent::HoverEnter)) {
+        resetPointerState();
+    }
+    return QTableView::eventFilter(watched, event);
 }
 
 bool SongListView::viewportEvent(QEvent *event)

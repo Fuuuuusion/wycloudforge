@@ -64,6 +64,7 @@ signals:
     void batchDeleteRequested(const QList<core::Song> &songs);
 
 protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
     void contextMenuEvent(QContextMenuEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
