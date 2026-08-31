@@ -181,7 +181,7 @@ protected:
         const qreal iconSize = 18.0 * scale;
         const QRectF target((width() - iconSize) / 2.0, (height() - iconSize) / 2.0,
                             iconSize, iconSize);
-        painter.drawPixmap(target, m_pixmap, QRectF(0, 0, 30, 30));
+        painter.drawPixmap(target, m_pixmap, QRectF(m_pixmap.rect()));
     }
 
 private:
@@ -392,7 +392,7 @@ private:
                                              devicePixelRatioF());
             const qreal offset = 2.0 * hover;
             painter.drawPixmap(QRectF(center.x() - 8, center.y() - 8 + offset, 16, 16),
-                               trash, QRectF(0, 0, 30, 30));
+                               trash, QRectF(trash.rect()));
         } else {
             const qreal arrowOffset = 2.0 * hover + 3.0 * transitionProgress;
             painter.setPen(QPen(color, 1.7, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
@@ -505,7 +505,7 @@ protected:
         const QPointF center = QRectF(rect()).center() + QPointF(offset, 0);
         painter.drawPixmap(QRectF(center.x() - iconSize / 2.0,
                                   center.y() - iconSize / 2.0, iconSize, iconSize),
-                           icon, QRectF(0, 0, 30, 30));
+                           icon, QRectF(icon.rect()));
 
         if (hasFocus() && m_showFocusRing) {
             painter.setPen(QPen(QColor(QStringLiteral("#6E6E7A")), 1.5));

@@ -31,6 +31,7 @@ private slots:
     void downloadStateUsesStableIdentity();
     void playerBarDownloadStateKeepsSignalsSeparate();
     void playerBarDirectionalControlsKeepGeometryAndSignals();
+    void playerBarHighDpiIconsRemainComplete();
     void rowHoverKeepsBackgroundClear();
     void rowHoverClearsWhenPointerLeavesViewport();
     void rowHoverRapidTransitionsRepaintInterruptedRow();
@@ -397,6 +398,60 @@ void SongListViewTest::playerBarDirectionalControlsKeepGeometryAndSignals()
     next->click();
     QCOMPARE(previousSpy.count(), 1);
     QCOMPARE(nextSpy.count(), 1);
+}
+
+void SongListViewTest::playerBarHighDpiIconsRemainComplete()
+{
+    PlayerBar bar;
+    bar.setFixedWidth(680);
+    bar.show();
+    bar.raise();
+    bar.activateWindow();
+    QApplication::processEvents();
+
+    auto *previous = bar.findChild<QPushButton *>(QStringLiteral("previousTrackButton"));
+    auto *next = bar.findChild<QPushButton *>(QStringLiteral("nextTrackButton"));
+    auto *favorite = bar.findChild<QPushButton *>(QStringLiteral("favoriteActionButton"));
+    QVERIFY(previous);
+    QVERIFY(next);
+    QVERIFY(favorite);
+    QVERIFY2(previous->devicePixelRatioF() > 1.0,
+             "This regression must run above 100% scale to expose source-pixmap cropping");
+
+    QTest::mouseMove(&bar, QPoint(1, 1), 1);
+    QTest::qWait(220);
+    previous->clearFocus();
+    next->clearFocus();
+    favorite->clearFocus();
+
+    const QImage previousImage = previous->grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    const QImage nextImage = next->grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    const QImage favoriteImage = favorite->grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    QCOMPARE(previousImage.size(), nextImage.size());
+
+    const auto mirroredDifferences = [](const QImage &left, const QImage &right) {
+        int differences = 0;
+        for (int y = 0; y < left.height(); ++y) {
+            for (int x = 0; x < left.width(); ++x) {
+                const QColor a = left.pixelColor(x, y);
+                const QColor b = right.pixelColor(right.width() - 1 - x, y);
+                if (qAbs(a.red() - b.red()) > 3 || qAbs(a.green() - b.green()) > 3
+                    || qAbs(a.blue() - b.blue()) > 3 || qAbs(a.alpha() - b.alpha()) > 3) {
+                    ++differences;
+                }
+            }
+        }
+        return differences;
+    };
+
+    const int directionalDifferences = mirroredDifferences(previousImage, nextImage);
+    const int favoriteDifferences = mirroredDifferences(favoriteImage, favoriteImage);
+    QVERIFY2(directionalDifferences <= 120,
+             qPrintable(QStringLiteral("directional mirrored pixel differences: %1")
+                            .arg(directionalDifferences)));
+    QVERIFY2(favoriteDifferences <= 180,
+             qPrintable(QStringLiteral("favorite mirrored pixel differences: %1")
+                            .arg(favoriteDifferences)));
 }
 
 void SongListViewTest::rowHoverKeepsBackgroundClear()
