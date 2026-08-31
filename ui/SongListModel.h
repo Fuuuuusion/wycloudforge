@@ -25,6 +25,7 @@ public:
         FavoriteRole,
         SelectedRole,
         BatchModeRole,
+        DownloadingRole,
         SongRole
     };
 
@@ -44,12 +45,14 @@ public:
     void setFavoriteIds(const QSet<qint64> &ids);
     void setBatchMode(bool enabled);
     void setSelectedIdentities(const QSet<QString> &identities);
+    void setDownloadingIdentities(const QSet<QString> &identities);
 
 private:
     QList<core::Song> m_songs;
     qint64 m_playingId = -1;
     QSet<qint64> m_favoriteIds;
     QSet<QString> m_selectedIdentities;
+    QSet<QString> m_downloadingIdentities;
     bool m_batchMode = false;
 };
 

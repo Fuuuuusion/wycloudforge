@@ -361,6 +361,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_downloadPage, &ui::DownloadPage::retryRequested, &m_downloads, &core::DownloadService::retry);
     connect(&m_downloads, &core::DownloadService::tasksChanged, this, [this] {
         m_downloadPage->setTasks(m_downloads.tasks());
+        refreshDownloadVisualStates();
     });
 
     // ---------- 播放器信号 → UI ----------
@@ -1722,6 +1723,34 @@ void MainWindow::refreshSongListStates()
         view->refreshLibraryState(&m_library);
         view->setFavoriteIds(favoriteIds);
     }
+}
+
+void MainWindow::refreshDownloadVisualStates()
+{
+    QHash<QString, qint64> activeSongIds;
+    QSet<QString> activeIdentities;
+    for (const core::DownloadService::Task &task : m_downloads.tasks()) {
+        if (task.state != core::DownloadService::Queued
+            && task.state != core::DownloadService::Downloading)
+            continue;
+        const QString identity = task.song.selectionIdentity();
+        activeIdentities.insert(identity);
+        activeSongIds.insert(identity, task.song.id);
+    }
+
+    const auto views = findChildren<ui::SongListView *>();
+    for (auto it = m_activeDownloadSongIds.cbegin(); it != m_activeDownloadSongIds.cend(); ++it) {
+        if (activeSongIds.contains(it.key()))
+            continue;
+        const core::Song stored = m_library.songById(it.value());
+        if (stored.id <= 0)
+            continue;
+        for (ui::SongListView *view : views)
+            view->updateSong(stored);
+    }
+    for (ui::SongListView *view : views)
+        view->setDownloadingIdentities(activeIdentities);
+    m_activeDownloadSongIds = activeSongIds;
 }
 
 bool MainWindow::focusIsEditable() const

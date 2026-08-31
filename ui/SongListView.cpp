@@ -20,6 +20,7 @@
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QStyledItemDelegate>
+#include <QTimer>
 #include <QToolButton>
 #include <QVariantAnimation>
 #include <QVBoxLayout>
@@ -250,6 +251,19 @@ public:
         m_actionHoverAnimation.setEndValue(1.0);
         connect(&m_actionHoverAnimation, &QVariantAnimation::valueChanged,
                 view, [this] { updateActionRows({ m_actionFromRow, m_actionToRow }); });
+
+        m_downloadCompletionAnimation.setDuration(200);
+        m_downloadCompletionAnimation.setStartValue(0.0);
+        m_downloadCompletionAnimation.setEndValue(1.0);
+        connect(&m_downloadCompletionAnimation, &QVariantAnimation::valueChanged,
+                view, [this] { updateActionRows(m_completionRows); });
+
+        m_loadingTimer.setInterval(33);
+        connect(&m_loadingTimer, &QTimer::timeout, view, [this] {
+            m_loadingAngle = (m_loadingAngle + 12) % 360;
+            if (m_view->isVisible() && !m_view->window()->isMinimized())
+                updateActionRows(m_loadingRows);
+        });
     }
 
     void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
@@ -368,7 +382,27 @@ public:
                                        rect.center().y() - size / 2.0, size, size).toRect(), heart);
         } else if (col == 6) {
             painter->save();
-            if (m_downloadMode == SongListView::DeleteDownloadAction && song.isDownloaded()) {
+            const bool downloading = index.data(SongListModel::DownloadingRole).toBool();
+            const bool deleteAction = song.isDownloaded()
+                && (m_downloadMode == SongListView::DownloadAction
+                    || m_downloadMode == SongListView::DeleteDownloadAction);
+            if (downloading && m_downloadMode == SongListView::DownloadAction) {
+                painter->setRenderHint(QPainter::Antialiasing);
+                painter->setPen(QPen(kPrimaryHover, 1.8, Qt::SolidLine, Qt::RoundCap));
+                const QRectF spinner(rect.center().x() - 8, rect.center().y() - 8, 16, 16);
+                painter->drawArc(spinner, (90 - m_loadingAngle) * 16, -270 * 16);
+            } else if (deleteAction) {
+                const qreal completion = completionAmount(index.row());
+                if (completion < 1.0) {
+                    painter->save();
+                    painter->setOpacity(1.0 - completion);
+                    painter->setPen(QPen(kPrimaryHover, 1.8, Qt::SolidLine, Qt::RoundCap));
+                    const QRectF spinner(rect.center().x() - 8, rect.center().y() - 8, 16, 16);
+                    painter->drawArc(spinner, (90 - m_loadingAngle) * 16, -270 * 16);
+                    painter->restore();
+                }
+                painter->save();
+                painter->setOpacity(completion);
                 const qreal hoverAmount = actionHoverAmount(index.row());
                 const bool pressed = index.row() == m_pressedActionRow;
                 const qreal buttonWidth = 30.0 + 42.0 * hoverAmount;
@@ -390,18 +424,35 @@ public:
                                     trash);
 
                 if (hoverAmount > 0.01) {
-                    painter->setOpacity(hoverAmount);
+                    painter->setOpacity(completion * hoverAmount);
                     painter->setFont(QFont(QStringLiteral("Microsoft YaHei UI"), 8));
                     painter->setPen(Qt::white);
                     painter->drawText(QRectF(buttonRect.left() + 28, buttonRect.top(),
                                              buttonRect.width() - 31, buttonRect.height()),
                                       Qt::AlignCenter, QStringLiteral("删除"));
                 }
+                painter->restore();
             } else if (m_downloadMode == SongListView::DownloadAction && song.isOnline()) {
-                painter->setFont(QFont(QStringLiteral("Microsoft YaHei UI"), 8));
-                painter->setPen(song.isDownloaded() ? kText3 : kPrimary);
-                painter->drawText(rect, Qt::AlignCenter,
-                                  song.isDownloaded() ? QStringLiteral("已下载") : QStringLiteral("未下载"));
+                const qreal hoverAmount = actionHoverAmount(index.row());
+                const bool pressed = index.row() == m_pressedActionRow;
+                const QColor color = pressed ? kPrimaryActive
+                    : blendedColor(kText2, kPrimaryHover, hoverAmount);
+                const QPointF center = rect.center();
+                const qreal arrowOffset = 2.0 * hoverAmount;
+                painter->setRenderHint(QPainter::Antialiasing);
+                painter->setPen(QPen(color, 1.7, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+                painter->drawLine(QPointF(center.x(), center.y() - 7 + arrowOffset),
+                                  QPointF(center.x(), center.y() + 1 + arrowOffset));
+                painter->drawLine(QPointF(center.x() - 3.5, center.y() - 2.5 + arrowOffset),
+                                  QPointF(center.x(), center.y() + 1 + arrowOffset));
+                painter->drawLine(QPointF(center.x() + 3.5, center.y() - 2.5 + arrowOffset),
+                                  QPointF(center.x(), center.y() + 1 + arrowOffset));
+                painter->drawLine(QPointF(center.x() - 6, center.y() + 5),
+                                  QPointF(center.x() + 6, center.y() + 5));
+                painter->drawLine(QPointF(center.x() - 6, center.y() + 5),
+                                  QPointF(center.x() - 6, center.y() + 3));
+                painter->drawLine(QPointF(center.x() + 6, center.y() + 5),
+                                  QPointF(center.x() + 6, center.y() + 3));
             }
             painter->restore();
         }
@@ -435,7 +486,7 @@ public:
             updateHeartRows({ previousRow, heartTargetRow });
         }
 
-        const int actionTargetRow = column == 6 && rowShowsDelete(row) ? row : -1;
+        const int actionTargetRow = column == 6 && rowShowsAction(row) ? row : -1;
         if (actionTargetRow != m_actionToRow) {
             const int previousRow = m_actionToRow;
             m_actionFromRow = previousRow;
@@ -472,6 +523,27 @@ public:
         m_heartRemovedRows = removedRows;
         m_heartStateAnimation.stop();
         m_heartStateAnimation.start();
+    }
+
+    void setLoadingRows(const QSet<int> &rows)
+    {
+        QSet<int> changed = m_loadingRows;
+        changed.unite(rows);
+        m_loadingRows = rows;
+        if (rows.isEmpty())
+            m_loadingTimer.stop();
+        else if (!m_loadingTimer.isActive())
+            m_loadingTimer.start();
+        updateActionRows(changed);
+    }
+
+    void startDownloadCompletion(const QSet<int> &rows)
+    {
+        if (rows.isEmpty())
+            return;
+        m_completionRows = rows;
+        m_downloadCompletionAnimation.stop();
+        m_downloadCompletionAnimation.start();
     }
 
     int hoverRow() const
@@ -515,13 +587,26 @@ private:
         return 0.0;
     }
 
-    bool rowShowsDelete(int row) const
+    qreal completionAmount(int row) const
+    {
+        if (!m_completionRows.contains(row))
+            return 1.0;
+        if (m_downloadCompletionAnimation.state() != QAbstractAnimation::Running)
+            return 1.0;
+        return m_downloadCompletionAnimation.currentValue().toReal();
+    }
+
+    bool rowShowsAction(int row) const
     {
         if (!m_view || !m_view->model() || row < 0 || row >= m_view->model()->rowCount())
             return false;
-        const core::Song song = m_view->model()->index(row, 6)
-                                    .data(SongListModel::SongRole).value<core::Song>();
-        return m_downloadMode == SongListView::DeleteDownloadAction && song.isDownloaded();
+        const QModelIndex index = m_view->model()->index(row, 6);
+        const core::Song song = index.data(SongListModel::SongRole).value<core::Song>();
+        if (index.data(SongListModel::DownloadingRole).toBool())
+            return false;
+        if (m_downloadMode == SongListView::DeleteDownloadAction)
+            return song.isDownloaded();
+        return m_downloadMode == SongListView::DownloadAction && song.isOnline();
     }
 
     void updateHeartRows(const QSet<int> &rows) const
@@ -557,11 +642,16 @@ private:
     int m_actionFromRow = -1;
     int m_actionToRow = -1;
     int m_pressedActionRow = -1;
+    int m_loadingAngle = 0;
     QSet<int> m_heartAddedRows;
     QSet<int> m_heartRemovedRows;
+    QSet<int> m_loadingRows;
+    QSet<int> m_completionRows;
     QVariantAnimation m_heartHoverAnimation;
     QVariantAnimation m_heartStateAnimation;
     QVariantAnimation m_actionHoverAnimation;
+    QVariantAnimation m_downloadCompletionAnimation;
+    QTimer m_loadingTimer;
     SongListView::DownloadActionMode m_downloadMode = SongListView::DownloadAction;
 };
 
@@ -725,6 +815,7 @@ void SongListView::setSongs(const QList<core::Song> &songs, qint64 playingId)
     }
     m_model->setSongs(songs, playingId);
     m_model->setSelectedIdentities(m_selectedIdentities);
+    setDownloadingIdentities(m_downloadingIdentities);
     updateBatchButtons();
 }
 
@@ -780,6 +871,27 @@ void SongListView::setFavoriteIds(const QSet<qint64> &ids)
     m_model->setFavoriteIds(ids);
     if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate()))
         delegate->startFavoriteTransitions(addedRows, removedRows);
+}
+
+void SongListView::setDownloadingIdentities(const QSet<QString> &identities)
+{
+    QSet<int> loadingRows;
+    QSet<int> completedRows;
+    const QList<core::Song> currentSongs = m_model->songs();
+    for (int row = 0; row < currentSongs.size(); ++row) {
+        const core::Song &song = currentSongs.at(row);
+        const QString identity = song.selectionIdentity();
+        if (identities.contains(identity))
+            loadingRows.insert(row);
+        else if (m_downloadingIdentities.contains(identity) && song.isDownloaded())
+            completedRows.insert(row);
+    }
+    m_downloadingIdentities = identities;
+    m_model->setDownloadingIdentities(identities);
+    if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate())) {
+        delegate->setLoadingRows(loadingRows);
+        delegate->startDownloadCompletion(completedRows);
+    }
 }
 
 void SongListView::refreshLibraryState(core::LibraryService *library)
@@ -962,11 +1074,17 @@ void SongListView::mousePressEvent(QMouseEvent *event)
             }
             if (idx.column() == 6) {
                 const core::Song song = m_model->songAt(idx.row());
-                if (m_downloadMode == DeleteDownloadAction && song.isDownloaded()) {
+                if (idx.data(SongListModel::DownloadingRole).toBool())
+                    return;
+                const bool deleteAction = song.isDownloaded()
+                    && (m_downloadMode == DeleteDownloadAction || m_downloadMode == DownloadAction);
+                if (deleteAction) {
                     if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate()))
                         delegate->setPressedActionRow(idx.row());
                     emit deleteDownloadRequested(idx.row());
                 } else if (m_downloadMode == DownloadAction && song.isOnline() && !song.isDownloaded()) {
+                    if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate()))
+                        delegate->setPressedActionRow(idx.row());
                     emit downloadRequested(idx.row());
                 }
                 return;

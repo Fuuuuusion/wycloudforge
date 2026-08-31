@@ -37,6 +37,7 @@ public:
     void setHighlightQuery(const QString &query);
     void setPlaylistMenuItems(const QList<QPair<int, QString>> &items);
     void setFavoriteIds(const QSet<qint64> &ids);
+    void setDownloadingIdentities(const QSet<QString> &identities);
     void refreshLibraryState(core::LibraryService *library);
     void setDownloadActionMode(DownloadActionMode mode);
     QList<core::Song> selectedSongs() const;
@@ -93,6 +94,7 @@ private:
     QAction *m_moreDelete = nullptr;
     QList<QPair<int, QString>> m_playlistItems;
     QSet<QString> m_selectedIdentities;
+    QSet<QString> m_downloadingIdentities;
     QSet<qint64> m_favoriteIds;
     int m_contextRow = -1;
     bool m_removable = false;

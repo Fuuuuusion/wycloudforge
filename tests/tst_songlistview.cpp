@@ -22,6 +22,7 @@ private slots:
     void favoriteActionKeepsPlaySignalSeparate();
     void singleDeleteActionKeepsPlaySignalSeparate();
     void batchDeleteButtonKeepsTextAndSignal();
+    void downloadStateUsesStableIdentity();
 };
 
 void SongListViewTest::batchEntryAndStableSelection()
@@ -234,6 +235,58 @@ void SongListViewTest::batchDeleteButtonKeepsTextAndSignal()
     QCOMPARE(batchDeleteSpy.count(), 1);
     const QList<QVariant> arguments = batchDeleteSpy.takeFirst();
     QCOMPARE(qvariant_cast<QList<Song>>(arguments.at(0)).size(), 1);
+}
+
+void SongListViewTest::downloadStateUsesStableIdentity()
+{
+    Song song;
+    song.id = 801;
+    song.source = int(SourceId::Netease);
+    song.remoteId = QStringLiteral("download-state");
+    song.filePath = QStringLiteral("netease://download-state");
+    song.title = QStringLiteral("Download state");
+
+    SongListView view;
+    view.resize(1000, 260);
+    view.setSongs({ song });
+    view.show();
+    QApplication::processEvents();
+
+    QSignalSpy downloadSpy(&view, &SongListView::downloadRequested);
+    QSignalSpy deleteSpy(&view, &SongListView::deleteDownloadRequested);
+    const QModelIndex actionIndex = view.model()->index(0, 6);
+    const QRect actionRect = view.visualRect(actionIndex);
+    QVERIFY(actionRect.isValid());
+
+    const QSet<QString> active{ song.selectionIdentity() };
+    view.setDownloadingIdentities(active);
+    QVERIFY(actionIndex.data(SongListModel::DownloadingRole).toBool());
+    QCOMPARE(actionIndex.data(Qt::ToolTipRole).toString(), QStringLiteral("下载中"));
+    QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, actionRect.center());
+    QCOMPARE(downloadSpy.count(), 0);
+    QCOMPARE(deleteSpy.count(), 0);
+
+    view.setDownloadingIdentities({});
+    QVERIFY(!actionIndex.data(SongListModel::DownloadingRole).toBool());
+    QCOMPARE(actionIndex.data(Qt::ToolTipRole).toString(), QStringLiteral("下载"));
+    QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, actionRect.center());
+    QCOMPARE(downloadSpy.count(), 1);
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString downloadPath = dir.filePath(QStringLiteral("completed.mp3"));
+    QFile download(downloadPath);
+    QVERIFY(download.open(QIODevice::WriteOnly));
+    QVERIFY(download.write("completed") > 0);
+    download.close();
+    song.downloadPath = downloadPath;
+    view.setDownloadingIdentities(active);
+    QVERIFY(view.updateSong(song));
+    view.setDownloadingIdentities({});
+    QCOMPARE(actionIndex.data(Qt::ToolTipRole).toString(), QStringLiteral("删除下载"));
+    QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, actionRect.center());
+    QCOMPARE(deleteSpy.count(), 1);
+    QCOMPARE(downloadSpy.count(), 1);
 }
 
 QTEST_MAIN(SongListViewTest)

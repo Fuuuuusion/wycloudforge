@@ -14,6 +14,7 @@
 #include "ui/SideBar.h"
 
 #include <QJsonArray>
+#include <QHash>
 #include <QMainWindow>
 #include <QTimer>
 #include <QSet>
@@ -97,6 +98,7 @@ private:
     void handleBatchAddToPlaylist(const QList<core::Song> &songs, int playlistId);
     void handleBatchCreatePlaylist(const QList<core::Song> &songs);
     void refreshSongListStates();
+    void refreshDownloadVisualStates();
     bool focusIsEditable() const;
 
     core::LibraryService m_library{ this };
@@ -134,6 +136,7 @@ private:
     bool m_qqSearchExecutionPending = false;
     quint64 m_onlineDetailGeneration = 0;
     QSet<QString> m_metadataAttempted;
+    QHash<QString, qint64> m_activeDownloadSongIds;
     QSet<qint64> m_onlineCoverAttempted;
     QSet<qint64> m_onlineCoverDetailsAttempted;
     QList<core::Song> m_onlineCoverQueue;

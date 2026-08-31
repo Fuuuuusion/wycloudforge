@@ -38,7 +38,19 @@ QVariant SongListModel::data(const QModelIndex &index, int role) const
     case FavoriteRole: return m_favoriteIds.contains(song.id);
     case SelectedRole: return m_selectedIdentities.contains(song.selectionIdentity());
     case BatchModeRole: return m_batchMode;
+    case DownloadingRole: return m_downloadingIdentities.contains(song.selectionIdentity());
     case Qt::ToolTipRole: {
+        if (index.column() == 5)
+            return m_favoriteIds.contains(song.id) ? QStringLiteral("取消喜欢")
+                                                   : QStringLiteral("喜欢");
+        if (index.column() == 6) {
+            if (m_downloadingIdentities.contains(song.selectionIdentity()))
+                return QStringLiteral("下载中");
+            if (song.isDownloaded())
+                return QStringLiteral("删除下载");
+            if (song.isOnline())
+                return QStringLiteral("下载");
+        }
         if (song.isOnline()) {
             if (song.isDownloaded())
                 return QStringLiteral("在线歌曲(已下载,可离线播放)");
@@ -130,6 +142,15 @@ void SongListModel::setSelectedIdentities(const QSet<QString> &identities)
     m_selectedIdentities = identities;
     if (!m_songs.isEmpty())
         emit dataChanged(index(0, 0), index(m_songs.size() - 1, 0));
+}
+
+void SongListModel::setDownloadingIdentities(const QSet<QString> &identities)
+{
+    if (m_downloadingIdentities == identities)
+        return;
+    m_downloadingIdentities = identities;
+    if (!m_songs.isEmpty())
+        emit dataChanged(index(0, 6), index(m_songs.size() - 1, 6), { DownloadingRole });
 }
 
 } // namespace ui
