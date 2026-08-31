@@ -25,6 +25,7 @@ private slots:
     void batchDeleteButtonKeepsTextAndSignal();
     void downloadStateUsesStableIdentity();
     void playerBarDownloadStateKeepsSignalsSeparate();
+    void playerBarDirectionalControlsKeepGeometryAndSignals();
 };
 
 void SongListViewTest::batchEntryAndStableSelection()
@@ -335,6 +336,26 @@ void SongListViewTest::playerBarDownloadStateKeepsSignalsSeparate()
     button->click();
     QCOMPARE(downloadSpy.count(), 1);
     QCOMPARE(deleteSpy.count(), 1);
+}
+
+void SongListViewTest::playerBarDirectionalControlsKeepGeometryAndSignals()
+{
+    PlayerBar bar;
+    auto *previous = bar.findChild<QPushButton *>(QStringLiteral("previousTrackButton"));
+    auto *next = bar.findChild<QPushButton *>(QStringLiteral("nextTrackButton"));
+    QVERIFY(previous);
+    QVERIFY(next);
+    QCOMPARE(previous->size(), QSize(30, 30));
+    QCOMPARE(next->size(), QSize(30, 30));
+    QCOMPARE(previous->toolTip(), QStringLiteral("上一首"));
+    QCOMPARE(next->toolTip(), QStringLiteral("下一首"));
+
+    QSignalSpy previousSpy(&bar, &PlayerBar::prevClicked);
+    QSignalSpy nextSpy(&bar, &PlayerBar::nextClicked);
+    previous->click();
+    next->click();
+    QCOMPARE(previousSpy.count(), 1);
+    QCOMPARE(nextSpy.count(), 1);
 }
 
 QTEST_MAIN(SongListViewTest)

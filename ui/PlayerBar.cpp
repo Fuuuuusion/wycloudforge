@@ -419,6 +419,129 @@ private:
     bool m_showFocusRing = false;
 };
 
+class DirectionalButton final : public QPushButton
+{
+public:
+    DirectionalButton(const QString &iconPath, int direction,
+                      const QString &label, QWidget *parent = nullptr)
+        : QPushButton(parent)
+        , m_iconPath(iconPath)
+        , m_direction(direction)
+    {
+        setFixedSize(30, 30);
+        setCursor(Qt::PointingHandCursor);
+        setToolTip(label);
+        setAccessibleName(label);
+
+        m_hoverAnimation.setDuration(200);
+        connect(&m_hoverAnimation, &QVariantAnimation::valueChanged, this, [this] { update(); });
+        m_pressAnimation.setDuration(90);
+        connect(&m_pressAnimation, &QVariantAnimation::valueChanged, this, [this] { update(); });
+    }
+
+protected:
+    void enterEvent(QEnterEvent *event) override
+    {
+        animate(m_hoverAnimation, hoverProgress(), 1.0);
+        QPushButton::enterEvent(event);
+    }
+
+    void leaveEvent(QEvent *event) override
+    {
+        animate(m_hoverAnimation, hoverProgress(), 0.0);
+        QPushButton::leaveEvent(event);
+    }
+
+    void mousePressEvent(QMouseEvent *event) override
+    {
+        animate(m_pressAnimation, pressProgress(), 1.0);
+        QPushButton::mousePressEvent(event);
+    }
+
+    void mouseReleaseEvent(QMouseEvent *event) override
+    {
+        animate(m_pressAnimation, pressProgress(), 0.0);
+        QPushButton::mouseReleaseEvent(event);
+    }
+
+    void focusInEvent(QFocusEvent *event) override
+    {
+        m_showFocusRing = event->reason() == Qt::TabFocusReason
+                          || event->reason() == Qt::BacktabFocusReason
+                          || event->reason() == Qt::ShortcutFocusReason;
+        QPushButton::focusInEvent(event);
+        update();
+    }
+
+    void focusOutEvent(QFocusEvent *event) override
+    {
+        m_showFocusRing = false;
+        QPushButton::focusOutEvent(event);
+        update();
+    }
+
+    void paintEvent(QPaintEvent *) override
+    {
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        const qreal hover = isEnabled() ? hoverProgress() : 0.0;
+        const qreal press = isEnabled() ? pressProgress() : 0.0;
+
+        QColor background(QStringLiteral("#2A2A36"));
+        background.setAlphaF(hover);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(background);
+        painter.drawEllipse(QRectF(rect()).adjusted(1, 1, -1, -1));
+
+        const QColor color = !isEnabled() ? QColor(QStringLiteral("#6E6E7A"))
+            : blendedColor(QColor(QStringLiteral("#9A9AA5")),
+                           QColor(QStringLiteral("#E8E8E8")), hover);
+        const QPixmap icon = tintedSvg(m_iconPath, color, devicePixelRatioF());
+        const qreal scale = 1.0 - 0.08 * press;
+        const qreal iconSize = 20.0 * scale;
+        const qreal offset = qreal(m_direction) * 2.0 * hover;
+        const QPointF center = QRectF(rect()).center() + QPointF(offset, 0);
+        painter.drawPixmap(QRectF(center.x() - iconSize / 2.0,
+                                  center.y() - iconSize / 2.0, iconSize, iconSize),
+                           icon, QRectF(0, 0, 30, 30));
+
+        if (hasFocus() && m_showFocusRing) {
+            painter.setPen(QPen(QColor(QStringLiteral("#6E6E7A")), 1.5));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawEllipse(QRectF(rect()).adjusted(3, 3, -3, -3));
+        }
+    }
+
+private:
+    static void animate(QVariantAnimation &animation, qreal from, qreal to)
+    {
+        animation.stop();
+        animation.setStartValue(from);
+        animation.setEndValue(to);
+        animation.start();
+    }
+
+    qreal hoverProgress() const
+    {
+        return m_hoverAnimation.state() == QAbstractAnimation::Running
+            ? m_hoverAnimation.currentValue().toReal()
+            : (underMouse() ? 1.0 : 0.0);
+    }
+
+    qreal pressProgress() const
+    {
+        return m_pressAnimation.state() == QAbstractAnimation::Running
+            ? m_pressAnimation.currentValue().toReal()
+            : (isDown() ? 1.0 : 0.0);
+    }
+
+    QString m_iconPath;
+    int m_direction = 0;
+    QVariantAnimation m_hoverAnimation;
+    QVariantAnimation m_pressAnimation;
+    bool m_showFocusRing = false;
+};
+
 class AnimatedPlayPauseButton final : public QPushButton
 {
 public:
@@ -657,9 +780,13 @@ PlayerBar::PlayerBar(QWidget *parent)
     };
 
     m_modeBtn = makeCtrlButton(QStringLiteral(":/icons/icon-loop.svg"), QStringLiteral("列表循环"));
-    m_prevBtn = makeCtrlButton(QStringLiteral(":/icons/icon-prev.svg"), QStringLiteral("上一首"));
+    m_prevBtn = new DirectionalButton(QStringLiteral(":/icons/icon-prev.svg"), -1,
+                                      QStringLiteral("上一首"), this);
+    m_prevBtn->setObjectName(QStringLiteral("previousTrackButton"));
     m_playBtn = new AnimatedPlayPauseButton(this);
-    m_nextBtn = makeCtrlButton(QStringLiteral(":/icons/icon-next.svg"), QStringLiteral("下一首"));
+    m_nextBtn = new DirectionalButton(QStringLiteral(":/icons/icon-next.svg"), 1,
+                                      QStringLiteral("下一首"), this);
+    m_nextBtn->setObjectName(QStringLiteral("nextTrackButton"));
 
     m_muteBtn = makeCtrlButton(QStringLiteral(":/icons/icon-volume.svg"), QStringLiteral("静音"));
     m_volume = new ProgressSlider(this);
