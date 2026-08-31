@@ -11,6 +11,7 @@
 #include <QPainter>
 #include <QPushButton>
 #include <QSvgRenderer>
+#include <QTimer>
 #include <QVariantAnimation>
 #include <QVBoxLayout>
 #include <QtMath>
@@ -218,6 +219,206 @@ private:
     bool m_showFocusRing = false;
 };
 
+class DownloadStateButton final : public QPushButton
+{
+public:
+    enum State { Unavailable, Download, Loading, Delete };
+
+    explicit DownloadStateButton(QWidget *parent = nullptr)
+        : QPushButton(parent)
+    {
+        setFixedSize(30, 30);
+        setCursor(Qt::PointingHandCursor);
+
+        m_hoverAnimation.setDuration(200);
+        connect(&m_hoverAnimation, &QVariantAnimation::valueChanged, this, [this] { update(); });
+        m_stateAnimation.setDuration(200);
+        m_stateAnimation.setStartValue(0.0);
+        m_stateAnimation.setEndValue(1.0);
+        connect(&m_stateAnimation, &QVariantAnimation::valueChanged, this, [this] { update(); });
+
+        m_loadingTimer.setInterval(33);
+        connect(&m_loadingTimer, &QTimer::timeout, this, [this] {
+            m_loadingAngle = (m_loadingAngle + 16) % 360;
+            if (isVisible() && !window()->isMinimized())
+                update();
+        });
+        applyStateMetadata();
+    }
+
+    void setState(State state, bool animate)
+    {
+        if (m_state == state)
+            return;
+        m_fromState = m_state;
+        m_state = state;
+        applyStateMetadata();
+        if (state == Loading || m_fromState == Loading)
+            m_loadingTimer.start();
+        if (animate) {
+            m_stateAnimation.stop();
+            m_stateAnimation.start();
+        } else {
+            m_stateAnimation.stop();
+            if (state != Loading)
+                m_loadingTimer.stop();
+        }
+        update();
+    }
+
+    State state() const { return m_state; }
+
+protected:
+    void enterEvent(QEnterEvent *event) override
+    {
+        animateHoverTo(1.0);
+        QPushButton::enterEvent(event);
+    }
+
+    void leaveEvent(QEvent *event) override
+    {
+        animateHoverTo(0.0);
+        QPushButton::leaveEvent(event);
+    }
+
+    void mousePressEvent(QMouseEvent *event) override
+    {
+        QPushButton::mousePressEvent(event);
+        update();
+    }
+
+    void mouseReleaseEvent(QMouseEvent *event) override
+    {
+        QPushButton::mouseReleaseEvent(event);
+        update();
+    }
+
+    void focusInEvent(QFocusEvent *event) override
+    {
+        m_showFocusRing = event->reason() == Qt::TabFocusReason
+                          || event->reason() == Qt::BacktabFocusReason
+                          || event->reason() == Qt::ShortcutFocusReason;
+        QPushButton::focusInEvent(event);
+        update();
+    }
+
+    void focusOutEvent(QFocusEvent *event) override
+    {
+        m_showFocusRing = false;
+        QPushButton::focusOutEvent(event);
+        update();
+    }
+
+    void paintEvent(QPaintEvent *) override
+    {
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+
+        if (m_stateAnimation.state() == QAbstractAnimation::Running) {
+            const qreal progress = m_stateAnimation.currentValue().toReal();
+            drawState(painter, m_fromState, 1.0 - progress, progress);
+            drawState(painter, m_state, progress, 0.0);
+            if (progress >= 0.99 && m_state != Loading)
+                m_loadingTimer.stop();
+        } else {
+            drawState(painter, m_state, 1.0, 0.0);
+            if (m_state != Loading)
+                m_loadingTimer.stop();
+        }
+
+        if (hasFocus() && m_showFocusRing) {
+            painter.setOpacity(1.0);
+            painter.setPen(QPen(QColor(QStringLiteral("#6E6E7A")), 1.5));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawRoundedRect(QRectF(rect()).adjusted(3, 3, -3, -3), 7, 7);
+        }
+    }
+
+private:
+    void applyStateMetadata()
+    {
+        QString label;
+        switch (m_state) {
+        case Download: label = QStringLiteral("下载"); break;
+        case Loading: label = QStringLiteral("下载中"); break;
+        case Delete: label = QStringLiteral("删除下载"); break;
+        case Unavailable: label = QStringLiteral("本地歌曲无需下载"); break;
+        }
+        setToolTip(label);
+        setAccessibleName(label);
+        setEnabled(m_state == Download || m_state == Delete);
+        setCursor(isEnabled() ? Qt::PointingHandCursor : Qt::ArrowCursor);
+    }
+
+    void animateHoverTo(qreal target)
+    {
+        const qreal current = hoverProgress();
+        m_hoverAnimation.stop();
+        m_hoverAnimation.setStartValue(current);
+        m_hoverAnimation.setEndValue(target);
+        m_hoverAnimation.start();
+    }
+
+    qreal hoverProgress() const
+    {
+        return m_hoverAnimation.state() == QAbstractAnimation::Running
+            ? m_hoverAnimation.currentValue().toReal()
+            : (underMouse() && isEnabled() ? 1.0 : 0.0);
+    }
+
+    void drawState(QPainter &painter, State state, qreal opacity, qreal transitionProgress)
+    {
+        if (opacity <= 0.0)
+            return;
+        painter.save();
+        painter.setOpacity(opacity);
+        const qreal hover = hoverProgress();
+        const QColor color = !isEnabled() && state != Loading
+            ? QColor(QStringLiteral("#6E6E7A"))
+            : isDown() ? QColor(QStringLiteral("#D63838"))
+            : blendedColor(QColor(QStringLiteral("#9A9AA5")),
+                           QColor(QStringLiteral("#F04A4A")), hover);
+        const QPointF center = QRectF(rect()).center();
+
+        if (state == Loading) {
+            painter.setPen(QPen(QColor(QStringLiteral("#F04A4A")), 1.8,
+                                Qt::SolidLine, Qt::RoundCap));
+            painter.drawArc(QRectF(center.x() - 8, center.y() - 8, 16, 16),
+                            (90 - m_loadingAngle) * 16, -270 * 16);
+        } else if (state == Delete) {
+            const QPixmap trash = tintedSvg(QStringLiteral(":/icons/icon-trash.svg"), color,
+                                             devicePixelRatioF());
+            const qreal offset = 2.0 * hover;
+            painter.drawPixmap(QRectF(center.x() - 8, center.y() - 8 + offset, 16, 16),
+                               trash, QRectF(0, 0, 30, 30));
+        } else {
+            const qreal arrowOffset = 2.0 * hover + 3.0 * transitionProgress;
+            painter.setPen(QPen(color, 1.7, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            painter.drawLine(QPointF(center.x(), center.y() - 7 + arrowOffset),
+                             QPointF(center.x(), center.y() + 1 + arrowOffset));
+            painter.drawLine(QPointF(center.x() - 3.5, center.y() - 2.5 + arrowOffset),
+                             QPointF(center.x(), center.y() + 1 + arrowOffset));
+            painter.drawLine(QPointF(center.x() + 3.5, center.y() - 2.5 + arrowOffset),
+                             QPointF(center.x(), center.y() + 1 + arrowOffset));
+            painter.drawLine(QPointF(center.x() - 6, center.y() + 5),
+                             QPointF(center.x() + 6, center.y() + 5));
+            painter.drawLine(QPointF(center.x() - 6, center.y() + 5),
+                             QPointF(center.x() - 6, center.y() + 3));
+            painter.drawLine(QPointF(center.x() + 6, center.y() + 5),
+                             QPointF(center.x() + 6, center.y() + 3));
+        }
+        painter.restore();
+    }
+
+    QVariantAnimation m_hoverAnimation;
+    QVariantAnimation m_stateAnimation;
+    QTimer m_loadingTimer;
+    State m_state = Unavailable;
+    State m_fromState = Unavailable;
+    int m_loadingAngle = 0;
+    bool m_showFocusRing = false;
+};
+
 class AnimatedPlayPauseButton final : public QPushButton
 {
 public:
@@ -404,13 +605,15 @@ PlayerBar::PlayerBar(QWidget *parent)
         emit heartToggled(m_favorite);
     });
 
-    m_downloadBtn = new QPushButton(this);
-    m_downloadBtn->setProperty("class", "ctrlBtn");
-    m_downloadBtn->setIcon(makeSvgIcon(QStringLiteral(":/icons/icon-download.svg"), 18));
-    m_downloadBtn->setIconSize(QSize(18, 18));
-    m_downloadBtn->setFixedSize(30, 30);
-    m_downloadBtn->setCursor(Qt::PointingHandCursor);
-    connect(m_downloadBtn, &QPushButton::clicked, this, &PlayerBar::downloadRequested);
+    m_downloadBtn = new DownloadStateButton(this);
+    m_downloadBtn->setObjectName(QStringLiteral("downloadActionButton"));
+    connect(m_downloadBtn, &QPushButton::clicked, this, [this] {
+        const auto state = static_cast<DownloadStateButton *>(m_downloadBtn)->state();
+        if (state == DownloadStateButton::Download)
+            emit downloadRequested();
+        else if (state == DownloadStateButton::Delete)
+            emit deleteDownloadRequested();
+    });
 
     auto *leftBox = new QWidget(this);
     leftBox->setFixedWidth(240);
@@ -533,8 +736,10 @@ void PlayerBar::paintEvent(QPaintEvent *)
     p.fillRect(rect(), QColor(0x1B, 0x1B, 0x24));
 }
 
-void PlayerBar::setSong(const core::Song &song, bool favorite)
+void PlayerBar::setSong(const core::Song &song, bool favorite, bool animateDownloadState)
 {
+    if (m_song.selectionIdentity() != song.selectionIdentity())
+        m_downloadActive = false;
     m_song = song;
     m_favorite = favorite;
     m_title->setText(song.title.isEmpty() ? QFileInfo(song.filePath).completeBaseName() : song.title);
@@ -547,11 +752,7 @@ void PlayerBar::setSong(const core::Song &song, bool favorite)
     m_sourceBadge->setVisible(!m_sourceBadge->text().isEmpty());
     m_sourceBadge->setToolTip(QString());
     static_cast<FavoriteButton *>(m_heartBtn)->setFavorite(favorite, false);
-    const bool downloadable = song.isOnline() && !song.isDownloaded();
-    m_downloadBtn->setEnabled(downloadable);
-    m_downloadBtn->setToolTip(song.isOnline()
-                                  ? (song.isDownloaded() ? QStringLiteral("已下载") : QStringLiteral("未下载，点击下载"))
-                                  : QStringLiteral("本地歌曲无需下载"));
+    updateDownloadButtonState(animateDownloadState);
     if (!song.coverPath.isEmpty()) {
         QPixmap pm(song.coverPath);
         if (!pm.isNull())
@@ -561,6 +762,14 @@ void PlayerBar::setSong(const core::Song &song, bool favorite)
     }
     setDuration(song.durationMs);
     setPosition(0);
+}
+
+void PlayerBar::setDownloadActive(bool active)
+{
+    if (m_downloadActive == active)
+        return;
+    m_downloadActive = active;
+    updateDownloadButtonState(true);
 }
 
 void PlayerBar::setPlaybackError(const QString &message)
@@ -622,6 +831,20 @@ void PlayerBar::updatePlayIcon()
     const QString accessibleText = m_playing ? QStringLiteral("暂停") : QStringLiteral("播放");
     m_playBtn->setToolTip(accessibleText);
     m_playBtn->setAccessibleName(accessibleText);
+}
+
+void PlayerBar::updateDownloadButtonState(bool animate)
+{
+    auto state = DownloadStateButton::Unavailable;
+    if (m_song.isOnline()) {
+        if (m_downloadActive)
+            state = DownloadStateButton::Loading;
+        else if (m_song.isDownloaded())
+            state = DownloadStateButton::Delete;
+        else
+            state = DownloadStateButton::Download;
+    }
+    static_cast<DownloadStateButton *>(m_downloadBtn)->setState(state, animate);
 }
 
 void PlayerBar::updateVolumeIcon()

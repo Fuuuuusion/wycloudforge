@@ -17,7 +17,8 @@ class PlayerBar : public QWidget
 public:
     explicit PlayerBar(QWidget *parent = nullptr);
 
-    void setSong(const core::Song &song, bool favorite);
+    void setSong(const core::Song &song, bool favorite, bool animateDownloadState = false);
+    void setDownloadActive(bool active);
     void setPlaybackError(const QString &message);
     void setPlaying(bool playing);
     void setPosition(qint64 ms);
@@ -35,6 +36,7 @@ signals:
     void muteToggled(bool muted);
     void heartToggled(bool favorite);
     void downloadRequested();
+    void deleteDownloadRequested();
     void lyricsClicked();
     void playlistClicked();
 
@@ -45,6 +47,7 @@ private:
     void updatePlayIcon();
     void updateVolumeIcon();
     void updateTimeLabel();
+    void updateDownloadButtonState(bool animate);
 
     QLabel *m_cover = nullptr;
     QLabel *m_title = nullptr;
@@ -67,6 +70,7 @@ private:
     core::Song m_song;
     bool m_playing = false;
     bool m_favorite = false;
+    bool m_downloadActive = false;
     bool m_muted = false;
     int m_mode = 0;
     int m_volumeValue = 70;

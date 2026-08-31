@@ -1,5 +1,6 @@
 #include "ui/SongListView.h"
 #include "ui/SongListModel.h"
+#include "ui/PlayerBar.h"
 
 #include <QAbstractItemModel>
 #include <QApplication>
@@ -23,6 +24,7 @@ private slots:
     void singleDeleteActionKeepsPlaySignalSeparate();
     void batchDeleteButtonKeepsTextAndSignal();
     void downloadStateUsesStableIdentity();
+    void playerBarDownloadStateKeepsSignalsSeparate();
 };
 
 void SongListViewTest::batchEntryAndStableSelection()
@@ -287,6 +289,52 @@ void SongListViewTest::downloadStateUsesStableIdentity()
     QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, actionRect.center());
     QCOMPARE(deleteSpy.count(), 1);
     QCOMPARE(downloadSpy.count(), 1);
+}
+
+void SongListViewTest::playerBarDownloadStateKeepsSignalsSeparate()
+{
+    Song song;
+    song.id = 901;
+    song.source = int(SourceId::Netease);
+    song.remoteId = QStringLiteral("playerbar-download");
+    song.filePath = QStringLiteral("netease://playerbar-download");
+    song.title = QStringLiteral("PlayerBar download");
+
+    PlayerBar bar;
+    bar.setSong(song, false);
+    auto *button = bar.findChild<QPushButton *>(QStringLiteral("downloadActionButton"));
+    QVERIFY(button);
+    QVERIFY(button->isEnabled());
+    QCOMPARE(button->toolTip(), QStringLiteral("下载"));
+
+    QSignalSpy downloadSpy(&bar, &PlayerBar::downloadRequested);
+    QSignalSpy deleteSpy(&bar, &PlayerBar::deleteDownloadRequested);
+    button->click();
+    QCOMPARE(downloadSpy.count(), 1);
+    QCOMPARE(deleteSpy.count(), 0);
+
+    bar.setDownloadActive(true);
+    QVERIFY(!button->isEnabled());
+    QCOMPARE(button->toolTip(), QStringLiteral("下载中"));
+    button->click();
+    QCOMPARE(downloadSpy.count(), 1);
+    QCOMPARE(deleteSpy.count(), 0);
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString downloadPath = dir.filePath(QStringLiteral("playerbar-complete.mp3"));
+    QFile download(downloadPath);
+    QVERIFY(download.open(QIODevice::WriteOnly));
+    QVERIFY(download.write("complete") > 0);
+    download.close();
+    song.downloadPath = downloadPath;
+    bar.setSong(song, false);
+    bar.setDownloadActive(false);
+    QVERIFY(button->isEnabled());
+    QCOMPARE(button->toolTip(), QStringLiteral("删除下载"));
+    button->click();
+    QCOMPARE(downloadSpy.count(), 1);
+    QCOMPARE(deleteSpy.count(), 1);
 }
 
 QTEST_MAIN(SongListViewTest)

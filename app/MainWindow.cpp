@@ -353,6 +353,9 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_playerBar, &ui::PlayerBar::downloadRequested, this, [this] {
         handleSongDownload(m_player.currentSong());
     });
+    connect(m_playerBar, &ui::PlayerBar::deleteDownloadRequested, this, [this] {
+        handleSongDelete(materializeSongForAction(m_player.currentSong()));
+    });
     connect(m_playerBar, &ui::PlayerBar::lyricsClicked, this, [this] { showPage(5); });
     connect(m_playerBar, &ui::PlayerBar::playlistClicked, this, &MainWindow::openPlaybackQueue);
 
@@ -1269,6 +1272,7 @@ void MainWindow::onCurrentSongChanged(const core::Song &song, int index)
     Q_UNUSED(index);
     m_currentSongId = song.id;
     m_playerBar->setSong(song, m_playlists.isFavorite(song.id));
+    m_playerBar->setDownloadActive(m_activeDownloadSongIds.contains(song.selectionIdentity()));
     // 切歌只更新各列表的播放标记。旧实现会重建整个本地曲库页面，
     // 连带同步解压所有歌手/专辑封面，造成启动恢复歌曲时长时间卡顿。
     for (ui::SongListView *view : findChildren<ui::SongListView *>())
@@ -1750,6 +1754,14 @@ void MainWindow::refreshDownloadVisualStates()
     }
     for (ui::SongListView *view : views)
         view->setDownloadingIdentities(activeIdentities);
+
+    const core::Song current = m_player.currentSong();
+    if (current.id > 0) {
+        const core::Song stored = m_library.songById(current.id);
+        if (stored.id > 0)
+            m_playerBar->setSong(stored, m_playlists.isFavorite(stored.id));
+        m_playerBar->setDownloadActive(activeIdentities.contains(current.selectionIdentity()));
+    }
     m_activeDownloadSongIds = activeSongIds;
 }
 
