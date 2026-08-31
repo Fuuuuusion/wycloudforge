@@ -214,6 +214,7 @@ void RecommendPage::buildPlaylists(const QJsonArray &arr, core::MusicSource *sou
         const QString name = o.value(QStringLiteral("name")).toString();
         auto *card = new CoverCard(this);
         card->setFixedCardSize(132, 116);
+        card->setFullCoverCard(true);
         card->setCover(CoverProvider::placeholder(name.left(1), 116, 6));
         card->setText(name, QStringLiteral("歌单"));
         const int sourceId = int(source->sourceId());
@@ -233,7 +234,7 @@ void RecommendPage::buildPlaylists(const QJsonArray &arr, core::MusicSource *sou
             if (QFileInfo::exists(path) && QFileInfo(path).size() > 0) {
                 QPixmap pm(path);
                 if (!pm.isNull())
-                    card->setCover(pm.scaled(116, 116, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation));
+                    card->setCover(pm);
             } else {
                 const QPointer<CoverCard> guard(card);
                 source->downloadToFile(QUrl(pic), path, [guard, path](bool ok) {
@@ -241,7 +242,7 @@ void RecommendPage::buildPlaylists(const QJsonArray &arr, core::MusicSource *sou
                         return;
                     QPixmap pm(path);
                     if (!pm.isNull())
-                        guard->setCover(pm.scaled(116, 116, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation));
+                        guard->setCover(pm);
                 });
             }
         }
