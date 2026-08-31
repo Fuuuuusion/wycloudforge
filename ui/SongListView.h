@@ -30,6 +30,7 @@ public:
     explicit SongListView(QWidget *parent = nullptr);
 
     void setSongs(const QList<core::Song> &songs, qint64 playingId = -1);
+    bool updateSong(const core::Song &song);
     QList<core::Song> songs() const;
     void setPlayingId(qint64 playingId);
     void setRemovable(bool removable);

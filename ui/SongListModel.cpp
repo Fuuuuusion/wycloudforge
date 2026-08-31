@@ -74,6 +74,19 @@ void SongListModel::refreshSongs(const QList<core::Song> &songs)
         emit dataChanged(index(0, 0), index(m_songs.size() - 1, columnCount() - 1));
 }
 
+bool SongListModel::updateSong(const core::Song &song)
+{
+    const QString identity = song.selectionIdentity();
+    for (int row = 0; row < m_songs.size(); ++row) {
+        if (m_songs.at(row).selectionIdentity() != identity)
+            continue;
+        m_songs[row] = song;
+        emit dataChanged(index(row, 0), index(row, columnCount() - 1));
+        return true;
+    }
+    return false;
+}
+
 core::Song SongListModel::songAt(int row) const
 {
     if (row < 0 || row >= m_songs.size())

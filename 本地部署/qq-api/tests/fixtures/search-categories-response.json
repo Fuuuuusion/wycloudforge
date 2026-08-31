@@ -1,0 +1,53 @@
+{
+  "code": 0,
+  "data": {
+    "song": {
+      "list": [
+        {
+          "songmid": "SONG_MID",
+          "songname": "分类测试歌曲",
+          "lyric": "命中的<em>歌词</em>片段\\n第二行",
+          "interval": 199,
+          "singer": [{ "mid": "ARTIST_MID", "name": "分类测试歌手" }],
+          "album": { "mid": "ALBUM_MID", "name": "分类测试专辑" }
+        }
+      ]
+    },
+    "singer": {
+      "list": [
+        {
+          "singerMID": "ARTIST_MID",
+          "singerName": "分类测试歌手",
+          "singerPic": "https://example.test/artist.jpg"
+        }
+      ]
+    },
+    "album": {
+      "list": [
+        {
+          "albumMID": "ALBUM_MID",
+          "albumName": "分类测试专辑",
+          "singerMID": "ARTIST_MID",
+          "singerName": "分类测试歌手",
+          "publicTime": "2026-08-30"
+        }
+      ]
+    },
+    "songlist": {
+      "list": [
+        {
+          "dissid": "PLAYLIST_ID_AS_TEXT",
+          "dissname": "分类测试歌单",
+          "imgurl": "https://example.test/playlist.jpg",
+          "song_count": 20,
+          "listennum": 987654,
+          "creator": { "name": "歌单创建者" },
+          "unknownFutureField": true
+        }
+      ]
+    },
+    "unknownFutureBlock": {
+      "mid": "MUST_NOT_BECOME_A_SONG"
+    }
+  }
+}

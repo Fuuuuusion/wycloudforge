@@ -3,9 +3,12 @@
 #include "ui/SvgIcon.h"
 
 #include <QHBoxLayout>
+#include <QEvent>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QSignalBlocker>
 
 namespace ui {
 
@@ -27,13 +30,13 @@ TitleBar::TitleBar(QWidget *parent)
     m_searchEdit->setPlaceholderText(QStringLiteral("搜索音乐、歌手、专辑"));
     m_searchEdit->setFixedSize(340, 30);
     m_searchEdit->setClearButtonEnabled(true);
+    m_searchEdit->installEventFilter(this);
     m_searchEdit->addAction(makeSvgIcon(QStringLiteral(":/icons/icon-search.svg")), QLineEdit::LeadingPosition);
     connect(m_searchEdit, &QLineEdit::returnPressed, this, [this] {
         emit searchRequested(m_searchEdit->text().trimmed());
     });
     connect(m_searchEdit, &QLineEdit::textChanged, this, [this](const QString &text) {
-        if (text.trimmed().isEmpty())
-            emit searchRequested(QString());
+        emit searchTextEdited(text);
     });
 
     auto makeButton = [this](const QString &icon, const QString &tip, const char *propValue) {
@@ -78,6 +81,57 @@ void TitleBar::setMaximizedState(bool maximized)
     m_maxBtn->setIcon(QIcon(maximized ? QStringLiteral(":/icons/icon-restore.svg")
                                       : QStringLiteral(":/icons/icon-max.svg")));
     m_maxBtn->setToolTip(maximized ? QStringLiteral("还原") : QStringLiteral("最大化"));
+}
+
+void TitleBar::focusSearch()
+{
+    if (!m_searchEdit)
+        return;
+    m_searchEdit->setFocus(Qt::ShortcutFocusReason);
+    m_searchEdit->selectAll();
+}
+
+void TitleBar::setSearchText(const QString &text)
+{
+    if (!m_searchEdit || m_searchEdit->text() == text)
+        return;
+    const QSignalBlocker blocker(m_searchEdit);
+    m_searchEdit->setText(text);
+}
+
+QString TitleBar::searchText() const
+{
+    return m_searchEdit ? m_searchEdit->text() : QString();
+}
+
+void TitleBar::setSearchPlaceholder(const QString &text)
+{
+    if (!m_searchEdit)
+        return;
+    m_searchEdit->setPlaceholderText(text.trimmed().isEmpty()
+                                         ? QStringLiteral("搜索音乐、歌手、专辑")
+                                         : text.trimmed());
+}
+
+bool TitleBar::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched == m_searchEdit) {
+        if (event->type() == QEvent::FocusIn) {
+            emit searchFocused();
+        } else if (event->type() == QEvent::KeyPress) {
+            auto *keyEvent = static_cast<QKeyEvent *>(event);
+            if (keyEvent->key() == Qt::Key_Up || keyEvent->key() == Qt::Key_Down) {
+                emit searchNavigationRequested(keyEvent->key() == Qt::Key_Up ? -1 : 1);
+                return true;
+            }
+            if (keyEvent->key() == Qt::Key_Escape) {
+                m_searchEdit->clearFocus();
+                emit searchDismissed();
+                return true;
+            }
+        }
+    }
+    return QWidget::eventFilter(watched, event);
 }
 
 QRect TitleBar::windowButtonRect(int index) const

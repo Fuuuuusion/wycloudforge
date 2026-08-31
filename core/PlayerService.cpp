@@ -226,6 +226,18 @@ void PlayerService::loadCurrent(bool autoPlay, bool allowCached, bool resetCache
 {
     if (m_index < 0 || m_index >= m_playlist.size())
         return;
+    Song &pendingSong = m_playlist[m_index];
+    if (pendingSong.isOnline() && pendingSong.id <= 0
+        && pendingSong.hasRemoteIdentity() && m_lib) {
+        const qint64 storedId = m_lib->upsertOnlineSong(pendingSong);
+        if (storedId > 0) {
+            const Song stored = m_lib->songById(storedId);
+            if (stored.id > 0)
+                pendingSong = stored;
+            else
+                pendingSong.id = storedId;
+        }
+    }
     const Song &song = m_playlist[m_index];
     ++m_loadToken;
     if (resetCacheRetry)

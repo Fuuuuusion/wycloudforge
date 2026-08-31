@@ -15,21 +15,62 @@
 
 namespace core {
 
+namespace {
+
+QString searchCategoryName(SearchCategory category)
+{
+    switch (category) {
+    case SearchCategory::All: return QStringLiteral("all");
+    case SearchCategory::Songs: return QStringLiteral("songs");
+    case SearchCategory::Artists: return QStringLiteral("artists");
+    case SearchCategory::Albums: return QStringLiteral("albums");
+    case SearchCategory::Playlists: return QStringLiteral("playlists");
+    case SearchCategory::Lyrics: return QStringLiteral("lyrics");
+    }
+    return QStringLiteral("songs");
+}
+
+SearchItemType searchItemType(const QString &type)
+{
+    if (type == QStringLiteral("artist"))
+        return SearchItemType::Artist;
+    if (type == QStringLiteral("album"))
+        return SearchItemType::Album;
+    if (type == QStringLiteral("playlist"))
+        return SearchItemType::Playlist;
+    if (type == QStringLiteral("lyric"))
+        return SearchItemType::Lyric;
+    return SearchItemType::Song;
+}
+
+} // namespace
+
 QqMusicSource::QqMusicSource(QObject *parent)
     : QObject(parent)
     , m_nam(new QNetworkAccessManager(this))
 {
 }
 
-void QqMusicSource::post(const QString &path, const QJsonObject &payload, OkFn ok, ErrFn err)
+void QqMusicSource::post(const QString &path, const QJsonObject &payload, OkFn ok, ErrFn err,
+                         quint64 searchGeneration)
 {
     QNetworkRequest request(QUrl(m_base + path));
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("WyCloudForge/1.0"));
     request.setTransferTimeout(path == QStringLiteral("/auth/qr/status") ? 45000 : 15000);
     QNetworkReply *reply = m_nam->post(request, QJsonDocument(payload).toJson(QJsonDocument::Compact));
+    if (searchGeneration > 0)
+        m_searchReplies[searchGeneration].append(reply);
     connect(reply, &QNetworkReply::finished, this,
-            [reply, ok = std::move(ok), err = std::move(err)]() mutable {
+            [this, reply, searchGeneration, ok = std::move(ok), err = std::move(err)]() mutable {
+        if (searchGeneration > 0) {
+            auto it = m_searchReplies.find(searchGeneration);
+            if (it != m_searchReplies.end()) {
+                it->removeAll(reply);
+                if (it->isEmpty())
+                    m_searchReplies.erase(it);
+            }
+        }
         const QByteArray bytes = reply->readAll();
         const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         const QString networkError = reply->errorString();
@@ -106,6 +147,135 @@ void QqMusicSource::searchSongsPage(const QString &keywords, int limit, int offs
         if (ok)
             ok(data.value(QStringLiteral("songs")).toArray());
     }, std::move(err));
+}
+
+void QqMusicSource::search(const SearchRequest &request, SearchResponseFn ok, ErrFn err)
+{
+    if (!request.isValid()) {
+        if (err)
+            err(QStringLiteral("搜索关键词或分页参数无效"));
+        return;
+    }
+    post(QStringLiteral("/v1/search"), {
+        { QStringLiteral("keywords"), request.keywords.trimmed() },
+        { QStringLiteral("category"), searchCategoryName(request.category) },
+        { QStringLiteral("limit"), request.limit },
+        { QStringLiteral("offset"), request.offset }
+    }, [this, request, ok = std::move(ok)](const QJsonObject &data) mutable {
+        SearchResponse response;
+        response.source = SourceId::QqMusic;
+        response.category = request.category;
+        response.offset = request.offset;
+        response.generation = request.generation;
+        response.hasMore = data.value(QStringLiteral("hasMore")).toBool();
+        const QJsonArray items = data.value(QStringLiteral("items")).toArray();
+        response.items.reserve(items.size());
+        int rank = request.offset;
+        for (const QJsonValue &value : items) {
+            const QJsonObject object = value.toObject();
+            SearchResultItem item;
+            item.source = SourceId::QqMusic;
+            item.type = searchItemType(object.value(QStringLiteral("type")).toString());
+            item.remoteId = object.value(QStringLiteral("remoteId")).toString().trimmed();
+            item.title = object.value(QStringLiteral("title")).toString();
+            item.subtitle = object.value(QStringLiteral("subtitle")).toString();
+            item.artist = object.value(QStringLiteral("artist")).toString();
+            item.album = object.value(QStringLiteral("album")).toString();
+            item.coverUrl = object.value(QStringLiteral("coverUrl")).toString();
+            item.durationMs = object.value(QStringLiteral("durationMs")).toVariant().toLongLong();
+            item.popularity = object.value(QStringLiteral("popularity")).toDouble(-1.0);
+            item.sourceRank = rank++;
+            if (item.type == SearchItemType::Song || item.type == SearchItemType::Lyric) {
+                item.song = songFromJson(object);
+                if (item.remoteId.isEmpty())
+                    item.remoteId = item.song.effectiveRemoteId();
+                if (item.title.isEmpty())
+                    item.title = item.song.title;
+                if (item.artist.isEmpty())
+                    item.artist = item.song.artist;
+                if (item.album.isEmpty())
+                    item.album = item.song.album;
+                if (item.subtitle.isEmpty())
+                    item.subtitle = item.artist;
+            }
+            if (!item.remoteId.isEmpty())
+                response.items.append(item);
+        }
+        if (ok)
+            ok(response);
+    }, std::move(err), request.generation);
+}
+
+void QqMusicSource::searchSuggestions(const QString &keywords, int limit,
+                                      SearchSuggestionsFn ok, ErrFn err)
+{
+    const QString text = keywords.trimmed();
+    if (text.isEmpty() || limit <= 0) {
+        if (ok)
+            ok({});
+        return;
+    }
+    post(QStringLiteral("/v1/search/suggest"), {
+        { QStringLiteral("keywords"), text },
+        { QStringLiteral("limit"), limit }
+    }, [ok = std::move(ok)](const QJsonObject &data) mutable {
+        QList<SearchSuggestion> suggestions;
+        const QJsonArray items = data.value(QStringLiteral("suggestions")).toArray();
+        for (const QJsonValue &value : items) {
+            const QJsonObject object = value.toObject();
+            const QString text = object.value(QStringLiteral("text")).toString().trimmed();
+            if (text.isEmpty())
+                continue;
+            SearchSuggestion suggestion;
+            suggestion.source = SourceId::QqMusic;
+            suggestion.type = searchItemType(object.value(QStringLiteral("type")).toString());
+            suggestion.text = text;
+            suggestion.subtitle = object.value(QStringLiteral("subtitle")).toString();
+            suggestion.remoteId = object.value(QStringLiteral("remoteId")).toString();
+            suggestions.append(suggestion);
+        }
+        if (ok)
+            ok(suggestions);
+    }, std::move(err));
+}
+
+void QqMusicSource::hotSearch(int limit, HotSearchFn ok, ErrFn err)
+{
+    if (limit <= 0) {
+        if (ok)
+            ok({});
+        return;
+    }
+    post(QStringLiteral("/v1/search/hot"), {
+        { QStringLiteral("limit"), limit }
+    }, [ok = std::move(ok)](const QJsonObject &data) mutable {
+        QList<HotSearchTerm> terms;
+        const QJsonArray items = data.value(QStringLiteral("terms")).toArray();
+        for (int i = 0; i < items.size(); ++i) {
+            const QJsonObject object = items.at(i).toObject();
+            const QString text = object.value(QStringLiteral("text")).toString().trimmed();
+            if (text.isEmpty())
+                continue;
+            HotSearchTerm term;
+            term.source = SourceId::QqMusic;
+            term.text = text;
+            term.description = object.value(QStringLiteral("description")).toString();
+            term.score = object.value(QStringLiteral("score")).toDouble(-1.0);
+            term.rank = i;
+            terms.append(term);
+        }
+        if (ok)
+            ok(terms);
+    }, std::move(err));
+}
+
+void QqMusicSource::cancelSearch(quint64 generation)
+{
+    const QList<QPointer<QNetworkReply>> replies = m_searchReplies.take(generation);
+    for (const QPointer<QNetworkReply> &reply : replies) {
+        if (reply)
+            reply->abort();
+    }
 }
 
 void QqMusicSource::songUrls(const QStringList &ids, JsonArrayFn ok, ErrFn err)

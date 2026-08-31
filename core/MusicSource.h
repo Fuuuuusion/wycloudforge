@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/SearchTypes.h"
 #include "core/Song.h"
 
 #include <QJsonArray>
@@ -22,6 +23,13 @@ struct SourceCapabilities
     bool lyrics = false;
     bool downloads = false;
     bool likes = false;
+    bool searchSuggestions = false;
+    bool hotSearch = false;
+    bool searchArtists = false;
+    bool searchAlbums = false;
+    bool searchPlaylists = false;
+    bool searchLyrics = false;
+    bool defaultSearch = false;
 };
 
 struct AccountProfile
@@ -53,6 +61,9 @@ public:
     using OkFn = std::function<void(const QJsonObject &)>;
     using ErrFn = std::function<void(const QString &)>;
     using JsonArrayFn = std::function<void(const QJsonArray &)>;
+    using SearchResponseFn = std::function<void(const SearchResponse &)>;
+    using SearchSuggestionsFn = std::function<void(const QList<SearchSuggestion> &)>;
+    using HotSearchFn = std::function<void(const QList<HotSearchTerm> &)>;
     using StringFn = std::function<void(const QString &)>;
     using String2Fn = std::function<void(const QString &, const QString &)>;
     using String3Fn = std::function<void(const QString &, const QString &, const QString &)>;
@@ -81,6 +92,15 @@ public:
     // 分页搜索; searchSongs 保留为从第一页开始的便捷接口
     virtual void searchSongsPage(const QString &keywords, int limit, int offset,
                                  JsonArrayFn ok, ErrFn err = {}) = 0;
+    // 统一搜索入口。默认实现把旧的单曲搜索转换为稳定 DTO，具体来源可在
+    // 支持更多分类后覆盖此方法。UI 不再解析平台原始 JSON。
+    virtual void search(const SearchRequest &request, SearchResponseFn ok, ErrFn err = {});
+    virtual void searchSuggestions(const QString &keywords, int limit,
+                                   SearchSuggestionsFn ok, ErrFn err = {});
+    virtual void hotSearch(int limit, HotSearchFn ok, ErrFn err = {});
+    virtual void defaultSearchText(StringFn ok, ErrFn err = {});
+    // 来源可以覆盖以实际终止网络请求；默认由 generation 逻辑取消旧结果。
+    virtual void cancelSearch(quint64 generation);
     virtual void songUrls(const QStringList &ids, JsonArrayFn ok, ErrFn err = {}) = 0;
     // 原文 / 翻译 / 音译
     virtual void lyric(const QString &id, String3Fn ok, ErrFn err = {}) = 0;

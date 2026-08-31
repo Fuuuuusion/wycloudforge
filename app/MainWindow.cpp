@@ -40,6 +40,7 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPlainTextEdit>
+#include <QPointer>
 #include <QPushButton>
 #include <QShortcut>
 #include <QStandardPaths>
@@ -175,6 +176,7 @@ MainWindow::MainWindow(QWidget *parent)
         restoreGeometry(geometry);
 
     m_titleBar = new ui::TitleBar(this);
+    m_titleBar->setMaximizedState(isMaximized());
     m_sideBar = new ui::SideBar(this);
     m_playerBar = new ui::PlayerBar(this);
     m_accountPanel = new ui::AccountPanel(this);
@@ -253,27 +255,48 @@ MainWindow::MainWindow(QWidget *parent)
         isMaximized() ? showNormal() : showMaximized();
     });
     connect(m_titleBar, &ui::TitleBar::closeClicked, this, &QWidget::close);
-    connect(m_titleBar, &ui::TitleBar::searchRequested, this, [this](const QString &text) {
+    const auto executeSearch = [this](const QString &requested) {
+        const QString text = m_search->resolvedSearchText(requested);
         m_searchQuery = text;
-        if (text.trimmed().isEmpty()) {
-            showPage(m_lastPage);
+        m_qqSearchExecutionPending = false;
+        if (text.isEmpty()) {
+            m_search->showSearchAssistant();
+            showPage(6);
+            ensureQqSearchSource();
             return;
         }
-        m_search->performSearch(m_library.allSongs(), text);
+        m_titleBar->setSearchText(text);
+        m_search->performSearch(text);
         showPage(6);
-        if (m_qqApiReady)
+        if (!m_qqApiReady)
+            m_qqSearchExecutionPending = true;
+        ensureQqSearchSource();
+    };
+    connect(m_titleBar, &ui::TitleBar::searchRequested, this, executeSearch);
+    connect(m_titleBar, &ui::TitleBar::searchTextEdited, this, [this](const QString &text) {
+        m_searchQuery = text.trimmed();
+        m_qqSearchExecutionPending = false;
+        m_search->previewSearchText(text);
+        showPage(6);
+        if (text.trimmed().size() < 2)
             return;
-        m_qqApiService.ensureRunning([this, text] {
-            m_qqApiReady = true;
-            m_search->setOnlineSourceEnabled(core::SourceId::QqMusic, true);
-            m_qqClient.setBaseUrl(m_qqApiService.apiBase());
-            if (m_searchQuery == text)
-                m_search->performSearch(m_library.allSongs(), text);
-        }, [this](const QString &) {
-            m_qqApiReady = false;
-            m_search->setOnlineSourceEnabled(core::SourceId::QqMusic, false);
-        });
+        ensureQqSearchSource();
     });
+    connect(m_titleBar, &ui::TitleBar::searchFocused, this, [this] {
+        if (m_titleBar->searchText().trimmed().isEmpty()) {
+            m_search->showSearchAssistant();
+            showPage(6);
+        }
+        ensureQqSearchSource();
+    });
+    connect(m_titleBar, &ui::TitleBar::searchDismissed, this, [this] {
+        showPage(m_lastPage);
+    });
+    connect(m_titleBar, &ui::TitleBar::searchNavigationRequested,
+            m_search, &ui::SearchPage::moveSearchAssistantSelection);
+    connect(m_search, &ui::SearchPage::searchTextChosen, this, executeSearch);
+    connect(m_search, &ui::SearchPage::defaultSearchTextReady,
+            m_titleBar, &ui::TitleBar::setSearchPlaceholder);
 
     // ---------- 侧边栏 ----------
     connect(m_sideBar, &ui::SideBar::pageRequested, this, &MainWindow::showPage);
@@ -515,13 +538,25 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_search, &ui::SearchPage::playRequested, this, &MainWindow::playSongs);
     connect(m_search, &ui::SearchPage::artistClicked, this, &MainWindow::openArtist);
     connect(m_search, &ui::SearchPage::albumClicked, this, &MainWindow::openAlbum);
+    connect(m_search, &ui::SearchPage::onlineResultActivated, this,
+            [this](int sourceValue, int typeValue, const QString &remoteId,
+                   const QString &title) {
+        const auto sourceId = static_cast<core::SourceId>(sourceValue);
+        const auto type = static_cast<core::SearchItemType>(typeValue);
+        if (type == core::SearchItemType::Playlist)
+            openOnlinePlaylist(sourceId, remoteId, title);
+        else if (type == core::SearchItemType::Artist)
+            openOnlineArtist(sourceId, remoteId, title);
+        else if (type == core::SearchItemType::Album)
+            openOnlineAlbum(sourceId, remoteId, title);
+    });
     connect(m_search, &ui::SearchPage::heartRequested, this, [this](int row) {
-        const core::Song s = m_search->currentSongs().value(row);
+        const core::Song s = materializeSongForAction(m_search->currentSongs().value(row));
         if (s.id > 0)
             m_playlists.setFavorite(s.id, !m_playlists.isFavorite(s.id));
     });
     connect(m_search, &ui::SearchPage::addToPlaylistRequested, this, [this](int row, int plId) {
-        const core::Song s = m_search->currentSongs().value(row);
+        const core::Song s = materializeSongForAction(m_search->currentSongs().value(row));
         if (s.id > 0)
             addSongToPlaylist(s, plId);
     });
@@ -612,13 +647,15 @@ MainWindow::MainWindow(QWidget *parent)
 
 void MainWindow::showPage(int pageId)
 {
+    if (pageId >= 0 && pageId != 4)
+        ++m_onlineDetailGeneration;
     const bool clearPlaylistSelection = pageId >= 0 && pageId != 4 && pageId != 5
         && pageId != 7 && m_playlistContext > 0;
     if (clearPlaylistSelection) {
         m_playlistContext = -1;
         refreshSidebar();
     }
-    if (pageId == 5 || pageId == 7)
+    if (pageId == 5 || pageId == 7 || (pageId == 6 && m_stack->currentIndex() != 6))
         m_lastPage = m_stack->currentIndex();
     if (pageId >= 0 && pageId < m_stack->count())
         m_stack->setCurrentIndex(pageId);
@@ -633,6 +670,7 @@ void MainWindow::showPage(int pageId)
 
 void MainWindow::openPlaybackQueue()
 {
+    ++m_onlineDetailGeneration;
     const QList<core::Song> queue = m_player.playlist();
     if (queue.isEmpty())
         return;
@@ -654,6 +692,7 @@ void MainWindow::openPlaybackQueue()
 
 void MainWindow::openPlaylist(int playlistId)
 {
+    ++m_onlineDetailGeneration;
     QString name = QStringLiteral("歌单");
     QString desc;
     QString cover;
@@ -688,6 +727,7 @@ void MainWindow::openPlaylist(int playlistId)
 
 void MainWindow::openArtist(const QString &artist)
 {
+    ++m_onlineDetailGeneration;
     QList<core::Song> songs;
     for (const auto &s : m_library.allSongs())
         if (s.artist == artist)
@@ -699,6 +739,7 @@ void MainWindow::openArtist(const QString &artist)
 
 void MainWindow::openLocalArtist(const QString &artist)
 {
+    ++m_onlineDetailGeneration;
     QList<core::Song> songs;
     for (const auto &s : m_library.allSongs())
         if (s.artist == artist && s.isLocallyAvailable())
@@ -710,6 +751,7 @@ void MainWindow::openLocalArtist(const QString &artist)
 
 void MainWindow::openAlbum(const QString &album, const QString &artist)
 {
+    ++m_onlineDetailGeneration;
     QList<core::Song> songs;
     for (const auto &s : m_library.allSongs())
         if (s.album == album && (artist.isEmpty() || s.artist == artist)
@@ -722,6 +764,7 @@ void MainWindow::openAlbum(const QString &album, const QString &artist)
 
 void MainWindow::openLocalAlbum(const QString &album, const QString &artist)
 {
+    ++m_onlineDetailGeneration;
     QList<core::Song> songs;
     for (const auto &s : m_library.allSongs())
         if (s.album == album && (artist.isEmpty() || s.artist == artist)
@@ -741,14 +784,20 @@ void MainWindow::openOnlinePlaylist(core::SourceId sourceId, const QString &remo
                                  QStringLiteral("对应音乐来源当前不可用"));
         return;
     }
-    auto showTracks = [this, source, remoteId, name](const QString &coverPath) {
-        source->playlistTracks(remoteId, [this, source, name, coverPath](const QJsonArray &arr) {
+    const quint64 generation = ++m_onlineDetailGeneration;
+    const QPointer<MainWindow> guard(this);
+    auto showTracks = [guard, source, remoteId, name, generation](const QString &coverPath) {
+        if (!guard || generation != guard->m_onlineDetailGeneration)
+            return;
+        source->playlistTracks(remoteId, [guard, source, name, coverPath, generation](const QJsonArray &arr) {
+            if (!guard || generation != guard->m_onlineDetailGeneration)
+                return;
             QList<core::Song> songs;
             for (const QJsonValue &v : arr) {
                 core::Song s = source->songFromJson(v.toObject());
-                s.id = m_library.upsertOnlineSong(s);
+                s.id = guard->m_library.upsertOnlineSong(s);
                 if (s.id > 0) {
-                    const core::Song stored = m_library.songById(s.id);
+                    const core::Song stored = guard->m_library.songById(s.id);
                     s.coverPath = stored.coverPath;
                     s.cachePath = stored.cachePath;
                     s.downloadPath = stored.downloadPath;
@@ -756,26 +805,32 @@ void MainWindow::openOnlinePlaylist(core::SourceId sourceId, const QString &remo
                 }
                 songs.append(s);
             }
-            ensureOnlineCovers(songs);
+            guard->ensureOnlineCovers(songs);
             int local = 0, online = 0;
             for (const auto &s : songs)
                 s.isOnline() ? ++online : ++local;
             const QString meta = QStringLiteral("本地 %1 首 · 在线 %2 首").arg(local).arg(online);
-            m_songListPage->showContent(songs, name, meta, m_currentSongId, false, coverPath);
-            m_songListPage->setPlaylistContext(-1);
-            showPage(4);
-        }, [this](const QString &msg) {
-            QMessageBox::information(this, QStringLiteral("在线歌单"), QStringLiteral("加载失败:%1").arg(msg));
+            guard->m_songListPage->showContent(songs, name, meta, guard->m_currentSongId,
+                                               false, coverPath);
+            guard->m_songListPage->setPlaylistContext(-1);
+            guard->showPage(4);
+        }, [guard, generation](const QString &msg) {
+            if (guard && generation == guard->m_onlineDetailGeneration) {
+                QMessageBox::information(guard.data(), QStringLiteral("在线歌单"),
+                                         QStringLiteral("加载失败:%1").arg(msg));
+            }
         });
     };
 
-    source->playlistDetail(remoteId, [this, sourceId, remoteId, source, showTracks](const QJsonObject &playlist) {
+    source->playlistDetail(remoteId, [guard, sourceId, remoteId, source, showTracks, generation](const QJsonObject &playlist) {
+        if (!guard || generation != guard->m_onlineDetailGeneration)
+            return;
         QString coverUrl = playlist.value(QStringLiteral("coverImgUrl")).toString();
         if (coverUrl.isEmpty())
             coverUrl = playlist.value(QStringLiteral("picUrl")).toString();
         if (coverUrl.isEmpty())
             coverUrl = playlist.value(QStringLiteral("coverUrl")).toString();
-        const QString coverPath = m_library.playlistCoverCachePath(sourceId, remoteId);
+        const QString coverPath = guard->m_library.playlistCoverCachePath(sourceId, remoteId);
         if (QFileInfo::exists(coverPath) && QFileInfo(coverPath).size() > 0) {
             showTracks(coverPath);
             return;
@@ -789,6 +844,83 @@ void MainWindow::openOnlinePlaylist(core::SourceId sourceId, const QString &remo
         }
     }, [showTracks](const QString &) {
         showTracks(QString());
+    });
+}
+
+void MainWindow::openOnlineArtist(core::SourceId sourceId, const QString &remoteId,
+                                  const QString &name)
+{
+    core::MusicSource *source = m_sourceRegistry.source(sourceId);
+    if (!source || remoteId.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("在线歌手"),
+                                 QStringLiteral("对应音乐来源当前不可用"));
+        return;
+    }
+    const quint64 generation = ++m_onlineDetailGeneration;
+    const QPointer<MainWindow> guard(this);
+    source->artistSongs(remoteId, [guard, source, sourceId, name, generation](const QJsonArray &array) {
+        if (!guard || generation != guard->m_onlineDetailGeneration)
+            return;
+        QList<core::Song> songs;
+        songs.reserve(array.size());
+        for (const QJsonValue &value : array) {
+            core::Song song = source->songFromJson(value.toObject());
+            if (song.hasRemoteIdentity())
+                songs.append(song);
+        }
+        guard->m_songListPage->showContent(
+            songs, name,
+            QStringLiteral("%1歌手 · %2 首").arg(sourceId == core::SourceId::Netease
+                                                    ? QStringLiteral("网易云")
+                                                    : QStringLiteral("QQ音乐"))
+                .arg(songs.size()),
+            guard->m_currentSongId, false);
+        guard->m_songListPage->setPlaylistContext(-1);
+        guard->showPage(4);
+    }, [guard, generation](const QString &message) {
+        if (guard && generation == guard->m_onlineDetailGeneration) {
+            QMessageBox::information(guard.data(), QStringLiteral("在线歌手"),
+                                     QStringLiteral("加载失败：%1").arg(message));
+        }
+    });
+}
+
+void MainWindow::openOnlineAlbum(core::SourceId sourceId, const QString &remoteId,
+                                 const QString &name)
+{
+    core::MusicSource *source = m_sourceRegistry.source(sourceId);
+    if (!source || remoteId.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("在线专辑"),
+                                 QStringLiteral("对应音乐来源当前不可用"));
+        return;
+    }
+    const quint64 generation = ++m_onlineDetailGeneration;
+    const QPointer<MainWindow> guard(this);
+    source->albumDetail(remoteId, [guard, source, sourceId, name, generation](const QJsonObject &object) {
+        if (!guard || generation != guard->m_onlineDetailGeneration)
+            return;
+        const QJsonArray array = object.value(QStringLiteral("songs")).toArray();
+        QList<core::Song> songs;
+        songs.reserve(array.size());
+        for (const QJsonValue &value : array) {
+            core::Song song = source->songFromJson(value.toObject());
+            if (song.hasRemoteIdentity())
+                songs.append(song);
+        }
+        guard->m_songListPage->showContent(
+            songs, name,
+            QStringLiteral("%1专辑 · %2 首").arg(sourceId == core::SourceId::Netease
+                                                    ? QStringLiteral("网易云")
+                                                    : QStringLiteral("QQ音乐"))
+                .arg(songs.size()),
+            guard->m_currentSongId, false);
+        guard->m_songListPage->setPlaylistContext(-1);
+        guard->showPage(4);
+    }, [guard, generation](const QString &message) {
+        if (guard && generation == guard->m_onlineDetailGeneration) {
+            QMessageBox::information(guard.data(), QStringLiteral("在线专辑"),
+                                     QStringLiteral("加载失败：%1").arg(message));
+        }
     });
 }
 
@@ -1001,6 +1133,18 @@ void MainWindow::playSongs(const QList<core::Song> &songs, int index)
     m_player.play();
 }
 
+core::Song MainWindow::materializeSongForAction(const core::Song &song)
+{
+    if (!song.isOnline() || song.id > 0 || !song.hasRemoteIdentity())
+        return song;
+    core::Song result = song;
+    result.id = m_library.upsertOnlineSong(result);
+    if (result.id <= 0)
+        return result;
+    const core::Song stored = m_library.songById(result.id);
+    return stored.id > 0 ? stored : result;
+}
+
 void MainWindow::addSongToPlaylist(const core::Song &song, int playlistId)
 {
     if (song.id <= 0 || playlistId <= 0)
@@ -1054,8 +1198,9 @@ void MainWindow::refreshLibraryViews()
 {
     const auto all = m_library.allSongs();
     m_libraryPage->setSongs(all, m_currentSongId);
+    m_search->setLocalSongs(all);
     if (!m_searchQuery.isEmpty())
-        m_search->refreshLocalResults(all);
+        m_search->refreshLocalResults();
     m_search->refreshOnlineCovers();
 }
 
@@ -1303,6 +1448,45 @@ void MainWindow::setupShortcuts()
     add(QKeySequence(Qt::Key_L), [this] { showPage(5); });
     add(QKeySequence(QStringLiteral("Ctrl+O")), [this] { addMusicFolder(); });
     add(QKeySequence(Qt::Key_F5), [this] { m_library.startScan(); });
+    auto *searchShortcut = new QShortcut(QKeySequence(QStringLiteral("Ctrl+K")), this);
+    searchShortcut->setContext(Qt::ApplicationShortcut);
+    connect(searchShortcut, &QShortcut::activated, m_titleBar, &ui::TitleBar::focusSearch);
+}
+
+void MainWindow::ensureQqSearchSource()
+{
+    if (m_qqApiReady || m_qqApiStarting)
+        return;
+    m_qqApiStarting = true;
+    m_qqApiService.ensureRunning([this] {
+        m_qqApiStarting = false;
+        m_qqApiReady = true;
+        m_search->setOnlineSourceEnabled(core::SourceId::QqMusic, true);
+        m_qqClient.setBaseUrl(m_qqApiService.apiBase());
+        refreshSearchAfterQqReady();
+    }, [this](const QString &) {
+        m_qqApiStarting = false;
+        m_qqApiReady = false;
+        m_qqSearchExecutionPending = false;
+        m_search->setOnlineSourceEnabled(core::SourceId::QqMusic, false);
+    });
+}
+
+void MainWindow::refreshSearchAfterQqReady()
+{
+    const QString text = m_titleBar->searchText().trimmed();
+    if (text.isEmpty()) {
+        m_qqSearchExecutionPending = false;
+        m_search->showSearchAssistant();
+        return;
+    }
+    if (m_qqSearchExecutionPending && text == m_searchQuery) {
+        m_qqSearchExecutionPending = false;
+        m_search->performSearch(text);
+        return;
+    }
+    m_qqSearchExecutionPending = false;
+    m_search->previewSearchText(text);
 }
 
 void MainWindow::addMusicFolder()
@@ -1348,9 +1532,11 @@ void MainWindow::connectSongListActions()
         connect(view, &ui::SongListView::batchDownloadRequested, this,
                 [this](const QList<core::Song> &songs) {
             QList<core::Song> pending;
-            for (const core::Song &song : songs)
-                if (song.isOnline() && !song.isDownloaded())
+            for (const core::Song &candidate : songs) {
+                const core::Song song = materializeSongForAction(candidate);
+                if (song.isOnline() && song.id > 0 && !song.isDownloaded())
                     pending.append(song);
+            }
             if (pending.isEmpty()) {
                 QToolTip::showText(QCursor::pos(), QStringLiteral("所选歌曲均不可下载或已经下载"),
                                    this, QRect(), 2200);
@@ -1419,9 +1605,10 @@ void MainWindow::connectSongListActions()
 
 void MainWindow::handleSongDownload(const core::Song &song)
 {
-    if (!song.isOnline() || song.id <= 0 || song.isDownloaded())
+    const core::Song stored = materializeSongForAction(song);
+    if (!stored.isOnline() || stored.id <= 0 || stored.isDownloaded())
         return;
-    if (m_downloads.enqueue(song) > 0)
+    if (m_downloads.enqueue(stored) > 0)
         showPage(7);
 }
 
@@ -1472,8 +1659,13 @@ bool MainWindow::handleSongDelete(const core::Song &song, bool batch)
 void MainWindow::handleBatchFavorite(const QList<core::Song> &songs, bool favorite)
 {
     QList<qint64> songIds;
-    for (const core::Song &song : songs)
-        songIds.append(song.id);
+    for (const core::Song &candidate : songs) {
+        const core::Song song = materializeSongForAction(candidate);
+        if (song.id > 0)
+            songIds.append(song.id);
+    }
+    if (songIds.isEmpty())
+        return;
     const core::PlaylistController::BatchResult result =
         m_playlists.setFavoritesBatch(songIds, favorite);
     if (!result.success)
@@ -1488,8 +1680,13 @@ void MainWindow::handleBatchFavorite(const QList<core::Song> &songs, bool favori
 void MainWindow::handleBatchAddToPlaylist(const QList<core::Song> &songs, int playlistId)
 {
     QList<qint64> songIds;
-    for (const core::Song &song : songs)
-        songIds.append(song.id);
+    for (const core::Song &candidate : songs) {
+        const core::Song song = materializeSongForAction(candidate);
+        if (song.id > 0)
+            songIds.append(song.id);
+    }
+    if (songIds.isEmpty())
+        return;
     const core::PlaylistController::BatchResult result =
         m_playlists.addSongsBatch(playlistId, songIds);
     if (!result.success)
@@ -1562,7 +1759,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
 
 void MainWindow::changeEvent(QEvent *event)
 {
-    if (event->type() == QEvent::WindowStateChange)
+    if (event->type() == QEvent::WindowStateChange && m_titleBar)
         m_titleBar->setMaximizedState(isMaximized());
     QMainWindow::changeEvent(event);
 }
