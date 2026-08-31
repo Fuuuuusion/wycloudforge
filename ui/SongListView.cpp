@@ -7,7 +7,9 @@
 #include "ui/SvgIcon.h"
 
 #include <QAction>
+#include <QApplication>
 #include <QContextMenuEvent>
+#include <QCursor>
 #include <QFocusEvent>
 #include <QHeaderView>
 #include <QHideEvent>
@@ -301,7 +303,10 @@ public:
         const qreal hoverAmount = rowHoverAmount(index.row());
         const bool hover = hoverAmount > 0.01;
         const bool pressed = index.row() == m_pressedPlayRow;
-        const bool active = playing || hover;
+        // Playing is represented only by the indicator in column 0.  Keeping it
+        // separate from hover prevents a playing row from looking permanently
+        // hovered after the pointer leaves the list.
+        const bool active = hover;
 
         const int col = index.column();
         QRectF rect = option.rect.adjusted(0, 0, 0, -1);
@@ -309,10 +314,6 @@ public:
                              qMax(0, m_view->viewport()->width() - 8), option.rect.height() - 4);
         painter->save();
         painter->setPen(Qt::NoPen);
-        if (playing) {
-            painter->setBrush(QColor(236, 65, 65, 36));
-            painter->drawRoundedRect(rowRect, 8, 8);
-        }
         if (pressed) {
             painter->setBrush(QColor(0, 0, 0, 36));
             painter->drawRoundedRect(rowRect, 8, 8);
@@ -876,6 +877,11 @@ SongListView::SongListView(QWidget *parent)
     viewport()->setAutoFillBackground(false);
     setStyleSheet(QStringLiteral("QTableView{background:#0E0E14;border:none;}"));
 
+    m_pointerGuardTimer = new QTimer(this);
+    m_pointerGuardTimer->setInterval(80);
+    connect(m_pointerGuardTimer, &QTimer::timeout, this,
+            &SongListView::verifyPointerStillOverViewport);
+
     setViewportMargins(0, 0, 0, 0);
     m_batchBar = new QWidget(this);
     m_batchBar->setObjectName(QStringLiteral("batchBar"));
@@ -1266,6 +1272,10 @@ void SongListView::mouseMoveEvent(QMouseEvent *event)
     const int row = overSong ? index.row() : -1;
     if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate()))
         delegate->setPointerIndex(row, overSong ? index.column() : -1);
+    if (row >= 0)
+        m_pointerGuardTimer->start();
+    else
+        m_pointerGuardTimer->stop();
     QTableView::mouseMoveEvent(event);
 }
 
@@ -1278,12 +1288,32 @@ bool SongListView::viewportEvent(QEvent *event)
 
 void SongListView::resetPointerState()
 {
+    if (m_pointerGuardTimer)
+        m_pointerGuardTimer->stop();
     m_pendingPlayRow = -1;
     if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate())) {
         delegate->setPointerIndex(-1, -1);
         delegate->setPressedHeartRow(-1);
         delegate->setPressedActionRow(-1);
         delegate->setPressedPlayRow(-1);
+    }
+}
+
+void SongListView::verifyPointerStillOverViewport()
+{
+    if (hoveredRow() < 0) {
+        m_pointerGuardTimer->stop();
+        return;
+    }
+
+    const QPoint globalPos = QCursor::pos();
+    QWidget *underPointer = QApplication::widgetAt(globalPos);
+    const bool overViewportWidget = underPointer
+        && (underPointer == viewport() || viewport()->isAncestorOf(underPointer));
+    const QRect globalViewportRect(viewport()->mapToGlobal(QPoint(0, 0)), viewport()->size());
+    if (!isVisible() || !globalViewportRect.contains(globalPos)
+        || (underPointer && !overViewportWidget)) {
+        resetPointerState();
     }
 }
 

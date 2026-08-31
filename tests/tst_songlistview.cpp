@@ -32,6 +32,7 @@ private slots:
     void playerBarDirectionalControlsKeepGeometryAndSignals();
     void rowHoverKeepsBackgroundClear();
     void rowHoverClearsWhenPointerLeavesViewport();
+    void rowHoverClearsOverBatchBarAndPlayingStaysIndependent();
     void songListProvidesScrollableTopAndBottomSafeAreas();
     void sourceSwitchIsVisibleAndExclusive();
     void accountActionIsExplicitAndPreservesSignal();
@@ -438,6 +439,32 @@ void SongListViewTest::rowHoverClearsWhenPointerLeavesViewport()
     QApplication::sendEvent(view.viewport(), &leave);
     QApplication::processEvents();
     QCOMPARE(view.hoveredRow(), -1);
+}
+
+void SongListViewTest::rowHoverClearsOverBatchBarAndPlayingStaysIndependent()
+{
+    Song song;
+    song.id = 902;
+    song.filePath = QStringLiteral("C:/music/playing-hover-independent.mp3");
+    song.title = QStringLiteral("Playing hover independent");
+
+    SongListView view;
+    view.resize(1000, 240);
+    view.setSongs({ song }, song.id);
+    view.show();
+    QApplication::processEvents();
+
+    const QRect titleRect = view.visualRect(view.model()->index(0, 1));
+    QTest::mouseMove(view.viewport(), titleRect.center());
+    QApplication::processEvents();
+    QCOMPARE(view.hoveredRow(), 0);
+
+    auto *batchBar = view.findChild<QWidget *>(QStringLiteral("batchBar"));
+    QVERIFY(batchBar);
+    QTest::mouseMove(batchBar, batchBar->rect().center());
+    QTest::qWait(120);
+    QCOMPARE(view.hoveredRow(), -1);
+    QVERIFY(view.model()->index(0, 0).data(SongListModel::IsPlayingRole).toBool());
 }
 
 void SongListViewTest::songListProvidesScrollableTopAndBottomSafeAreas()

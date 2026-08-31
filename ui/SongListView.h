@@ -14,6 +14,7 @@ class QAction;
 class QLabel;
 class QPushButton;
 class QToolButton;
+class QTimer;
 
 namespace core {
 class LibraryService;
@@ -83,6 +84,7 @@ private:
     void resetPointerState();
     void updateSafeAreaRows();
     bool pointHitsSongContent(const QModelIndex &index, const QPoint &point) const;
+    void verifyPointerStillOverViewport();
     SongListModel *m_model = nullptr;
     QMenu *m_menu = nullptr;
     QWidget *m_batchBar = nullptr;
@@ -110,6 +112,7 @@ private:
     QSet<qint64> m_favoriteIds;
     int m_contextRow = -1;
     int m_pendingPlayRow = -1;
+    QTimer *m_pointerGuardTimer = nullptr;
     bool m_removable = false;
     bool m_batchMode = false;
     bool m_favoriteStateInitialized = false;
