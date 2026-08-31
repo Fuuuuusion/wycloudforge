@@ -36,6 +36,7 @@ public:
 
     void setSongs(const QList<core::Song> &songs, qint64 playingId = -1);
     void refreshSongs(const QList<core::Song> &songs);
+    bool updateSong(const core::Song &song);
     QList<core::Song> songs() const { return m_songs; }
     qint64 playingId() const { return m_playingId; }
     core::Song songAt(int row) const;

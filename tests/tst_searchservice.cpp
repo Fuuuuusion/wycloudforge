@@ -1,4 +1,5 @@
 #include "core/SearchAggregator.h"
+#include "core/SearchCache.h"
 #include "core/SearchService.h"
 
 #include <QFile>
@@ -69,6 +70,7 @@ private slots:
     void producesStableFinalOrder();
     void rejectsAmbiguousVariantsRegardlessOfArrivalOrder();
     void honorsOptionalSortModes();
+    void persistsSearchCacheAndHistory();
 };
 
 void SearchServiceTest::ranksTitleMatchesBeforeMetadataMatches()
@@ -442,6 +444,73 @@ void SearchServiceTest::honorsOptionalSortModes()
     options.sortMode = SearchSortMode::LocalFirst;
     groups = SearchAggregator::aggregate({ exact, popularArtist }, options);
     QCOMPARE(groups.constFirst().preferredItem().remoteId, QStringLiteral("mode-popular"));
+}
+
+void SearchServiceTest::persistsSearchCacheAndHistory()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, dir.path());
+    QCoreApplication::setOrganizationName(QStringLiteral("WyCloudForgeTests"));
+    QCoreApplication::setApplicationName(QStringLiteral("SearchCache"));
+
+    SearchCache cache(dir.filePath(QStringLiteral("cache")));
+    SearchRequest request;
+    request.keywords = QStringLiteral("  晴天  ");
+    request.category = SearchCategory::Songs;
+    request.scope = SearchScope::QqMusic;
+    request.limit = 30;
+    request.offset = 0;
+    request.generation = 41;
+    SearchResponse response;
+    response.source = SourceId::QqMusic;
+    response.category = SearchCategory::Songs;
+    response.offset = 0;
+    response.hasMore = true;
+    response.generation = request.generation;
+    response.items = { makeOnlineItem(SourceId::QqMusic, QStringLiteral("qq-cache"),
+                                      QStringLiteral("晴天"), QStringLiteral("周杰伦"),
+                                      240000, 3, 99.0) };
+    QVERIFY(cache.storeResponse(request, response));
+
+    request.keywords = QStringLiteral("晴天");
+    request.generation = 42;
+    SearchResponse restored;
+    bool fresh = false;
+    QVERIFY(cache.loadResponse(request, SourceId::QqMusic, &restored, &fresh));
+    QVERIFY(fresh);
+    QCOMPARE(restored.generation, quint64(42));
+    QCOMPARE(restored.items.size(), 1);
+    QCOMPARE(restored.items.constFirst().stableIdentity(), QStringLiteral("2:qq-cache"));
+    QCOMPARE(restored.items.constFirst().popularity, 99.0);
+
+    const QList<SearchSuggestion> suggestions = {
+        { SourceId::QqMusic, SearchItemType::Song, QStringLiteral("晴天"),
+          QStringLiteral("周杰伦"), QStringLiteral("qq-cache") }
+    };
+    QVERIFY(cache.storeSuggestions(SourceId::QqMusic, request.keywords, suggestions));
+    QList<SearchSuggestion> restoredSuggestions;
+    QVERIFY(cache.loadSuggestions(SourceId::QqMusic, QStringLiteral(" 晴天 "),
+                                  &restoredSuggestions));
+    QCOMPARE(restoredSuggestions.size(), 1);
+    QCOMPARE(restoredSuggestions.constFirst().remoteId, QStringLiteral("qq-cache"));
+
+    const QList<HotSearchTerm> terms = {
+        { SourceId::Netease, QStringLiteral("风衣"), QStringLiteral("热搜"), 100.0, 0 }
+    };
+    QVERIFY(cache.storeHotTerms(SourceId::Netease, terms));
+    QList<HotSearchTerm> restoredTerms;
+    QVERIFY(cache.loadHotTerms(SourceId::Netease, &restoredTerms));
+    QCOMPARE(restoredTerms.size(), 1);
+    QCOMPARE(restoredTerms.constFirst().text, QStringLiteral("风衣"));
+
+    cache.addHistory(QStringLiteral("晴天"));
+    cache.addHistory(QStringLiteral("风衣"));
+    cache.addHistory(QStringLiteral(" 晴天 "));
+    QCOMPARE(cache.history(), QStringList({ QStringLiteral("晴天"), QStringLiteral("风衣") }));
+    cache.clearHistory();
+    QVERIFY(cache.history().isEmpty());
 }
 
 QTEST_GUILESS_MAIN(SearchServiceTest)

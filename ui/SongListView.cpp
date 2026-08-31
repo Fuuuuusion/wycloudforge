@@ -413,6 +413,11 @@ void SongListView::setSongs(const QList<core::Song> &songs, qint64 playingId)
     updateBatchButtons();
 }
 
+bool SongListView::updateSong(const core::Song &song)
+{
+    return m_model->updateSong(song);
+}
+
 QList<core::Song> SongListView::songs() const
 {
     return m_model->songs();

@@ -121,6 +121,8 @@ struct SearchSourceState
     quint64 generation = 0;
     int offset = 0;
     bool hasMore = false;
+    bool fromCache = false;
+    bool stale = false;
     QString error;
 };
 

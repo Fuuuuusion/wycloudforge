@@ -9,6 +9,7 @@
 #include <QSettings>
 #include <QStackedWidget>
 #include <QTemporaryDir>
+#include <QUuid>
 #include <QtTest>
 
 using namespace core;
@@ -54,8 +55,14 @@ public:
     }
 
     void search(const SearchRequest &request, MusicSource::SearchResponseFn ok,
-                MusicSource::ErrFn = {}) override
+                MusicSource::ErrFn err = {}) override
     {
+        requests.append(request);
+        if (failSearch) {
+            if (err)
+                err(searchError);
+            return;
+        }
         SearchResponse response;
         response.source = this->sourceId();
         response.category = request.category;
@@ -65,6 +72,30 @@ public:
         if (ok)
             ok(response);
     }
+
+    void searchSuggestions(const QString &, int, MusicSource::SearchSuggestionsFn ok,
+                           MusicSource::ErrFn = {}) override
+    {
+        ++suggestionRequestCount;
+        if (ok)
+            ok(suggestionResults);
+    }
+
+    void hotSearch(int, MusicSource::HotSearchFn ok,
+                   MusicSource::ErrFn = {}) override
+    {
+        ++hotSearchRequestCount;
+        if (ok)
+            ok(hotSearchResults);
+    }
+
+    QList<SearchRequest> requests;
+    QList<SearchSuggestion> suggestionResults;
+    QList<HotSearchTerm> hotSearchResults;
+    QString searchError = QStringLiteral("来源离线");
+    int suggestionRequestCount = 0;
+    int hotSearchRequestCount = 0;
+    bool failSearch = false;
 
 private:
     SearchResultItem m_item;
@@ -78,6 +109,9 @@ class SearchPageTest : public QObject
 
 private slots:
     void aggregatesSourcesAndExposesPreferredStableSong();
+    void routesScopeAndCategoryToSelectedSource();
+    void providesHistoryDiscoverySuggestionsAndKeyboardSelection();
+    void fallsBackToCacheWithoutClearingHealthySource();
 };
 
 void SearchPageTest::aggregatesSourcesAndExposesPreferredStableSong()
@@ -107,6 +141,7 @@ void SearchPageTest::aggregatesSourcesAndExposesPreferredStableSong()
     page.setSourceProvider(&netease, &library);
     page.setSourceRegistry(&registry);
     page.setOnlineSourceEnabled(SourceId::QqMusic, true);
+    page.setSearchCategory(SearchCategory::All);
     page.performSearch(QStringLiteral("晴天"));
 
     const QList<SearchResultGroup> groups = page.onlineResultGroups();
@@ -117,12 +152,172 @@ void SearchPageTest::aggregatesSourcesAndExposesPreferredStableSong()
     QCOMPARE(groups.constFirst().preferredSong().effectiveRemoteId(),
              QStringLiteral("qq-sunny"));
 
-    QStackedWidget *stack = page.findChild<QStackedWidget *>();
-    QVERIFY(stack);
-    stack->setCurrentIndex(1);
     const QList<Song> visibleSongs = page.currentSongs();
     QCOMPARE(visibleSongs.size(), 1);
     QCOMPARE(visibleSongs.constFirst().stableIdentity(), QStringLiteral("2:qq-sunny"));
+}
+
+void SearchPageTest::routesScopeAndCategoryToSelectedSource()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QCoreApplication::setOrganizationName(QStringLiteral("WyCloudForgeTests"));
+    QCoreApplication::setApplicationName(QStringLiteral("SearchPageRouting"));
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, dir.path());
+    QSettings().clear();
+    SettingsService::setOnlineDownloadDir(dir.filePath(QStringLiteral("downloads")));
+    LibraryService::setDatabasePathOverride(dir.filePath(QStringLiteral("library.db")));
+    LibraryService library;
+    QVERIFY2(library.openDatabase(), qPrintable(library.lastError()));
+
+    FixedSearchSource<NeteaseApiClient> netease(
+        resultItem(SourceId::Netease, QStringLiteral("netease-routing"), true));
+    FixedSearchSource<QqMusicSource> qq(
+        resultItem(SourceId::QqMusic, QStringLiteral("qq-routing"), true));
+    MusicSourceRegistry registry;
+    registry.registerSource(&netease);
+    registry.registerSource(&qq);
+
+    SearchPage page;
+    page.setSourceProvider(&netease, &library);
+    page.setSourceRegistry(&registry);
+    page.setOnlineSourceEnabled(SourceId::QqMusic, true);
+    page.setSearchScope(SearchScope::Netease);
+    page.setSearchCategory(SearchCategory::Albums);
+    page.performSearch(QStringLiteral("叶惠美"));
+
+    QCOMPARE(netease.requests.size(), 1);
+    QCOMPARE(qq.requests.size(), 0);
+    QCOMPARE(netease.requests.constFirst().scope, SearchScope::Netease);
+    QCOMPARE(netease.requests.constFirst().category, SearchCategory::Albums);
+
+    page.setSearchScope(SearchScope::QqMusic);
+    QCOMPARE(netease.requests.size(), 1);
+    QCOMPARE(qq.requests.size(), 1);
+    QCOMPARE(qq.requests.constFirst().scope, SearchScope::QqMusic);
+    QCOMPARE(qq.requests.constFirst().category, SearchCategory::Albums);
+}
+
+void SearchPageTest::providesHistoryDiscoverySuggestionsAndKeyboardSelection()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QCoreApplication::setOrganizationName(QStringLiteral("WyCloudForgeTests"));
+    QCoreApplication::setApplicationName(QStringLiteral("SearchPageAssistant"));
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, dir.path());
+    QSettings().clear();
+    SettingsService::setOnlineDownloadDir(dir.filePath(QStringLiteral("downloads")));
+    LibraryService::setDatabasePathOverride(dir.filePath(QStringLiteral("library.db")));
+    LibraryService library;
+    QVERIFY2(library.openDatabase(), qPrintable(library.lastError()));
+
+    const QString token = QStringLiteral("阶段五")
+        + QUuid::createUuid().toString(QUuid::Id128).left(8);
+    FixedSearchSource<NeteaseApiClient> netease(
+        resultItem(SourceId::Netease, QStringLiteral("netease-assistant"), true));
+    FixedSearchSource<QqMusicSource> qq(
+        resultItem(SourceId::QqMusic, QStringLiteral("qq-assistant"), true));
+    netease.hotSearchResults = {
+        { SourceId::Netease, token + QStringLiteral("热搜"), QStringLiteral("热门"), 100.0, 0 }
+    };
+    netease.suggestionResults = {
+        { SourceId::Netease, SearchItemType::Song, token + QStringLiteral("网易"),
+          QStringLiteral("在线联想"), QStringLiteral("netease-suggestion") }
+    };
+    qq.suggestionResults = {
+        { SourceId::QqMusic, SearchItemType::Artist, token + QStringLiteral("QQ"),
+          QStringLiteral("在线联想"), QStringLiteral("qq-suggestion") }
+    };
+    MusicSourceRegistry registry;
+    registry.registerSource(&netease);
+    registry.registerSource(&qq);
+
+    Song local;
+    local.id = 1;
+    local.filePath = dir.filePath(QStringLiteral("local.mp3"));
+    local.title = token + QStringLiteral("本地");
+    local.artist = QStringLiteral("本地歌手");
+
+    SearchPage page;
+    page.setSourceProvider(&netease, &library);
+    page.setSourceRegistry(&registry);
+    page.setOnlineSourceEnabled(SourceId::QqMusic, true);
+    page.setLocalSongs({ local });
+    page.performSearch(token + QStringLiteral("历史"));
+    page.showSearchAssistant();
+
+    QStringList queries = page.assistantQueries();
+    QVERIFY(queries.contains(token + QStringLiteral("历史")));
+    QVERIFY(queries.contains(token + QStringLiteral("热搜")));
+    QVERIFY(netease.hotSearchRequestCount > 0);
+
+    page.previewSearchText(token);
+    QTRY_VERIFY_WITH_TIMEOUT(netease.suggestionRequestCount > 0, 1000);
+    QTRY_VERIFY_WITH_TIMEOUT(qq.suggestionRequestCount > 0, 1000);
+    queries = page.assistantQueries();
+    QVERIFY(queries.contains(token + QStringLiteral("本地")));
+    QVERIFY(queries.contains(token + QStringLiteral("网易")));
+    QVERIFY(queries.contains(token + QStringLiteral("QQ")));
+
+    page.moveSearchAssistantSelection(1);
+    QCOMPARE(page.resolvedSearchText(QStringLiteral("后备词")),
+             page.assistantQueries().constFirst());
+}
+
+void SearchPageTest::fallsBackToCacheWithoutClearingHealthySource()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QCoreApplication::setOrganizationName(QStringLiteral("WyCloudForgeTests"));
+    QCoreApplication::setApplicationName(QStringLiteral("SearchPageCache"));
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, dir.path());
+    QSettings().clear();
+    SettingsService::setOnlineDownloadDir(dir.filePath(QStringLiteral("downloads")));
+    LibraryService::setDatabasePathOverride(dir.filePath(QStringLiteral("library.db")));
+    LibraryService library;
+    QVERIFY2(library.openDatabase(), qPrintable(library.lastError()));
+    const QString query = QStringLiteral("缓存降级")
+        + QUuid::createUuid().toString(QUuid::Id128);
+
+    {
+        FixedSearchSource<NeteaseApiClient> netease(
+            resultItem(SourceId::Netease, QStringLiteral("netease-cached"), true));
+        MusicSourceRegistry registry;
+        registry.registerSource(&netease);
+        SearchPage page;
+        page.setSourceProvider(&netease, &library);
+        page.setSourceRegistry(&registry);
+        page.performSearch(query);
+        QCOMPARE(page.sourceState(SourceId::Netease).state, SearchLoadState::Ready);
+        QVERIFY(!page.sourceState(SourceId::Netease).fromCache);
+        QCOMPARE(page.onlineResultItems().size(), 1);
+    }
+
+    FixedSearchSource<NeteaseApiClient> offlineNetease(
+        resultItem(SourceId::Netease, QStringLiteral("unused"), true));
+    offlineNetease.failSearch = true;
+    FixedSearchSource<QqMusicSource> healthyQq(
+        resultItem(SourceId::QqMusic, QStringLiteral("qq-live"), true));
+    MusicSourceRegistry registry;
+    registry.registerSource(&offlineNetease);
+    registry.registerSource(&healthyQq);
+    SearchPage page;
+    page.setSourceProvider(&offlineNetease, &library);
+    page.setSourceRegistry(&registry);
+    page.setOnlineSourceEnabled(SourceId::QqMusic, true);
+    page.performSearch(query);
+
+    const SearchSourceState neteaseState = page.sourceState(SourceId::Netease);
+    QCOMPARE(neteaseState.state, SearchLoadState::Ready);
+    QVERIFY(neteaseState.fromCache);
+    QVERIFY(neteaseState.error.contains(QStringLiteral("显示缓存")));
+    QCOMPARE(page.sourceState(SourceId::QqMusic).state, SearchLoadState::Ready);
+    QCOMPARE(page.onlineResultItems().size(), 2);
+    QCOMPARE(page.onlineResultGroups().size(), 1);
+    QCOMPARE(page.onlineResultGroups().constFirst().variants.size(), 2);
 }
 
 QTEST_MAIN(SearchPageTest)

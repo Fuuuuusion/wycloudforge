@@ -60,6 +60,10 @@ private:
     void openLocalAlbum(const QString &album, const QString &artist);
     void openOnlinePlaylist(core::SourceId sourceId, const QString &remoteId,
                             const QString &name);
+    void openOnlineArtist(core::SourceId sourceId, const QString &remoteId,
+                          const QString &name);
+    void openOnlineAlbum(core::SourceId sourceId, const QString &remoteId,
+                         const QString &name);
     void hydrateOnlineCovers(const QList<core::Song> &songs);
     void ensureOnlineCovers(const QList<core::Song> &songs);
     void startOnlineCoverDownloads();
@@ -82,6 +86,8 @@ private:
     void resolveLocalMetadataMatch(const core::Song &song, const QJsonArray &items, bool exactHash);
     void refreshCurrentSongMetadata(qint64 songId);
     void setupShortcuts();
+    void ensureQqSearchSource();
+    void refreshSearchAfterQqReady();
     void addMusicFolder();
     void addMusicFiles();
     void connectSongListActions();
@@ -124,6 +130,9 @@ private:
     bool m_restoredLastSong = false;
     bool m_apiReady = false;
     bool m_qqApiReady = false;
+    bool m_qqApiStarting = false;
+    bool m_qqSearchExecutionPending = false;
+    quint64 m_onlineDetailGeneration = 0;
     QSet<QString> m_metadataAttempted;
     QSet<qint64> m_onlineCoverAttempted;
     QSet<qint64> m_onlineCoverDetailsAttempted;
