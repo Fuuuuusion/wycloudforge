@@ -20,7 +20,9 @@
 #include <QResizeEvent>
 #include <QStyledItemDelegate>
 #include <QToolButton>
+#include <QVariantAnimation>
 #include <QVBoxLayout>
+#include <QtMath>
 
 namespace ui {
 namespace {
@@ -29,6 +31,17 @@ const QColor kText(0xE8, 0xE8, 0xE8);
 const QColor kText2(0x9A, 0x9A, 0xA5);
 const QColor kText3(0x6E, 0x6E, 0x7A);
 const QColor kPrimary(0xEC, 0x41, 0x41);
+const QColor kPrimaryHover(0xF0, 0x4A, 0x4A);
+const QColor kPrimaryActive(0xD6, 0x38, 0x38);
+
+QColor blendedColor(const QColor &from, const QColor &to, qreal progress)
+{
+    const qreal t = qBound<qreal>(0.0, progress, 1.0);
+    return QColor::fromRgbF(from.redF() + (to.redF() - from.redF()) * t,
+                            from.greenF() + (to.greenF() - from.greenF()) * t,
+                            from.blueF() + (to.blueF() - from.blueF()) * t,
+                            from.alphaF() + (to.alphaF() - from.alphaF()) * t);
+}
 QBrush activeTextBrush(const QRectF &)
 {
     return QBrush(kPrimary);
@@ -99,9 +112,25 @@ void drawHighlightedText(QPainter &p, const QRectF &rect, const QString &text, c
 class SongRowDelegate : public QStyledItemDelegate
 {
 public:
-    explicit SongRowDelegate(QObject *parent = nullptr)
-        : QStyledItemDelegate(parent)
+    explicit SongRowDelegate(SongListView *view)
+        : QStyledItemDelegate(view)
+        , m_view(view)
     {
+        m_heartHoverAnimation.setDuration(200);
+        m_heartHoverAnimation.setStartValue(0.0);
+        m_heartHoverAnimation.setEndValue(1.0);
+        connect(&m_heartHoverAnimation, &QVariantAnimation::valueChanged,
+                view, [this] { updateHeartRows({ m_heartFromRow, m_heartToRow }); });
+
+        m_heartStateAnimation.setDuration(200);
+        m_heartStateAnimation.setStartValue(0.0);
+        m_heartStateAnimation.setEndValue(1.0);
+        connect(&m_heartStateAnimation, &QVariantAnimation::valueChanged,
+                view, [this] {
+            QSet<int> rows = m_heartAddedRows;
+            rows.unite(m_heartRemovedRows);
+            updateHeartRows(rows);
+        });
     }
 
     void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
@@ -199,10 +228,25 @@ public:
             painter->restore();
         } else if (col == 5) {
             const bool favorite = index.data(SongListModel::FavoriteRole).toBool();
+            const qreal hoverAmount = heartHoverAmount(index.row());
+            const bool pressed = index.row() == m_pressedHeartRow;
+            QColor color = favorite ? kPrimary : blendedColor(kText3, kPrimaryHover, hoverAmount);
+            if (pressed)
+                color = kPrimaryActive;
+            qreal scale = pressed ? 0.92 : 1.0 + 0.06 * hoverAmount;
+            if (m_heartStateAnimation.state() == QAbstractAnimation::Running) {
+                const qreal t = m_heartStateAnimation.currentValue().toReal();
+                if (m_heartAddedRows.contains(index.row()))
+                    scale += 0.14 * qSin(M_PI * t);
+                else if (m_heartRemovedRows.contains(index.row()))
+                    scale -= 0.06 * qSin(M_PI * t);
+            }
             const QPixmap heart = tintedIcon(favorite ? QStringLiteral(":/icons/icon-heart-fill.svg")
                                                        : QStringLiteral(":/icons/icon-heart.svg"),
-                                             18, favorite ? kPrimary : kText3);
-            painter->drawPixmap(QRectF(rect.center().x() - 9, rect.center().y() - 9, 18, 18).toRect(), heart);
+                                             18, color);
+            const qreal size = 18.0 * scale;
+            painter->drawPixmap(QRectF(rect.center().x() - size / 2.0,
+                                       rect.center().y() - size / 2.0, size, size).toRect(), heart);
         } else if (col == 6) {
             painter->save();
             painter->setFont(QFont(QStringLiteral("Microsoft YaHei UI"), 8));
@@ -233,6 +277,39 @@ public:
         m_hoverRow = row;
     }
 
+    void setPointerIndex(int row, int column)
+    {
+        setHoverRow(row);
+        const int targetRow = column == 5 ? row : -1;
+        if (targetRow == m_heartToRow)
+            return;
+        const int previousRow = m_heartToRow;
+        m_heartFromRow = previousRow;
+        m_heartToRow = targetRow;
+        m_heartHoverAnimation.stop();
+        m_heartHoverAnimation.start();
+        updateHeartRows({ previousRow, targetRow });
+    }
+
+    void setPressedHeartRow(int row)
+    {
+        if (m_pressedHeartRow == row)
+            return;
+        const int previous = m_pressedHeartRow;
+        m_pressedHeartRow = row;
+        updateHeartRows({ previous, row });
+    }
+
+    void startFavoriteTransitions(const QSet<int> &addedRows, const QSet<int> &removedRows)
+    {
+        if (addedRows.isEmpty() && removedRows.isEmpty())
+            return;
+        m_heartAddedRows = addedRows;
+        m_heartRemovedRows = removedRows;
+        m_heartStateAnimation.stop();
+        m_heartStateAnimation.start();
+    }
+
     int hoverRow() const
     {
         return m_hoverRow;
@@ -244,10 +321,41 @@ public:
     }
 
 private:
+    qreal heartHoverAmount(int row) const
+    {
+        if (m_heartHoverAnimation.state() != QAbstractAnimation::Running)
+            return row == m_heartToRow ? 1.0 : 0.0;
+        const qreal progress = m_heartHoverAnimation.currentValue().toReal();
+        if (row == m_heartToRow)
+            return progress;
+        if (row == m_heartFromRow)
+            return 1.0 - progress;
+        return 0.0;
+    }
+
+    void updateHeartRows(const QSet<int> &rows) const
+    {
+        if (!m_view || !m_view->model())
+            return;
+        for (int row : rows) {
+            if (row < 0 || row >= m_view->model()->rowCount())
+                continue;
+            m_view->viewport()->update(m_view->visualRect(m_view->model()->index(row, 5)));
+        }
+    }
+
+    SongListView *m_view = nullptr;
     QFont m_baseFont = QFont(QStringLiteral("Microsoft YaHei UI"), 9);
     QFont m_titleFont = QFont(QStringLiteral("Microsoft YaHei UI"), 9);
     QString m_query;
     int m_hoverRow = -1;
+    int m_heartFromRow = -1;
+    int m_heartToRow = -1;
+    int m_pressedHeartRow = -1;
+    QSet<int> m_heartAddedRows;
+    QSet<int> m_heartRemovedRows;
+    QVariantAnimation m_heartHoverAnimation;
+    QVariantAnimation m_heartStateAnimation;
     SongListView::DownloadActionMode m_downloadMode = SongListView::DownloadAction;
 };
 
@@ -448,8 +556,23 @@ void SongListView::setPlaylistMenuItems(const QList<QPair<int, QString>> &items)
 
 void SongListView::setFavoriteIds(const QSet<qint64> &ids)
 {
+    QSet<int> addedRows;
+    QSet<int> removedRows;
+    const QList<core::Song> currentSongs = m_model->songs();
+    if (m_favoriteStateInitialized) {
+        for (int row = 0; row < currentSongs.size(); ++row) {
+            const qint64 id = currentSongs.at(row).id;
+            if (!m_favoriteIds.contains(id) && ids.contains(id))
+                addedRows.insert(row);
+            else if (m_favoriteIds.contains(id) && !ids.contains(id))
+                removedRows.insert(row);
+        }
+    }
     m_favoriteIds = ids;
+    m_favoriteStateInitialized = true;
     m_model->setFavoriteIds(ids);
+    if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate()))
+        delegate->startFavoriteTransitions(addedRows, removedRows);
 }
 
 void SongListView::refreshLibraryState(core::LibraryService *library)
@@ -593,12 +716,12 @@ void SongListView::toggleRowSelection(int row)
 
 void SongListView::mouseMoveEvent(QMouseEvent *event)
 {
-    const int row = indexAt(event->pos()).row();
+    const QModelIndex index = indexAt(event->pos());
+    const int row = index.row();
     if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate())) {
-        if (delegate->hoverRow() != row) {
-            delegate->setHoverRow(row);
+        if (delegate->hoverRow() != row)
             viewport()->update();
-        }
+        delegate->setPointerIndex(row, index.column());
     }
     QTableView::mouseMoveEvent(event);
 }
@@ -607,7 +730,7 @@ void SongListView::leaveEvent(QEvent *event)
 {
     if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate())) {
         if (delegate->hoverRow() != -1) {
-            delegate->setHoverRow(-1);
+            delegate->setPointerIndex(-1, -1);
             viewport()->update();
         }
     }
@@ -624,6 +747,8 @@ void SongListView::mousePressEvent(QMouseEvent *event)
                 return;
             }
             if (idx.column() == 5) {
+                if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate()))
+                    delegate->setPressedHeartRow(idx.row());
                 emit heartRequested(idx.row());
                 return;
             }
@@ -638,6 +763,13 @@ void SongListView::mousePressEvent(QMouseEvent *event)
         }
     }
     QTableView::mousePressEvent(event);
+}
+
+void SongListView::mouseReleaseEvent(QMouseEvent *event)
+{
+    if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate()))
+        delegate->setPressedHeartRow(-1);
+    QTableView::mouseReleaseEvent(event);
 }
 
 void SongListView::resizeEvent(QResizeEvent *event)

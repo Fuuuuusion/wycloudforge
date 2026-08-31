@@ -17,6 +17,7 @@ class SongListViewTest : public QObject
 private slots:
     void batchEntryAndStableSelection();
     void rowUpdatePreservesModelAndBatchSelection();
+    void favoriteActionKeepsPlaySignalSeparate();
 };
 
 void SongListViewTest::batchEntryAndStableSelection()
@@ -136,6 +137,32 @@ void SongListViewTest::rowUpdatePreservesModelAndBatchSelection()
     QVERIFY(view.batchMode());
     QCOMPARE(view.selectedSongs().size(), 1);
     QCOMPARE(view.selectedSongs().constFirst().selectionIdentity(), online.selectionIdentity());
+}
+
+void SongListViewTest::favoriteActionKeepsPlaySignalSeparate()
+{
+    Song song;
+    song.id = 501;
+    song.title = QStringLiteral("Favorite action");
+    song.filePath = QStringLiteral("C:/music/favorite-action.mp3");
+
+    SongListView view;
+    view.resize(1000, 240);
+    view.setSongs({ song });
+    view.show();
+    QApplication::processEvents();
+
+    QSignalSpy heartSpy(&view, &SongListView::heartRequested);
+    QSignalSpy playSpy(&view, &SongListView::playRequested);
+    const QModelIndex favoriteIndex = view.model()->index(0, 5);
+    const QRect favoriteRect = view.visualRect(favoriteIndex);
+    QVERIFY(favoriteRect.isValid());
+    QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier,
+                      favoriteRect.center());
+
+    QCOMPARE(heartSpy.count(), 1);
+    QCOMPARE(heartSpy.takeFirst().at(0).toInt(), 0);
+    QCOMPARE(playSpy.count(), 0);
 }
 
 QTEST_MAIN(SongListViewTest)

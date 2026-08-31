@@ -60,6 +60,7 @@ protected:
     void contextMenuEvent(QContextMenuEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
     void leaveEvent(QEvent *event) override;
 
@@ -96,6 +97,7 @@ private:
     int m_contextRow = -1;
     bool m_removable = false;
     bool m_batchMode = false;
+    bool m_favoriteStateInitialized = false;
     DownloadActionMode m_downloadMode = DownloadAction;
 };
 

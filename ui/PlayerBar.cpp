@@ -7,11 +7,13 @@
 #include <QFocusEvent>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPushButton>
 #include <QSvgRenderer>
 #include <QVariantAnimation>
 #include <QVBoxLayout>
+#include <QtMath>
 
 namespace ui {
 
@@ -54,6 +56,167 @@ QPixmap tintedSvg(const QString &path, const QColor &color, qreal dpr)
     pixmap.setDevicePixelRatio(dpr);
     return pixmap;
 }
+
+QColor blendedColor(const QColor &from, const QColor &to, qreal progress)
+{
+    const qreal t = qBound<qreal>(0.0, progress, 1.0);
+    return QColor::fromRgbF(from.redF() + (to.redF() - from.redF()) * t,
+                            from.greenF() + (to.greenF() - from.greenF()) * t,
+                            from.blueF() + (to.blueF() - from.blueF()) * t,
+                            from.alphaF() + (to.alphaF() - from.alphaF()) * t);
+}
+
+class FavoriteButton final : public QPushButton
+{
+public:
+    explicit FavoriteButton(QWidget *parent = nullptr)
+        : QPushButton(parent)
+    {
+        setFixedSize(30, 30);
+        setCursor(Qt::PointingHandCursor);
+        setToolTip(QStringLiteral("喜欢"));
+        setAccessibleName(QStringLiteral("喜欢"));
+
+        m_hoverAnimation.setDuration(200);
+        connect(&m_hoverAnimation, &QVariantAnimation::valueChanged, this, [this] { update(); });
+        m_bounceAnimation.setDuration(200);
+        m_bounceAnimation.setStartValue(0.0);
+        m_bounceAnimation.setEndValue(1.0);
+        connect(&m_bounceAnimation, &QVariantAnimation::valueChanged, this, [this] { update(); });
+    }
+
+    void setFavorite(bool favorite, bool animate)
+    {
+        if (m_favorite == favorite)
+            return;
+        m_favorite = favorite;
+        const QString label = favorite ? QStringLiteral("取消喜欢") : QStringLiteral("喜欢");
+        setToolTip(label);
+        setAccessibleName(label);
+        if (animate) {
+            m_bounceAnimation.stop();
+            m_bounceAnimation.start();
+        } else {
+            m_bounceAnimation.stop();
+        }
+        update();
+    }
+
+protected:
+    void enterEvent(QEnterEvent *event) override
+    {
+        animateHoverTo(1.0);
+        QPushButton::enterEvent(event);
+    }
+
+    void leaveEvent(QEvent *event) override
+    {
+        animateHoverTo(0.0);
+        QPushButton::leaveEvent(event);
+    }
+
+    void mousePressEvent(QMouseEvent *event) override
+    {
+        QPushButton::mousePressEvent(event);
+        update();
+    }
+
+    void mouseReleaseEvent(QMouseEvent *event) override
+    {
+        QPushButton::mouseReleaseEvent(event);
+        update();
+    }
+
+    void focusInEvent(QFocusEvent *event) override
+    {
+        m_showFocusRing = event->reason() == Qt::TabFocusReason
+                          || event->reason() == Qt::BacktabFocusReason
+                          || event->reason() == Qt::ShortcutFocusReason;
+        QPushButton::focusInEvent(event);
+        update();
+    }
+
+    void focusOutEvent(QFocusEvent *event) override
+    {
+        m_showFocusRing = false;
+        QPushButton::focusOutEvent(event);
+        update();
+    }
+
+    void paintEvent(QPaintEvent *) override
+    {
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+
+        if (hasFocus() && m_showFocusRing) {
+            painter.setPen(QPen(QColor(QStringLiteral("#6E6E7A")), 1.5));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawRoundedRect(QRectF(rect()).adjusted(3, 3, -3, -3), 7, 7);
+        }
+
+        QColor color;
+        if (!isEnabled())
+            color = QColor(QStringLiteral("#6E6E7A"));
+        else if (isDown())
+            color = QColor(QStringLiteral("#D63838"));
+        else if (m_favorite)
+            color = QColor(QStringLiteral("#EC4141"));
+        else
+            color = blendedColor(QColor(QStringLiteral("#9A9AA5")),
+                                 QColor(QStringLiteral("#F04A4A")), hoverProgress());
+
+        qreal scale = 1.0 + 0.06 * hoverProgress();
+        if (isDown())
+            scale = 0.92;
+        if (m_bounceAnimation.state() == QAbstractAnimation::Running) {
+            const qreal t = m_bounceAnimation.currentValue().toReal();
+            const qreal amplitude = m_favorite ? 0.14 : -0.06;
+            scale += amplitude * qSin(M_PI * t);
+        }
+
+        ensurePixmap(color);
+        const qreal iconSize = 18.0 * scale;
+        const QRectF target((width() - iconSize) / 2.0, (height() - iconSize) / 2.0,
+                            iconSize, iconSize);
+        painter.drawPixmap(target, m_pixmap, QRectF(0, 0, 30, 30));
+    }
+
+private:
+    void animateHoverTo(qreal target)
+    {
+        const qreal current = hoverProgress();
+        m_hoverAnimation.stop();
+        m_hoverAnimation.setStartValue(current);
+        m_hoverAnimation.setEndValue(target);
+        m_hoverAnimation.start();
+    }
+
+    qreal hoverProgress() const
+    {
+        return m_hoverAnimation.state() == QAbstractAnimation::Running
+            ? m_hoverAnimation.currentValue().toReal()
+            : (underMouse() ? 1.0 : 0.0);
+    }
+
+    void ensurePixmap(const QColor &color)
+    {
+        const qreal dpr = devicePixelRatioF();
+        if (m_cachedColor == color && qFuzzyCompare(m_cachedDpr, dpr))
+            return;
+        m_cachedColor = color;
+        m_cachedDpr = dpr;
+        m_pixmap = tintedSvg(m_favorite ? QStringLiteral(":/icons/icon-heart-fill.svg")
+                                        : QStringLiteral(":/icons/icon-heart.svg"), color, dpr);
+    }
+
+    QVariantAnimation m_hoverAnimation;
+    QVariantAnimation m_bounceAnimation;
+    QPixmap m_pixmap;
+    QColor m_cachedColor;
+    qreal m_cachedDpr = 0.0;
+    bool m_favorite = false;
+    bool m_showFocusRing = false;
+};
 
 class AnimatedPlayPauseButton final : public QPushButton
 {
@@ -234,17 +397,10 @@ PlayerBar::PlayerBar(QWidget *parent)
     infoLayout->addLayout(titleRow);
     infoLayout->addWidget(m_artist);
 
-    m_heartBtn = new QPushButton(this);
-    m_heartBtn->setProperty("class", "ctrlBtn");
-    m_heartBtn->setIcon(makeSvgIcon(QStringLiteral(":/icons/icon-heart.svg"), 18));
-    m_heartBtn->setIconSize(QSize(18, 18));
-    m_heartBtn->setFixedSize(30, 30);
-    m_heartBtn->setCursor(Qt::PointingHandCursor);
-    m_heartBtn->setToolTip(QStringLiteral("喜欢"));
+    m_heartBtn = new FavoriteButton(this);
     connect(m_heartBtn, &QPushButton::clicked, this, [this] {
         m_favorite = !m_favorite;
-    m_heartBtn->setIcon(makeSvgIcon(m_favorite ? QStringLiteral(":/icons/icon-heart-fill.svg")
-                                             : QStringLiteral(":/icons/icon-heart.svg"), 18));
+        static_cast<FavoriteButton *>(m_heartBtn)->setFavorite(m_favorite, true);
         emit heartToggled(m_favorite);
     });
 
@@ -390,8 +546,7 @@ void PlayerBar::setSong(const core::Song &song, bool favorite)
         m_sourceBadge->setText(QStringLiteral("本地"));
     m_sourceBadge->setVisible(!m_sourceBadge->text().isEmpty());
     m_sourceBadge->setToolTip(QString());
-    m_heartBtn->setIcon(makeSvgIcon(favorite ? QStringLiteral(":/icons/icon-heart-fill.svg")
-                                       : QStringLiteral(":/icons/icon-heart.svg"), 18));
+    static_cast<FavoriteButton *>(m_heartBtn)->setFavorite(favorite, false);
     const bool downloadable = song.isOnline() && !song.isDownloaded();
     m_downloadBtn->setEnabled(downloadable);
     m_downloadBtn->setToolTip(song.isOnline()
