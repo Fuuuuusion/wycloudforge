@@ -41,6 +41,13 @@ RecommendPage::RecommendPage(QWidget *parent)
     const auto configureSourceButton = [](QPushButton *button, const QString &objectName) {
         button->setObjectName(objectName);
         button->setProperty("class", "sourceSwitch");
+        button->setStyleSheet(QString::fromLatin1(
+            "QPushButton { border: none; border-radius: 8px; padding: 0 12px; "
+            "background-color: #1B1B24; color: #9A9AA5; font-weight: 500; }"
+            "QPushButton:hover { background-color: #24242E; color: #F04A4A; }"
+            "QPushButton:checked { background-color: #EC4141; color: #FFFFFF; "
+            "font-weight: 600; }"
+            "QPushButton:pressed { background-color: #D63838; color: #FFFFFF; }"));
         button->setCheckable(true);
         button->setFixedSize(76, 30);
         button->setCursor(Qt::PointingHandCursor);

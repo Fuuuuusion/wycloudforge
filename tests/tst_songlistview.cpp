@@ -8,6 +8,7 @@
 #include <QAbstractItemModel>
 #include <QApplication>
 #include <QFile>
+#include <QImage>
 #include <QLabel>
 #include <QPushButton>
 #include <QTemporaryDir>
@@ -421,13 +422,22 @@ void SongListViewTest::sourceSwitchIsVisibleAndExclusive()
     QCOMPARE(qq->size(), QSize(76, 30));
     QVERIFY(netease->isChecked());
     QVERIFY(!qq->isChecked());
+    const auto fillColor = [](QPushButton *button) {
+        const QImage image = button->grab().toImage();
+        return image.pixelColor(image.width() / 10, image.height() / 2);
+    };
+    QCOMPARE(fillColor(netease), QColor(QStringLiteral("#EC4141")));
+    QCOMPARE(fillColor(qq), QColor(QStringLiteral("#1B1B24")));
 
     QSignalSpy activationSpy(&page, &RecommendPage::sourceActivationRequested);
     qq->click();
+    QApplication::processEvents();
     QCOMPARE(activationSpy.count(), 1);
     QCOMPARE(activationSpy.takeFirst().at(0).toInt(), int(SourceId::QqMusic));
     QVERIFY(!netease->isChecked());
     QVERIFY(qq->isChecked());
+    QCOMPARE(fillColor(netease), QColor(QStringLiteral("#1B1B24")));
+    QCOMPARE(fillColor(qq), QColor(QStringLiteral("#EC4141")));
 }
 
 void SongListViewTest::accountActionIsExplicitAndPreservesSignal()
