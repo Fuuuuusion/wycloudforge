@@ -27,6 +27,7 @@ private slots:
     void downloadStateUsesStableIdentity();
     void playerBarDownloadStateKeepsSignalsSeparate();
     void playerBarDirectionalControlsKeepGeometryAndSignals();
+    void rowHoverKeepsBackgroundClear();
     void singleClickPlaysContentOnly();
     void playbackActivityTracksRealState();
     void fullCoverPlaylistCardKeepsVisibleGeometry();
@@ -371,6 +372,32 @@ void SongListViewTest::playerBarDirectionalControlsKeepGeometryAndSignals()
     next->click();
     QCOMPARE(previousSpy.count(), 1);
     QCOMPARE(nextSpy.count(), 1);
+}
+
+void SongListViewTest::rowHoverKeepsBackgroundClear()
+{
+    Song song;
+    song.id = 901;
+    song.filePath = QStringLiteral("C:/music/hover-background.mp3");
+    song.title = QStringLiteral("Hover background");
+    song.artist = QStringLiteral("Artist");
+
+    SongListView view;
+    view.resize(1000, 240);
+    view.setStyleSheet(QStringLiteral("QTableView{background:#0E0E14;}"));
+    view.setSongs({ song });
+    view.show();
+    QApplication::processEvents();
+
+    const QRect artistRect = view.visualRect(view.model()->index(0, 2));
+    QVERIFY(artistRect.isValid());
+    const QPoint samplePoint(artistRect.left() + 5, artistRect.top() + 5);
+    const QColor idleColor = view.viewport()->grab().toImage().pixelColor(samplePoint);
+
+    QTest::mouseMove(view.viewport(), artistRect.center());
+    QTest::qWait(240);
+    const QColor hoverColor = view.viewport()->grab().toImage().pixelColor(samplePoint);
+    QCOMPARE(hoverColor, idleColor);
 }
 
 void SongListViewTest::singleClickPlaysContentOnly()

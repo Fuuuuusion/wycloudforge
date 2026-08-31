@@ -305,11 +305,6 @@ public:
             painter->setBrush(QColor(236, 65, 65, 36));
             painter->drawRoundedRect(rowRect, 8, 8);
         }
-        if (hover) {
-            QColor hoverColor(255, 255, 255, qRound(16.0 * hoverAmount));
-            painter->setBrush(hoverColor);
-            painter->drawRoundedRect(rowRect, 8, 8);
-        }
         if (pressed) {
             painter->setBrush(QColor(0, 0, 0, 36));
             painter->drawRoundedRect(rowRect, 8, 8);
