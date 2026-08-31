@@ -26,6 +26,7 @@ private slots:
     void downloadStateUsesStableIdentity();
     void playerBarDownloadStateKeepsSignalsSeparate();
     void playerBarDirectionalControlsKeepGeometryAndSignals();
+    void singleClickPlaysContentOnly();
 };
 
 void SongListViewTest::batchEntryAndStableSelection()
@@ -356,6 +357,50 @@ void SongListViewTest::playerBarDirectionalControlsKeepGeometryAndSignals()
     next->click();
     QCOMPARE(previousSpy.count(), 1);
     QCOMPARE(nextSpy.count(), 1);
+}
+
+void SongListViewTest::singleClickPlaysContentOnly()
+{
+    Song song;
+    song.id = 1001;
+    song.source = int(SourceId::Netease);
+    song.remoteId = QStringLiteral("single-click-play");
+    song.filePath = QStringLiteral("netease://single-click-play");
+    song.title = QStringLiteral("Single click");
+
+    SongListView view;
+    view.resize(1100, 260);
+    view.setSongs({ song });
+    view.show();
+    QApplication::processEvents();
+
+    QSignalSpy playSpy(&view, &SongListView::playRequested);
+    QSignalSpy heartSpy(&view, &SongListView::heartRequested);
+    QSignalSpy downloadSpy(&view, &SongListView::downloadRequested);
+
+    const QRect titleRect = view.visualRect(view.model()->index(0, 1));
+    QVERIFY(titleRect.isValid());
+    QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, titleRect.center());
+    QCOMPARE(playSpy.count(), 1);
+    QCOMPARE(playSpy.takeFirst().at(0).toInt(), 0);
+
+    const QRect heartRect = view.visualRect(view.model()->index(0, 5));
+    QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, heartRect.center());
+    QCOMPARE(heartSpy.count(), 1);
+    QCOMPARE(playSpy.count(), 0);
+
+    const QRect downloadRect = view.visualRect(view.model()->index(0, 6));
+    QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, downloadRect.center());
+    QCOMPARE(downloadSpy.count(), 1);
+    QCOMPARE(playSpy.count(), 0);
+
+    view.findChild<QPushButton *>(QStringLiteral("batchToggle"))->click();
+    QApplication::processEvents();
+    QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, titleRect.center());
+    QCOMPARE(playSpy.count(), 0);
+
+    QTest::mouseDClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, titleRect.center());
+    QCOMPARE(playSpy.count(), 0);
 }
 
 QTEST_MAIN(SongListViewTest)

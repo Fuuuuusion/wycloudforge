@@ -230,6 +230,12 @@ public:
         : QStyledItemDelegate(view)
         , m_view(view)
     {
+        m_rowHoverAnimation.setDuration(200);
+        m_rowHoverAnimation.setStartValue(0.0);
+        m_rowHoverAnimation.setEndValue(1.0);
+        connect(&m_rowHoverAnimation, &QVariantAnimation::valueChanged,
+                view, [this] { updateRows({ m_hoverFromRow, m_hoverToRow }); });
+
         m_heartHoverAnimation.setDuration(200);
         m_heartHoverAnimation.setStartValue(0.0);
         m_heartHoverAnimation.setEndValue(1.0);
@@ -269,13 +275,32 @@ public:
     void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
     {
         const bool playing = index.data(SongListModel::IsPlayingRole).toBool();
-        const bool hover = index.row() == m_hoverRow;
+        const qreal hoverAmount = rowHoverAmount(index.row());
+        const bool hover = hoverAmount > 0.01;
+        const bool pressed = index.row() == m_pressedPlayRow;
         const bool active = playing || hover;
 
         const int col = index.column();
         QRectF rect = option.rect.adjusted(0, 0, 0, -1);
-        if (hover)
-            rect.translate(0, -2);
+        const QRectF rowRect(4, option.rect.top() + 2,
+                             qMax(0, m_view->viewport()->width() - 8), option.rect.height() - 4);
+        painter->save();
+        painter->setPen(Qt::NoPen);
+        if (playing) {
+            painter->setBrush(QColor(236, 65, 65, 36));
+            painter->drawRoundedRect(rowRect, 8, 8);
+        }
+        if (hover) {
+            QColor hoverColor(255, 255, 255, qRound(16.0 * hoverAmount));
+            painter->setBrush(hoverColor);
+            painter->drawRoundedRect(rowRect, 8, 8);
+        }
+        if (pressed) {
+            painter->setBrush(QColor(0, 0, 0, 36));
+            painter->drawRoundedRect(rowRect, 8, 8);
+            rect.translate(0, 1);
+        }
+        painter->restore();
         if (col == 0) {
             painter->save();
             const bool batch = index.data(SongListModel::BatchModeRole).toBool();
@@ -470,7 +495,17 @@ public:
 
     void setHoverRow(int row)
     {
+        if (m_hoverToRow == row) {
+            m_hoverRow = row;
+            return;
+        }
+        const int previous = m_hoverToRow;
+        m_hoverFromRow = previous;
+        m_hoverToRow = row;
         m_hoverRow = row;
+        m_rowHoverAnimation.stop();
+        m_rowHoverAnimation.start();
+        updateRows({ previous, row });
     }
 
     void setPointerIndex(int row, int column)
@@ -513,6 +548,15 @@ public:
         const int previous = m_pressedActionRow;
         m_pressedActionRow = row;
         updateActionRows({ previous, row });
+    }
+
+    void setPressedPlayRow(int row)
+    {
+        if (m_pressedPlayRow == row)
+            return;
+        const int previous = m_pressedPlayRow;
+        m_pressedPlayRow = row;
+        updateRows({ previous, row });
     }
 
     void startFavoriteTransitions(const QSet<int> &addedRows, const QSet<int> &removedRows)
@@ -563,6 +607,18 @@ public:
     }
 
 private:
+    qreal rowHoverAmount(int row) const
+    {
+        if (m_rowHoverAnimation.state() != QAbstractAnimation::Running)
+            return row == m_hoverToRow ? 1.0 : 0.0;
+        const qreal progress = m_rowHoverAnimation.currentValue().toReal();
+        if (row == m_hoverToRow)
+            return progress;
+        if (row == m_hoverFromRow)
+            return 1.0 - progress;
+        return 0.0;
+    }
+
     qreal heartHoverAmount(int row) const
     {
         if (m_heartHoverAnimation.state() != QAbstractAnimation::Running)
@@ -620,6 +676,19 @@ private:
         }
     }
 
+    void updateRows(const QSet<int> &rows) const
+    {
+        if (!m_view || !m_view->model())
+            return;
+        for (int row : rows) {
+            if (row < 0 || row >= m_view->model()->rowCount())
+                continue;
+            const QRect first = m_view->visualRect(m_view->model()->index(row, 0));
+            const QRect last = m_view->visualRect(m_view->model()->index(row, 6));
+            m_view->viewport()->update(first.united(last));
+        }
+    }
+
     void updateActionRows(const QSet<int> &rows) const
     {
         if (!m_view || !m_view->model())
@@ -636,6 +705,9 @@ private:
     QFont m_titleFont = QFont(QStringLiteral("Microsoft YaHei UI"), 9);
     QString m_query;
     int m_hoverRow = -1;
+    int m_hoverFromRow = -1;
+    int m_hoverToRow = -1;
+    int m_pressedPlayRow = -1;
     int m_heartFromRow = -1;
     int m_heartToRow = -1;
     int m_pressedHeartRow = -1;
@@ -647,6 +719,7 @@ private:
     QSet<int> m_heartRemovedRows;
     QSet<int> m_loadingRows;
     QSet<int> m_completionRows;
+    QVariantAnimation m_rowHoverAnimation;
     QVariantAnimation m_heartHoverAnimation;
     QVariantAnimation m_heartStateAnimation;
     QVariantAnimation m_actionHoverAnimation;
@@ -797,10 +870,6 @@ SongListView::SongListView(QWidget *parent)
     connect(m_moreDelete, &QAction::triggered, m_deleteSelected, &QPushButton::click);
     setBatchMode(false);
 
-    connect(this, &QTableView::doubleClicked, this, [this](const QModelIndex &idx) {
-        if (idx.isValid())
-            emit playRequested(idx.row());
-    });
 }
 
 void SongListView::setSongs(const QList<core::Song> &songs, qint64 playingId)
@@ -1038,27 +1107,23 @@ void SongListView::mouseMoveEvent(QMouseEvent *event)
 {
     const QModelIndex index = indexAt(event->pos());
     const int row = index.row();
-    if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate())) {
-        if (delegate->hoverRow() != row)
-            viewport()->update();
+    if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate()))
         delegate->setPointerIndex(row, index.column());
-    }
     QTableView::mouseMoveEvent(event);
 }
 
 void SongListView::leaveEvent(QEvent *event)
 {
     if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate())) {
-        if (delegate->hoverRow() != -1) {
+        if (delegate->hoverRow() != -1)
             delegate->setPointerIndex(-1, -1);
-            viewport()->update();
-        }
     }
     QTableView::leaveEvent(event);
 }
 
 void SongListView::mousePressEvent(QMouseEvent *event)
 {
+    m_pendingPlayRow = -1;
     if (event->button() == Qt::LeftButton) {
         const QModelIndex idx = indexAt(event->pos());
         if (idx.isValid()) {
@@ -1089,6 +1154,13 @@ void SongListView::mousePressEvent(QMouseEvent *event)
                 }
                 return;
             }
+            if (!m_batchMode && idx.column() >= 1 && idx.column() <= 4) {
+                m_pendingPlayRow = idx.row();
+                if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate()))
+                    delegate->setPressedPlayRow(idx.row());
+                event->accept();
+                return;
+            }
         }
     }
     QTableView::mousePressEvent(event);
@@ -1096,12 +1168,31 @@ void SongListView::mousePressEvent(QMouseEvent *event)
 
 void SongListView::mouseReleaseEvent(QMouseEvent *event)
 {
-    if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate()))
-    {
+    const int pendingRow = m_pendingPlayRow;
+    m_pendingPlayRow = -1;
+    if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate())) {
         delegate->setPressedHeartRow(-1);
         delegate->setPressedActionRow(-1);
+        delegate->setPressedPlayRow(-1);
+    }
+    if (event->button() == Qt::LeftButton && pendingRow >= 0 && !m_batchMode) {
+        const QModelIndex released = indexAt(event->pos());
+        if (released.isValid() && released.row() == pendingRow
+            && released.column() >= 1 && released.column() <= 4) {
+            emit playRequested(pendingRow);
+            event->accept();
+            return;
+        }
     }
     QTableView::mouseReleaseEvent(event);
+}
+
+void SongListView::mouseDoubleClickEvent(QMouseEvent *event)
+{
+    m_pendingPlayRow = -1;
+    if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate()))
+        delegate->setPressedPlayRow(-1);
+    event->accept();
 }
 
 void SongListView::resizeEvent(QResizeEvent *event)

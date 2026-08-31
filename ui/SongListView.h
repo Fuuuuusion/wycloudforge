@@ -62,6 +62,7 @@ protected:
     void mouseMoveEvent(QMouseEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
+    void mouseDoubleClickEvent(QMouseEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
     void leaveEvent(QEvent *event) override;
 
@@ -97,6 +98,7 @@ private:
     QSet<QString> m_downloadingIdentities;
     QSet<qint64> m_favoriteIds;
     int m_contextRow = -1;
+    int m_pendingPlayRow = -1;
     bool m_removable = false;
     bool m_batchMode = false;
     bool m_favoriteStateInitialized = false;
