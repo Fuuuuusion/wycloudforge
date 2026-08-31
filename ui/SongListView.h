@@ -46,6 +46,7 @@ public:
     void setDownloadActionMode(DownloadActionMode mode);
     QList<core::Song> selectedSongs() const;
     bool batchMode() const { return m_batchMode; }
+    int hoveredRow() const;
 
 signals:
     void playRequested(int row);
@@ -68,6 +69,7 @@ protected:
     void mouseReleaseEvent(QMouseEvent *event) override;
     void mouseDoubleClickEvent(QMouseEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
+    bool viewportEvent(QEvent *event) override;
     void leaveEvent(QEvent *event) override;
     void showEvent(QShowEvent *event) override;
     void hideEvent(QHideEvent *event) override;
@@ -78,6 +80,9 @@ private:
     void updateBatchLayout();
     void rebuildBatchPlaylistMenu();
     void toggleRowSelection(int row);
+    void resetPointerState();
+    void updateSafeAreaRows();
+    bool pointHitsSongContent(const QModelIndex &index, const QPoint &point) const;
     SongListModel *m_model = nullptr;
     QMenu *m_menu = nullptr;
     QWidget *m_batchBar = nullptr;

@@ -31,6 +31,8 @@ private slots:
     void playerBarDownloadStateKeepsSignalsSeparate();
     void playerBarDirectionalControlsKeepGeometryAndSignals();
     void rowHoverKeepsBackgroundClear();
+    void rowHoverClearsWhenPointerLeavesViewport();
+    void songListProvidesScrollableTopAndBottomSafeAreas();
     void sourceSwitchIsVisibleAndExclusive();
     void accountActionIsExplicitAndPreservesSignal();
     void singleClickPlaysContentOnly();
@@ -403,6 +405,62 @@ void SongListViewTest::rowHoverKeepsBackgroundClear()
     QTest::qWait(240);
     const QColor hoverColor = view.viewport()->grab().toImage().pixelColor(samplePoint);
     QCOMPARE(hoverColor, idleColor);
+}
+
+void SongListViewTest::rowHoverClearsWhenPointerLeavesViewport()
+{
+    Song song;
+    song.id = 902;
+    song.filePath = QStringLiteral("C:/music/hover-leave.mp3");
+    song.title = QStringLiteral("Hover leave");
+    song.artist = QStringLiteral("Artist");
+
+    SongListView view;
+    view.resize(1000, 240);
+    view.setSongs({ song });
+    view.show();
+    QApplication::processEvents();
+
+    const QRect titleRect = view.visualRect(view.model()->index(0, 1));
+    const QPoint localPos = titleRect.center();
+    QMouseEvent move(QEvent::MouseMove, localPos,
+                     view.viewport()->mapToGlobal(localPos),
+                     Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+    QApplication::sendEvent(view.viewport(), &move);
+    QApplication::processEvents();
+    QCOMPARE(view.hoveredRow(), 0);
+
+    QEvent leave(QEvent::Leave);
+    QApplication::sendEvent(view.viewport(), &leave);
+    QApplication::processEvents();
+    QCOMPARE(view.hoveredRow(), -1);
+}
+
+void SongListViewTest::songListProvidesScrollableTopAndBottomSafeAreas()
+{
+    QList<Song> songs;
+    for (int i = 0; i < 3; ++i) {
+        Song song;
+        song.id = 910 + i;
+        song.filePath = QStringLiteral("C:/music/safe-%1.mp3").arg(i);
+        song.title = QStringLiteral("Safe %1").arg(i);
+        songs.append(song);
+    }
+
+    SongListView view;
+    view.resize(1000, 420);
+    view.setSongs(songs);
+    view.show();
+    QApplication::processEvents();
+
+    const QRect first = view.visualRect(view.model()->index(0, 0));
+    const QRect middle = view.visualRect(view.model()->index(1, 0));
+    const QRect last = view.visualRect(view.model()->index(2, 0));
+    QCOMPARE(middle.height(), 64);
+    QCOMPARE(first.height() - middle.height(), 42);
+    QCOMPARE(last.height() - middle.height(), 94);
+    QCOMPARE(first.width(), middle.width());
+    QCOMPARE(last.width(), middle.width());
 }
 
 void SongListViewTest::sourceSwitchIsVisibleAndExclusive()
