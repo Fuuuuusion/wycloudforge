@@ -21,7 +21,7 @@ signals:
 
 private:
     QLabel *m_avatar = nullptr;
-    QLabel *m_name = nullptr;
+    QPushButton *m_accountButton = nullptr;
 };
 
 } // namespace ui

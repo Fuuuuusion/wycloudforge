@@ -3,6 +3,7 @@
 #include "ui/PlayerBar.h"
 #include "ui/CoverCard.h"
 #include "ui/RecommendPage.h"
+#include "ui/AccountPanel.h"
 
 #include <QAbstractItemModel>
 #include <QApplication>
@@ -30,6 +31,7 @@ private slots:
     void playerBarDirectionalControlsKeepGeometryAndSignals();
     void rowHoverKeepsBackgroundClear();
     void sourceSwitchIsVisibleAndExclusive();
+    void accountActionIsExplicitAndPreservesSignal();
     void singleClickPlaysContentOnly();
     void playbackActivityTracksRealState();
     void fullCoverPlaylistCardKeepsVisibleGeometry();
@@ -426,6 +428,24 @@ void SongListViewTest::sourceSwitchIsVisibleAndExclusive()
     QCOMPARE(activationSpy.takeFirst().at(0).toInt(), int(SourceId::QqMusic));
     QVERIFY(!netease->isChecked());
     QVERIFY(qq->isChecked());
+}
+
+void SongListViewTest::accountActionIsExplicitAndPreservesSignal()
+{
+    AccountPanel panel;
+    panel.resize(200, 52);
+    panel.show();
+    QApplication::processEvents();
+
+    auto *button = panel.findChild<QPushButton *>(QStringLiteral("accountActionButton"));
+    QVERIFY(button);
+    QVERIFY(button->isVisible());
+    QVERIFY(button->text() == QStringLiteral("登录")
+            || button->text().startsWith(QStringLiteral("查看账号 · ")));
+
+    QSignalSpy accountSpy(&panel, &AccountPanel::accountClicked);
+    button->click();
+    QCOMPARE(accountSpy.count(), 1);
 }
 
 void SongListViewTest::singleClickPlaysContentOnly()

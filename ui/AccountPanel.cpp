@@ -6,7 +6,6 @@
 #include <QEnterEvent>
 #include <QHBoxLayout>
 #include <QLabel>
-#include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPixmap>
@@ -105,22 +104,6 @@ private:
     qreal m_progress = 0.0;
 };
 
-class ClickableLabel : public QLabel
-{
-    Q_OBJECT
-public:
-    using QLabel::QLabel;
-signals:
-    void clicked();
-protected:
-    void mouseReleaseEvent(QMouseEvent *event) override
-    {
-        if (event->button() == Qt::LeftButton)
-            emit clicked();
-        QLabel::mouseReleaseEvent(event);
-    }
-};
-
 QPixmap roundAvatar(const QPixmap &src, int size)
 {
     QPixmap out(size, size);
@@ -156,12 +139,17 @@ AccountPanel::AccountPanel(QWidget *parent)
 {
     setObjectName("accountPanel");
 
-    m_avatar = new ClickableLabel(this);
+    m_avatar = new QLabel(this);
     m_avatar->setFixedSize(36, 36);
-    m_avatar->setCursor(Qt::PointingHandCursor);
+    m_avatar->setAttribute(Qt::WA_TransparentForMouseEvents);
 
-    m_name = new QLabel(QStringLiteral("未登录"), this);
-    m_name->setProperty("class", "accountName");
+    m_accountButton = new QPushButton(QStringLiteral("登录"), this);
+    m_accountButton->setObjectName(QStringLiteral("accountActionButton"));
+    m_accountButton->setProperty("class", "accountAction");
+    m_accountButton->setCursor(Qt::PointingHandCursor);
+    m_accountButton->setAccessibleName(QStringLiteral("登录"));
+    m_accountButton->setToolTip(QStringLiteral("登录网易云或 QQ音乐"));
+    m_accountButton->setMinimumWidth(0);
 
     auto *settingsBtn = new SettingsButton(this);
 
@@ -169,10 +157,10 @@ AccountPanel::AccountPanel(QWidget *parent)
     layout->setContentsMargins(12, 8, 10, 8);
     layout->setSpacing(8);
     layout->addWidget(m_avatar);
-    layout->addWidget(m_name, 1);
+    layout->addWidget(m_accountButton, 1);
     layout->addWidget(settingsBtn);
 
-    connect(qobject_cast<ClickableLabel *>(m_avatar), &ClickableLabel::clicked, this, &AccountPanel::accountClicked);
+    connect(m_accountButton, &QPushButton::clicked, this, &AccountPanel::accountClicked);
     connect(settingsBtn, &QPushButton::clicked, this, &AccountPanel::settingsClicked);
     refresh();
 }
@@ -194,15 +182,20 @@ void AccountPanel::refresh()
 
     if (nickname.isEmpty())
         nickname = QStringLiteral("未登录");
-    m_name->setText(nickname);
+    const bool loggedIn = core::SettingsService::onlineUid() > 0
+        || !core::SettingsService::qqUserId().isEmpty();
+    const QString accountText = loggedIn ? QStringLiteral("查看账号 · %1").arg(nickname)
+                                         : QStringLiteral("登录");
+    m_accountButton->setText(accountText);
+    m_accountButton->setAccessibleName(loggedIn ? QStringLiteral("查看账号")
+                                                : QStringLiteral("登录"));
+    m_accountButton->setToolTip(loggedIn ? QStringLiteral("查看账号")
+                                         : QStringLiteral("登录网易云或 QQ音乐"));
 
     QPixmap pm = !avatarPath.isEmpty() ? QPixmap(avatarPath) : QPixmap();
     if (pm.isNull())
         pm = letterAvatar(nickname.left(1), 36);
     m_avatar->setPixmap(roundAvatar(pm, 36));
-    m_avatar->setToolTip(QStringLiteral("账号中心"));
 }
 
 } // namespace ui
-
-#include "AccountPanel.moc"

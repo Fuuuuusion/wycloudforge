@@ -249,6 +249,23 @@ QLabel[class="accountName"] {
     color: #E8E8E8;
     font-size: 13px;
 }
+QPushButton[class="accountAction"] {
+    border: none;
+    border-radius: 8px;
+    padding: 6px 8px;
+    text-align: left;
+    background: transparent;
+    color: #E8E8E8;
+    font-size: 13px;
+}
+QPushButton[class="accountAction"]:hover {
+    background: #1B1B24;
+    color: #F04A4A;
+}
+QPushButton[class="accountAction"]:pressed {
+    background: #24242E;
+    color: #D63838;
+}
 QLabel[class="accountSub"] {
     color: #6E6E7A;
     font-size: 11px;
