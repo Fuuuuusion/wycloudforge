@@ -78,12 +78,13 @@ void SelfPlaylistsPage::rebuild()
             continue;
         auto *card = new CoverCard(this);
         card->setFixedCardSize(132, 116);
+        card->setFullCoverCard(true);
         QPixmap cover;
         if (!pl.coverPath.isEmpty() && QFileInfo::exists(pl.coverPath))
             cover = QPixmap(pl.coverPath);
         if (cover.isNull())
             cover = CoverProvider::placeholder(pl.name, 116, 6);
-        card->setCover(cover.scaled(116, 116, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation));
+        card->setCover(cover);
         card->setText(pl.name, pl.description);
         connect(card, &CoverCard::clicked, this, [this, id = pl.id] { emit openPlaylistRequested(id); });
         addCard(card);

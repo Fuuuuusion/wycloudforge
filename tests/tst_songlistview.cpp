@@ -1,6 +1,7 @@
 #include "ui/SongListView.h"
 #include "ui/SongListModel.h"
 #include "ui/PlayerBar.h"
+#include "ui/CoverCard.h"
 
 #include <QAbstractItemModel>
 #include <QApplication>
@@ -28,6 +29,7 @@ private slots:
     void playerBarDirectionalControlsKeepGeometryAndSignals();
     void singleClickPlaysContentOnly();
     void playbackActivityTracksRealState();
+    void fullCoverPlaylistCardKeepsVisibleGeometry();
 };
 
 void SongListViewTest::batchEntryAndStableSelection()
@@ -431,6 +433,26 @@ void SongListViewTest::playbackActivityTracksRealState()
     view.setPlaybackActive(false);
     QVERIFY(!view.playbackActive());
     QCOMPARE(playSpy.count(), 0);
+}
+
+void SongListViewTest::fullCoverPlaylistCardKeepsVisibleGeometry()
+{
+    QPixmap cover(220, 160);
+    cover.fill(QColor(QStringLiteral("#345678")));
+
+    CoverCard card;
+    card.setFixedCardSize(132, 116);
+    card.setFullCoverCard(true);
+    card.setCover(cover);
+    card.setText(QStringLiteral("完整封面歌单"));
+    QCOMPARE(card.size(), QSize(132, 168));
+    card.show();
+    QApplication::processEvents();
+
+    QSignalSpy clickSpy(&card, &CoverCard::clicked);
+    QTest::mouseClick(&card, Qt::LeftButton, Qt::NoModifier, QPoint(66, 80));
+    QCOMPARE(clickSpy.count(), 1);
+    QCOMPARE(card.size(), QSize(132, 168));
 }
 
 QTEST_MAIN(SongListViewTest)
