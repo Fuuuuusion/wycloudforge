@@ -548,13 +548,14 @@ public:
             m_hoverRow = row;
             return;
         }
-        const int previous = m_hoverToRow;
-        m_hoverFromRow = previous;
+        const int previousFrom = m_hoverFromRow;
+        const int previousTo = m_hoverToRow;
+        m_hoverFromRow = previousTo;
         m_hoverToRow = row;
         m_hoverRow = row;
         m_rowHoverAnimation.stop();
         m_rowHoverAnimation.start();
-        updateRows({ previous, row });
+        updateRows({ previousFrom, previousTo, row });
     }
 
     void setPointerIndex(int row, int column)
@@ -1310,6 +1311,10 @@ void SongListView::resetPointerState()
         delegate->setPressedActionRow(-1);
         delegate->setPressedPlayRow(-1);
     }
+    // A rapid A -> B -> leave sequence can interrupt the row transition before
+    // its old source row receives the final frame. Repaint the visible viewport
+    // once on pointer reset so no cached red frame survives the transition.
+    viewport()->update();
 }
 
 void SongListView::verifyPointerStillOverViewport()

@@ -11,6 +11,7 @@
 #include <QImage>
 #include <QLabel>
 #include <QPushButton>
+#include <QScreen>
 #include <QTemporaryDir>
 #include <QToolButton>
 #include <QtTest>
@@ -32,6 +33,7 @@ private slots:
     void playerBarDirectionalControlsKeepGeometryAndSignals();
     void rowHoverKeepsBackgroundClear();
     void rowHoverClearsWhenPointerLeavesViewport();
+    void rowHoverRapidTransitionsRepaintInterruptedRow();
     void rowHoverClearsOverBatchBarAndPlayingStaysIndependent();
     void songListProvidesScrollableTopAndBottomSafeAreas();
     void sourceSwitchIsVisibleAndExclusive();
@@ -450,6 +452,84 @@ void SongListViewTest::rowHoverClearsWhenPointerLeavesViewport()
     QApplication::sendEvent(view.viewport(), &leave);
     QApplication::processEvents();
     QCOMPARE(view.hoveredRow(), -1);
+}
+
+void SongListViewTest::rowHoverRapidTransitionsRepaintInterruptedRow()
+{
+    Song first;
+    first.id = 903;
+    first.filePath = QStringLiteral("C:/music/hover-rapid-first.mp3");
+    first.title = QStringLiteral("Rapid hover first");
+    first.artist = QStringLiteral("First artist");
+    first.album = QStringLiteral("First album");
+
+    Song second;
+    second.id = 904;
+    second.filePath = QStringLiteral("C:/music/hover-rapid-second.mp3");
+    second.title = QStringLiteral("Rapid hover second");
+    second.artist = QStringLiteral("Second artist");
+    second.album = QStringLiteral("Second album");
+
+    SongListView view;
+    view.resize(1000, 320);
+    view.setSongs({ first, second });
+    view.show();
+    view.raise();
+    view.activateWindow();
+    QApplication::processEvents();
+
+    const auto rowContentRect = [&view](int row) {
+        QRect result = view.visualRect(view.model()->index(row, 0)).united(
+            view.visualRect(view.model()->index(row, 6)));
+        if (row == 0)
+            result.setTop(result.top() + 42);
+        result.setHeight(64);
+        return result.intersected(view.viewport()->rect());
+    };
+    const auto rowPoint = [&view](int row) {
+        const QRect titleRect = view.visualRect(view.model()->index(row, 1));
+        return row == 0
+            ? QPoint(titleRect.center().x(), titleRect.top() + 42 + 32)
+            : titleRect.center();
+    };
+    const auto captureViewport = [&view] {
+        QScreen *screen = view.screen();
+        const QPoint viewportOffset = view.viewport()->mapTo(&view, QPoint(0, 0));
+        return screen->grabWindow(view.winId(), viewportOffset.x(), viewportOffset.y(),
+                                  view.viewport()->width(), view.viewport()->height());
+    };
+
+    auto *batchBar = view.findChild<QWidget *>(QStringLiteral("batchBar"));
+    QVERIFY(batchBar);
+    QTest::mouseMove(batchBar, batchBar->rect().center(), 1);
+    QTest::qWait(250);
+    const QPixmap idlePixmap = captureViewport();
+
+    QTest::mouseMove(view.viewport(), rowPoint(0), 1);
+    QTest::qWait(50);
+    QTest::mouseMove(view.viewport(), rowPoint(1), 1);
+    QTest::qWait(50);
+    QTest::mouseMove(batchBar, batchBar->rect().center(), 1);
+    QTest::qWait(250);
+
+    QCOMPARE(view.hoveredRow(), -1);
+    const QPixmap finalPixmap = captureViewport();
+    QCOMPARE(finalPixmap.size(), idlePixmap.size());
+    const QImage idle = idlePixmap.toImage();
+    const QImage finalImage = finalPixmap.toImage();
+    const qreal dpr = idlePixmap.devicePixelRatio();
+    const QRect logicalRow = rowContentRect(0);
+    const QRect physicalRow(qRound(logicalRow.x() * dpr), qRound(logicalRow.y() * dpr),
+                            qRound(logicalRow.width() * dpr),
+                            qRound(logicalRow.height() * dpr));
+    int differingPixels = 0;
+    for (int y = physicalRow.top(); y <= physicalRow.bottom(); ++y) {
+        for (int x = physicalRow.left(); x <= physicalRow.right(); ++x) {
+            if (idle.pixel(x, y) != finalImage.pixel(x, y))
+                ++differingPixels;
+        }
+    }
+    QCOMPARE(differingPixels, 0);
 }
 
 void SongListViewTest::rowHoverClearsOverBatchBarAndPlayingStaysIndependent()
