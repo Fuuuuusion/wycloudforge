@@ -701,8 +701,12 @@ PlayerBar::PlayerBar(QWidget *parent)
 
     m_title = new QLabel(QStringLiteral("未在播放"), this);
     m_title->setProperty("class", "nowTitle");
+    m_title->setMinimumWidth(0);
+    m_title->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     m_artist = new QLabel(this);
     m_artist->setProperty("class", "nowSub");
+    m_artist->setMinimumWidth(0);
+    m_artist->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
 
     m_sourceBadge = new QLabel(this);
     m_sourceBadge->setStyleSheet(QStringLiteral(
@@ -717,8 +721,10 @@ PlayerBar::PlayerBar(QWidget *parent)
     titleRow->addWidget(m_sourceBadge);
     titleRow->addStretch(1);
 
-    auto *infoBox = new QWidget(this);
-    auto *infoLayout = new QVBoxLayout(infoBox);
+    m_infoBox = new QWidget(this);
+    m_infoBox->setMinimumWidth(0);
+    m_infoBox->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    auto *infoLayout = new QVBoxLayout(m_infoBox);
     infoLayout->setContentsMargins(0, 0, 0, 0);
     infoLayout->setSpacing(2);
     infoLayout->addLayout(titleRow);
@@ -742,15 +748,16 @@ PlayerBar::PlayerBar(QWidget *parent)
             emit deleteDownloadRequested();
     });
 
-    auto *leftBox = new QWidget(this);
-    leftBox->setMinimumWidth(210);
-    leftBox->setMaximumWidth(270);
-    leftBox->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-    auto *leftLayout = new QHBoxLayout(leftBox);
+    m_leftBox = new QWidget(this);
+    m_leftBox->setObjectName(QStringLiteral("playerLeftBox"));
+    m_leftBox->setMinimumWidth(210);
+    m_leftBox->setMaximumWidth(270);
+    m_leftBox->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+    auto *leftLayout = new QHBoxLayout(m_leftBox);
     leftLayout->setContentsMargins(0, 0, 0, 0);
     leftLayout->setSpacing(10);
     leftLayout->addWidget(m_cover);
-    leftLayout->addWidget(infoBox, 1);
+    leftLayout->addWidget(m_infoBox, 1);
     leftLayout->addWidget(m_heartBtn);
     leftLayout->addWidget(m_downloadBtn);
 
@@ -807,8 +814,11 @@ PlayerBar::PlayerBar(QWidget *parent)
     controls->addWidget(m_playBtn);
     controls->addWidget(m_nextBtn);
 
-    auto *centerBox = new QWidget(this);
-    auto *centerLayout = new QVBoxLayout(centerBox);
+    m_centerBox = new QWidget(this);
+    m_centerBox->setObjectName(QStringLiteral("playerCenterBox"));
+    m_centerBox->setMinimumWidth(150);
+    m_centerBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    auto *centerLayout = new QVBoxLayout(m_centerBox);
     centerLayout->setContentsMargins(0, 0, 0, 0);
     centerLayout->setSpacing(5);
     centerLayout->addLayout(timeRow);
@@ -818,11 +828,12 @@ PlayerBar::PlayerBar(QWidget *parent)
     m_lyricsBtn = makeCtrlButton(QStringLiteral(":/icons/icon-lyrics.svg"), QStringLiteral("歌词"));
     m_queueBtn = makeCtrlButton(QStringLiteral(":/icons/icon-queue.svg"), QStringLiteral("播放列表"));
 
-    auto *rightBox = new QWidget(this);
-    rightBox->setMinimumWidth(222);
-    rightBox->setMaximumWidth(240);
-    rightBox->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-    auto *rightLayout = new QHBoxLayout(rightBox);
+    m_rightBox = new QWidget(this);
+    m_rightBox->setObjectName(QStringLiteral("playerRightBox"));
+    m_rightBox->setMinimumWidth(222);
+    m_rightBox->setMaximumWidth(240);
+    m_rightBox->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+    auto *rightLayout = new QHBoxLayout(m_rightBox);
     rightLayout->setContentsMargins(0, 0, 0, 0);
     rightLayout->setSpacing(6);
     rightLayout->addStretch(1);
@@ -835,9 +846,9 @@ PlayerBar::PlayerBar(QWidget *parent)
     m_rootLayout = new QHBoxLayout(this);
     m_rootLayout->setContentsMargins(44, 0, 44, 0);
     m_rootLayout->setSpacing(16);
-    m_rootLayout->addWidget(leftBox);
-    m_rootLayout->addWidget(centerBox, 1);
-    m_rootLayout->addWidget(rightBox);
+    m_rootLayout->addWidget(m_leftBox);
+    m_rootLayout->addWidget(m_centerBox, 1);
+    m_rootLayout->addWidget(m_rightBox);
 
     connect(m_modeBtn, &QPushButton::clicked, this, &PlayerBar::modeClicked);
     connect(m_prevBtn, &QPushButton::clicked, this, &PlayerBar::prevClicked);
@@ -863,6 +874,7 @@ PlayerBar::PlayerBar(QWidget *parent)
         if (m_durationMs > 0)
             emit seekRequested(qint64(v) * m_durationMs / 1000);
     });
+    updateResponsiveLayout();
 }
 
 void PlayerBar::paintEvent(QPaintEvent *)
@@ -880,10 +892,36 @@ void PlayerBar::resizeEvent(QResizeEvent *event)
     if (!m_rootLayout)
         return;
 
-    // 窄窗口先收紧两侧信息区和外边距，核心播放、收藏与方向按钮不参与压缩。
-    constexpr int fixedContentWidth = 612;
-    const int horizontalMargin = qBound(12, (width() - fixedContentWidth) / 2, 44);
-    m_rootLayout->setContentsMargins(horizontalMargin, 0, horizontalMargin, 0);
+    updateResponsiveLayout();
+}
+
+void PlayerBar::updateResponsiveLayout()
+{
+    if (!m_rootLayout || !m_leftBox || !m_centerBox || !m_rightBox)
+        return;
+
+    const bool compact = width() < 780;
+    const bool narrow = width() < 620;
+
+    // Secondary right-side controls yield first. Core favorite, previous,
+    // play and next controls always retain their complete hit rectangles.
+    m_volume->setVisible(!compact);
+    m_lyricsBtn->setVisible(!compact);
+    m_queueBtn->setVisible(!compact);
+    m_downloadBtn->setVisible(!narrow);
+    m_cover->setVisible(!narrow);
+    m_infoBox->setVisible(width() >= 520);
+
+    m_leftBox->setMinimumWidth(narrow ? 52 : compact ? 190 : 210);
+    m_leftBox->setMaximumWidth(narrow ? 150 : compact ? 220 : 270);
+    m_rightBox->setMinimumWidth(compact ? 66 : 222);
+    m_rightBox->setMaximumWidth(compact ? 66 : 240);
+    m_centerBox->setMinimumWidth(150);
+
+    const int margin = compact ? 12 : qBound(12, (width() - 612) / 2, 44);
+    m_rootLayout->setContentsMargins(margin, 0, margin, 0);
+    m_rootLayout->setSpacing(compact ? 12 : 16);
+    m_rootLayout->invalidate();
 }
 
 void PlayerBar::setSong(const core::Song &song, bool favorite, bool animateDownloadState)

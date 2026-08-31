@@ -51,7 +51,12 @@ private:
     void updateVolumeIcon();
     void updateTimeLabel();
     void updateDownloadButtonState(bool animate);
+    void updateResponsiveLayout();
 
+    QWidget *m_leftBox = nullptr;
+    QWidget *m_infoBox = nullptr;
+    QWidget *m_centerBox = nullptr;
+    QWidget *m_rightBox = nullptr;
     QLabel *m_cover = nullptr;
     QLabel *m_title = nullptr;
     QLabel *m_artist = nullptr;

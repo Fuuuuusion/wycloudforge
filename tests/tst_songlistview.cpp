@@ -369,12 +369,23 @@ void SongListViewTest::playerBarDirectionalControlsKeepGeometryAndSignals()
     bar.setFixedWidth(680);
     bar.show();
     QApplication::processEvents();
-    QVERIFY(previous->geometry().left() >= 0);
-    QVERIFY(previous->geometry().right() < bar.width());
-    QVERIFY(next->geometry().left() >= 0);
-    QVERIFY(next->geometry().right() < bar.width());
-    QVERIFY(favorite->geometry().left() >= 0);
-    QVERIFY(favorite->geometry().right() < bar.width());
+    const auto visibleRectInBar = [&bar](QWidget *widget) {
+        return QRect(widget->mapTo(&bar, QPoint(0, 0)), widget->size());
+    };
+    QVERIFY(previous->isVisibleTo(&bar));
+    QVERIFY(next->isVisibleTo(&bar));
+    QVERIFY(favorite->isVisibleTo(&bar));
+    QVERIFY(bar.rect().contains(visibleRectInBar(previous)));
+    QVERIFY(bar.rect().contains(visibleRectInBar(next)));
+    QVERIFY(bar.rect().contains(visibleRectInBar(favorite)));
+
+    auto *leftBox = bar.findChild<QWidget *>(QStringLiteral("playerLeftBox"));
+    auto *centerBox = bar.findChild<QWidget *>(QStringLiteral("playerCenterBox"));
+    QVERIFY(leftBox);
+    QVERIFY(centerBox);
+    QVERIFY(leftBox->rect().contains(QRect(favorite->mapTo(leftBox, QPoint(0, 0)), favorite->size())));
+    QVERIFY(centerBox->rect().contains(QRect(previous->mapTo(centerBox, QPoint(0, 0)), previous->size())));
+    QVERIFY(centerBox->rect().contains(QRect(next->mapTo(centerBox, QPoint(0, 0)), next->size())));
     QCOMPARE(previous->size(), QSize(30, 30));
     QCOMPARE(next->size(), QSize(30, 30));
 
@@ -455,14 +466,18 @@ void SongListViewTest::rowHoverClearsOverBatchBarAndPlayingStaysIndependent()
     QApplication::processEvents();
 
     const QRect titleRect = view.visualRect(view.model()->index(0, 1));
-    QTest::mouseMove(view.viewport(), titleRect.center());
+    const QPoint localPos = titleRect.center();
+    QMouseEvent move(QEvent::MouseMove, localPos, view.viewport()->mapToGlobal(localPos),
+                     Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+    QApplication::sendEvent(view.viewport(), &move);
     QApplication::processEvents();
     QCOMPARE(view.hoveredRow(), 0);
 
     auto *batchBar = view.findChild<QWidget *>(QStringLiteral("batchBar"));
     QVERIFY(batchBar);
-    QTest::mouseMove(batchBar, batchBar->rect().center());
-    QTest::qWait(120);
+    QEvent enter(QEvent::Enter);
+    QApplication::sendEvent(batchBar, &enter);
+    QApplication::processEvents();
     QCOMPARE(view.hoveredRow(), -1);
     QVERIFY(view.model()->index(0, 0).data(SongListModel::IsPlayingRole).toBool());
 }
