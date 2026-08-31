@@ -3,8 +3,10 @@
 
 #include <QAbstractItemModel>
 #include <QApplication>
+#include <QFile>
 #include <QLabel>
 #include <QPushButton>
+#include <QTemporaryDir>
 #include <QToolButton>
 #include <QtTest>
 
@@ -18,6 +20,7 @@ private slots:
     void batchEntryAndStableSelection();
     void rowUpdatePreservesModelAndBatchSelection();
     void favoriteActionKeepsPlaySignalSeparate();
+    void singleDeleteActionKeepsPlaySignalSeparate();
 };
 
 void SongListViewTest::batchEntryAndStableSelection()
@@ -162,6 +165,41 @@ void SongListViewTest::favoriteActionKeepsPlaySignalSeparate()
 
     QCOMPARE(heartSpy.count(), 1);
     QCOMPARE(heartSpy.takeFirst().at(0).toInt(), 0);
+    QCOMPARE(playSpy.count(), 0);
+}
+
+void SongListViewTest::singleDeleteActionKeepsPlaySignalSeparate()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString downloadPath = dir.filePath(QStringLiteral("downloaded.mp3"));
+    QFile download(downloadPath);
+    QVERIFY(download.open(QIODevice::WriteOnly));
+    QVERIFY(download.write("download") > 0);
+    download.close();
+
+    Song song;
+    song.id = 601;
+    song.source = int(SourceId::Netease);
+    song.remoteId = QStringLiteral("delete-action");
+    song.filePath = QStringLiteral("netease://delete-action");
+    song.downloadPath = downloadPath;
+    song.title = QStringLiteral("Delete action");
+
+    SongListView view;
+    view.resize(1200, 260);
+    view.setSongs({ song });
+    view.setDownloadActionMode(SongListView::DeleteDownloadAction);
+    view.show();
+    QApplication::processEvents();
+
+    QSignalSpy deleteSpy(&view, &SongListView::deleteDownloadRequested);
+    QSignalSpy playSpy(&view, &SongListView::playRequested);
+    const QRect actionRect = view.visualRect(view.model()->index(0, 6));
+    QVERIFY(actionRect.isValid());
+    QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, actionRect.center());
+    QCOMPARE(deleteSpy.count(), 1);
+    QCOMPARE(deleteSpy.takeFirst().at(0).toInt(), 0);
     QCOMPARE(playSpy.count(), 0);
 }
 
