@@ -6,9 +6,11 @@
 #include "ui/SearchPage.h"
 
 #include <QDir>
+#include <QListWidget>
 #include <QSettings>
 #include <QStackedWidget>
 #include <QTemporaryDir>
+#include <QToolTip>
 #include <QUuid>
 #include <QtTest>
 
@@ -306,6 +308,21 @@ void SearchPageTest::providesHistoryDiscoverySuggestionsAndKeyboardSelection()
     page.moveSearchAssistantSelection(1);
     QCOMPARE(page.resolvedSearchText(QStringLiteral("后备词")),
              page.assistantQueries().constFirst());
+
+    auto *assistant = page.findChild<QListWidget *>(QStringLiteral("searchAssistantList"));
+    QVERIFY(assistant);
+    QCOMPARE(assistant->selectionMode(), QAbstractItemView::NoSelection);
+    QVERIFY(assistant->currentRow() >= 0);
+    QVERIFY(assistant->selectedItems().isEmpty());
+    QVERIFY(!assistant->currentItem()->toolTip().isEmpty());
+
+    page.show();
+    QApplication::processEvents();
+    QToolTip::showText(page.mapToGlobal(QPoint(20, 20)), QStringLiteral("搜索提示"), &page);
+    QTRY_VERIFY(QToolTip::isVisible());
+    page.hide();
+    QTRY_VERIFY(!QToolTip::isVisible());
+    QCOMPARE(assistant->currentRow(), -1);
 }
 
 void SearchPageTest::fallsBackToCacheWithoutClearingHealthySource()

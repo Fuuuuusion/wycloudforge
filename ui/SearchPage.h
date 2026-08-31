@@ -19,6 +19,7 @@ class QTimer;
 class QTreeWidget;
 class QVBoxLayout;
 class QFileInfo;
+class QHideEvent;
 
 namespace ui {
 
@@ -78,6 +79,9 @@ signals:
     void addToPlaylistRequested(int row, int playlistId);
     void removeFromPlaylistRequested(int row);
     void deleteFromLibraryRequested(int row);
+
+protected:
+    void hideEvent(QHideEvent *event) override;
 
 private:
     void beginSearch(const QString &query, bool recordHistory);

@@ -12,6 +12,7 @@
 #include <QFileInfo>
 #include <QFrame>
 #include <QHBoxLayout>
+#include <QHideEvent>
 #include <QLabel>
 #include <QListWidget>
 #include <QPointer>
@@ -20,6 +21,7 @@
 #include <QSignalBlocker>
 #include <QStackedWidget>
 #include <QTimer>
+#include <QToolTip>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QUrl>
@@ -34,6 +36,7 @@ namespace {
 QPushButton *makeResultRow(const QString &text, const QString &sub, QWidget *parent)
 {
     auto *btn = new QPushButton(parent);
+    btn->setObjectName(QStringLiteral("searchResultRow"));
     btn->setCursor(Qt::PointingHandCursor);
     btn->setStyleSheet(QStringLiteral(
         "QPushButton{background:#1B1B24;border:none;border-radius:6px;"
@@ -267,7 +270,16 @@ SearchPage::SearchPage(QWidget *parent)
     assistantTopLayout->addStretch(1);
     assistantTopLayout->addWidget(m_clearHistory);
     m_assistantList = new QListWidget(assistantPage);
+    m_assistantList->setObjectName(QStringLiteral("searchAssistantList"));
     m_assistantList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_assistantList->setSelectionMode(QAbstractItemView::NoSelection);
+    m_assistantList->setFocusPolicy(Qt::NoFocus);
+    m_assistantList->setMouseTracking(true);
+    m_assistantList->setStyleSheet(QStringLiteral(
+        "QListWidget#searchAssistantList{background:#16161E;border:none;border-radius:6px;}"
+        "QListWidget#searchAssistantList::item{padding:8px;border-radius:4px;color:#E8E8E8;}"
+        "QListWidget#searchAssistantList::item:hover{background:#24242E;color:#F04A4A;}"
+        "QListWidget#searchAssistantList::item:selected{background:transparent;color:#E8E8E8;}"));
     assistantLayout->addWidget(assistantTop);
     assistantLayout->addWidget(m_assistantList, 1);
     m_stack->addWidget(assistantPage);
@@ -371,6 +383,21 @@ SearchPage::SearchPage(QWidget *parent)
 SearchPage::~SearchPage()
 {
     delete m_searchCache;
+}
+
+void SearchPage::hideEvent(QHideEvent *event)
+{
+    QToolTip::hideText();
+    if (m_assistantList) {
+        m_assistantList->clearSelection();
+        m_assistantList->setCurrentRow(-1);
+        m_assistantList->viewport()->update();
+    }
+    if (m_suggestionTimer)
+        m_suggestionTimer->stop();
+    ++m_assistantGeneration;
+    m_searchAssistantVisible = false;
+    QWidget::hideEvent(event);
 }
 
 void SearchPage::setSourceProvider(core::MusicSource *source, core::LibraryService *library)
@@ -605,6 +632,7 @@ void SearchPage::renderAssistant()
             return;
         auto *item = new QListWidgetItem(label, m_assistantList);
         item->setData(Qt::UserRole, text);
+        item->setToolTip(label);
         seen.insert(key);
     };
 
@@ -662,7 +690,8 @@ void SearchPage::renderLocalGroups()
     for (const auto &a : artists) {
         if (!a.name.contains(m_query, Qt::CaseInsensitive))
             continue;
-        auto *row = makeResultRow(a.name, QStringLiteral("%1 首").arg(a.count), this);
+        auto *row = makeResultRow(a.name, QStringLiteral("%1 首").arg(a.count),
+                                  m_artistLayout->parentWidget());
         connect(row, &QPushButton::clicked, this, [this, name = a.name] {
             emit artistClicked(name);
         });
@@ -679,7 +708,8 @@ void SearchPage::renderLocalGroups()
         if (!a.name.contains(m_query, Qt::CaseInsensitive)
             && !a.artist.contains(m_query, Qt::CaseInsensitive))
             continue;
-        auto *row = makeResultRow(a.name, a.artist + QStringLiteral(" · %1 首").arg(a.count), this);
+        auto *row = makeResultRow(a.name, a.artist + QStringLiteral(" · %1 首").arg(a.count),
+                                  m_albumLayout->parentWidget());
         connect(row, &QPushButton::clicked, this, [this, name = a.name, artist = a.artist] {
             emit albumClicked(name, artist);
         });
@@ -1181,7 +1211,7 @@ void SearchPage::renderGenericResults()
         emit onlineResultActivated(int(item.source), int(item.type), item.remoteId, item.title);
     };
     auto addSection = [this](const QString &title) {
-        auto *label = new QLabel(title, this);
+        auto *label = new QLabel(title, m_genericLayout->parentWidget());
         label->setStyleSheet(QStringLiteral("color:#E8E8E8;font-size:14px;font-weight:600;"));
         m_genericLayout->addWidget(label);
     };
@@ -1196,7 +1226,7 @@ void SearchPage::renderGenericResults()
                                       .arg(source, itemTypeLabel(item.type),
                                            extra.isEmpty() ? QString()
                                                : QStringLiteral(" · %1").arg(extra)),
-                                  this);
+                                  m_genericLayout->parentWidget());
         if (!subtitle.isEmpty())
             row->setToolTip(subtitle);
         connect(row, &QPushButton::clicked, this, [activate, item] { activate(item); });
@@ -1233,7 +1263,8 @@ void SearchPage::renderGenericResults()
         }
     }
     if (rendered == 0 && m_genericSongs.isEmpty()) {
-        auto *empty = new QLabel(QStringLiteral("当前范围和分类暂无结果"), this);
+        auto *empty = new QLabel(QStringLiteral("当前范围和分类暂无结果"),
+                                 m_genericLayout->parentWidget());
         empty->setStyleSheet(QStringLiteral("color:#6E6E7A;"));
         m_genericLayout->addWidget(empty);
     }
