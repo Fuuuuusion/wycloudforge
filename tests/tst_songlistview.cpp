@@ -2,6 +2,7 @@
 #include "ui/SongListModel.h"
 #include "ui/PlayerBar.h"
 #include "ui/CoverCard.h"
+#include "ui/RecommendPage.h"
 
 #include <QAbstractItemModel>
 #include <QApplication>
@@ -28,6 +29,7 @@ private slots:
     void playerBarDownloadStateKeepsSignalsSeparate();
     void playerBarDirectionalControlsKeepGeometryAndSignals();
     void rowHoverKeepsBackgroundClear();
+    void sourceSwitchIsVisibleAndExclusive();
     void singleClickPlaysContentOnly();
     void playbackActivityTracksRealState();
     void fullCoverPlaylistCardKeepsVisibleGeometry();
@@ -398,6 +400,32 @@ void SongListViewTest::rowHoverKeepsBackgroundClear()
     QTest::qWait(240);
     const QColor hoverColor = view.viewport()->grab().toImage().pixelColor(samplePoint);
     QCOMPARE(hoverColor, idleColor);
+}
+
+void SongListViewTest::sourceSwitchIsVisibleAndExclusive()
+{
+    RecommendPage page;
+    page.resize(1000, 700);
+    page.show();
+    QApplication::processEvents();
+
+    auto *netease = page.findChild<QPushButton *>(QStringLiteral("neteaseSourceSwitch"));
+    auto *qq = page.findChild<QPushButton *>(QStringLiteral("qqSourceSwitch"));
+    QVERIFY(netease);
+    QVERIFY(qq);
+    QVERIFY(netease->isVisible());
+    QVERIFY(qq->isVisible());
+    QCOMPARE(netease->size(), QSize(76, 30));
+    QCOMPARE(qq->size(), QSize(76, 30));
+    QVERIFY(netease->isChecked());
+    QVERIFY(!qq->isChecked());
+
+    QSignalSpy activationSpy(&page, &RecommendPage::sourceActivationRequested);
+    qq->click();
+    QCOMPARE(activationSpy.count(), 1);
+    QCOMPARE(activationSpy.takeFirst().at(0).toInt(), int(SourceId::QqMusic));
+    QVERIFY(!netease->isChecked());
+    QVERIFY(qq->isChecked());
 }
 
 void SongListViewTest::singleClickPlaysContentOnly()

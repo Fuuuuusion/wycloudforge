@@ -36,17 +36,27 @@ RecommendPage::RecommendPage(QWidget *parent)
     title->setProperty("class", "pageTitle");
     titleRow->addWidget(title);
     titleRow->addStretch(1);
-    auto *neteaseButton = new QPushButton(QStringLiteral("网易云"), this);
-    auto *qqButton = new QPushButton(QStringLiteral("QQ音乐"), this);
-    neteaseButton->setCheckable(true);
-    qqButton->setCheckable(true);
-    neteaseButton->setChecked(true);
+    m_neteaseButton = new QPushButton(QStringLiteral("网易云"), this);
+    m_qqButton = new QPushButton(QStringLiteral("QQ音乐"), this);
+    const auto configureSourceButton = [](QPushButton *button, const QString &objectName) {
+        button->setObjectName(objectName);
+        button->setProperty("class", "sourceSwitch");
+        button->setCheckable(true);
+        button->setFixedSize(76, 30);
+        button->setCursor(Qt::PointingHandCursor);
+        button->setAccessibleName(button->text());
+        button->setToolTip(QStringLiteral("切换到%1推荐").arg(button->text()));
+    };
+    configureSourceButton(m_neteaseButton, QStringLiteral("neteaseSourceSwitch"));
+    configureSourceButton(m_qqButton, QStringLiteral("qqSourceSwitch"));
+    m_neteaseButton->setChecked(true);
     auto *sourceGroup = new QButtonGroup(this);
     sourceGroup->setExclusive(true);
-    sourceGroup->addButton(neteaseButton, int(core::SourceId::Netease));
-    sourceGroup->addButton(qqButton, int(core::SourceId::QqMusic));
-    titleRow->addWidget(neteaseButton);
-    titleRow->addWidget(qqButton);
+    sourceGroup->addButton(m_neteaseButton, int(core::SourceId::Netease));
+    sourceGroup->addButton(m_qqButton, int(core::SourceId::QqMusic));
+    titleRow->setSpacing(6);
+    titleRow->addWidget(m_neteaseButton);
+    titleRow->addWidget(m_qqButton);
     layout->addLayout(titleRow);
     connect(sourceGroup, &QButtonGroup::idClicked, this, [this](int sourceId) {
         // QQ 服务是按需启动的；由主窗口确认独立服务可用后再切换，避免
@@ -102,6 +112,10 @@ void RecommendPage::setActiveSource(core::SourceId sourceId)
     if (m_registry) {
         if (core::MusicSource *source = m_registry->source(sourceId))
             m_source = source;
+    }
+    if (m_neteaseButton && m_qqButton) {
+        m_neteaseButton->setChecked(sourceId == core::SourceId::Netease);
+        m_qqButton->setChecked(sourceId == core::SourceId::QqMusic);
     }
     refresh();
 }

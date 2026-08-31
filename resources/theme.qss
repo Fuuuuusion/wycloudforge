@@ -141,6 +141,27 @@ QLabel[class="timeLabel"] {
     color: #6E6E7A;
     font-size: 12px;
 }
+QPushButton[class="sourceSwitch"] {
+    border: none;
+    border-radius: 8px;
+    padding: 0 12px;
+    background: #1B1B24;
+    color: #9A9AA5;
+    font-weight: 500;
+}
+QPushButton[class="sourceSwitch"]:hover {
+    background: #24242E;
+    color: #F04A4A;
+}
+QPushButton[class="sourceSwitch"]:checked {
+    background: #EC4141;
+    color: #FFFFFF;
+    font-weight: 600;
+}
+QPushButton[class="sourceSwitch"]:pressed {
+    background: #D63838;
+    color: #FFFFFF;
+}
 
 /* ---------- 底部播放器 ---------- */
 QWidget#playerBar {

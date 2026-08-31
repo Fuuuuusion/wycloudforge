@@ -6,6 +6,7 @@
 
 class QHBoxLayout;
 class QLabel;
+class QPushButton;
 
 namespace core {
 class MusicSource;
@@ -51,6 +52,8 @@ private:
     core::LibraryService *m_lib = nullptr;
     QLabel *m_emptyLabel = nullptr;
     QHBoxLayout *m_playlistRow = nullptr;
+    QPushButton *m_neteaseButton = nullptr;
+    QPushButton *m_qqButton = nullptr;
     SongListView *m_list = nullptr;
     int m_requestGeneration = 0;
 };
