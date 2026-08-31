@@ -8,6 +8,7 @@
 
 #include <QAction>
 #include <QContextMenuEvent>
+#include <QFocusEvent>
 #include <QHeaderView>
 #include <QIcon>
 #include <QHBoxLayout>
@@ -60,6 +61,118 @@ QPixmap tintedIcon(const QString &path, int size, const QColor &color)
     painter.fillRect(result.rect(), color);
     return result;
 }
+
+class BatchDeleteButton final : public QPushButton
+{
+public:
+    explicit BatchDeleteButton(QWidget *parent = nullptr)
+        : QPushButton(parent)
+    {
+        setFixedSize(108, 30);
+        setCursor(Qt::PointingHandCursor);
+        setAccessibleName(QStringLiteral("按来源删除"));
+        m_hoverAnimation.setDuration(200);
+        connect(&m_hoverAnimation, &QVariantAnimation::valueChanged, this, [this] { update(); });
+    }
+
+protected:
+    void enterEvent(QEnterEvent *event) override
+    {
+        animateHoverTo(1.0);
+        QPushButton::enterEvent(event);
+    }
+
+    void leaveEvent(QEvent *event) override
+    {
+        animateHoverTo(0.0);
+        QPushButton::leaveEvent(event);
+    }
+
+    void focusInEvent(QFocusEvent *event) override
+    {
+        m_showFocusRing = event->reason() == Qt::TabFocusReason
+                          || event->reason() == Qt::BacktabFocusReason
+                          || event->reason() == Qt::ShortcutFocusReason;
+        QPushButton::focusInEvent(event);
+        update();
+    }
+
+    void focusOutEvent(QFocusEvent *event) override
+    {
+        m_showFocusRing = false;
+        QPushButton::focusOutEvent(event);
+        update();
+    }
+
+    void mousePressEvent(QMouseEvent *event) override
+    {
+        QPushButton::mousePressEvent(event);
+        update();
+    }
+
+    void mouseReleaseEvent(QMouseEvent *event) override
+    {
+        QPushButton::mouseReleaseEvent(event);
+        update();
+    }
+
+    void paintEvent(QPaintEvent *) override
+    {
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        const qreal hover = hoverProgress();
+
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(QStringLiteral("#1B1B24")));
+        painter.drawRoundedRect(QRectF(rect()), 15, 15);
+
+        const qreal panelWidth = 28.0 + 15.0 * hover;
+        const QRectF iconPanel(width() - panelWidth, 0, panelWidth, height());
+        painter.setBrush(!isEnabled() ? QColor(QStringLiteral("#20202A"))
+                         : isDown() ? kPrimaryActive
+                         : blendedColor(QColor(QStringLiteral("#2A2A36")), kPrimaryHover, hover));
+        painter.drawRoundedRect(iconPanel, 15, 15);
+
+        painter.setFont(QFont(QStringLiteral("Microsoft YaHei UI"), 8));
+        painter.setPen(!isEnabled() ? kText3 : QColor(QStringLiteral("#C8C8D0")));
+        const int textShift = qRound(2.0 * hover);
+        painter.drawText(QRectF(8 - textShift, 0, width() - panelWidth - 6, height()),
+                         Qt::AlignCenter, text());
+
+        const QColor iconColor = !isEnabled() ? kText3
+                                 : hover > 0.05 || isDown() ? Qt::white : kText2;
+        const QPixmap icon = tintedIcon(QStringLiteral(":/icons/icon-trash.svg"), 15, iconColor);
+        const QPointF iconCenter = iconPanel.center() + QPointF(0, 2.0 * hover);
+        painter.drawPixmap(QRectF(iconCenter.x() - 7.5, iconCenter.y() - 7.5, 15, 15).toRect(),
+                           icon);
+
+        if (hasFocus() && m_showFocusRing) {
+            painter.setPen(QPen(kText3, 1.2));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawRoundedRect(QRectF(rect()).adjusted(2, 2, -2, -2), 13, 13);
+        }
+    }
+
+private:
+    void animateHoverTo(qreal target)
+    {
+        const qreal current = hoverProgress();
+        m_hoverAnimation.stop();
+        m_hoverAnimation.setStartValue(current);
+        m_hoverAnimation.setEndValue(target);
+        m_hoverAnimation.start();
+    }
+
+    qreal hoverProgress() const
+    {
+        return m_hoverAnimation.state() == QAbstractAnimation::Running
+            ? m_hoverAnimation.currentValue().toReal()
+            : (underMouse() ? 1.0 : 0.0);
+    }
+
+    QVariantAnimation m_hoverAnimation;
+    bool m_showFocusRing = false;
+};
 
 QString formatDuration(qint64 ms)
 {
@@ -525,7 +638,8 @@ SongListView::SongListView(QWidget *parent)
     m_addSelected->setObjectName(QStringLiteral("batchAddToPlaylist"));
     m_downloadSelected = makeBarButton(QStringLiteral("批量下载"));
     m_downloadSelected->setObjectName(QStringLiteral("batchDownload"));
-    m_deleteSelected = makeBarButton(QStringLiteral("按来源删除"));
+    m_deleteSelected = new BatchDeleteButton(m_batchBar);
+    m_deleteSelected->setText(QStringLiteral("按来源删除"));
     m_deleteSelected->setObjectName(QStringLiteral("batchDelete"));
     m_exitBatch = makeBarButton(QStringLiteral("完成"));
     m_exitBatch->setObjectName(QStringLiteral("batchDone"));
@@ -698,6 +812,7 @@ void SongListView::setDownloadActionMode(DownloadActionMode mode)
         delegate->setDownloadMode(mode);
     m_deleteSelected->setText(mode == DeleteDownloadAction ? QStringLiteral("批量删除下载")
                                                             : QStringLiteral("按来源删除"));
+    m_deleteSelected->setAccessibleName(m_deleteSelected->text());
     m_moreDelete->setText(m_deleteSelected->text());
     updateBatchButtons();
     viewport()->update();

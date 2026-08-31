@@ -21,6 +21,7 @@ private slots:
     void rowUpdatePreservesModelAndBatchSelection();
     void favoriteActionKeepsPlaySignalSeparate();
     void singleDeleteActionKeepsPlaySignalSeparate();
+    void batchDeleteButtonKeepsTextAndSignal();
 };
 
 void SongListViewTest::batchEntryAndStableSelection()
@@ -201,6 +202,38 @@ void SongListViewTest::singleDeleteActionKeepsPlaySignalSeparate()
     QCOMPARE(deleteSpy.count(), 1);
     QCOMPARE(deleteSpy.takeFirst().at(0).toInt(), 0);
     QCOMPARE(playSpy.count(), 0);
+}
+
+void SongListViewTest::batchDeleteButtonKeepsTextAndSignal()
+{
+    Song song;
+    song.id = 701;
+    song.filePath = QStringLiteral("C:/music/batch-delete.mp3");
+    song.title = QStringLiteral("Batch delete");
+
+    SongListView view;
+    view.resize(1200, 260);
+    view.setSongs({ song });
+    view.show();
+    QApplication::processEvents();
+
+    view.findChild<QPushButton *>(QStringLiteral("batchToggle"))->click();
+    QApplication::processEvents();
+    const QRect selectionRect = view.visualRect(view.model()->index(0, 0));
+    QVERIFY(selectionRect.isValid());
+    QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, selectionRect.center());
+
+    auto *batchDelete = view.findChild<QPushButton *>(QStringLiteral("batchDelete"));
+    QVERIFY(batchDelete);
+    QCOMPARE(batchDelete->size(), QSize(108, 30));
+    QCOMPARE(batchDelete->text(), QStringLiteral("按来源删除"));
+    QCOMPARE(batchDelete->accessibleName(), QStringLiteral("按来源删除"));
+
+    QSignalSpy batchDeleteSpy(&view, &SongListView::batchDeleteRequested);
+    batchDelete->click();
+    QCOMPARE(batchDeleteSpy.count(), 1);
+    const QList<QVariant> arguments = batchDeleteSpy.takeFirst();
+    QCOMPARE(qvariant_cast<QList<Song>>(arguments.at(0)).size(), 1);
 }
 
 QTEST_MAIN(SongListViewTest)
