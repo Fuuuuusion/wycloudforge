@@ -9,6 +9,7 @@
 #include <QLabel>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QSvgRenderer>
@@ -692,6 +693,7 @@ PlayerBar::PlayerBar(QWidget *parent)
 {
     setObjectName("playerBar");
     setFixedSize(860, 80);
+    setAttribute(Qt::WA_TranslucentBackground);
 
     m_cover = new QLabel(this);
     m_cover->setFixedSize(60, 60);
@@ -704,8 +706,8 @@ PlayerBar::PlayerBar(QWidget *parent)
 
     m_sourceBadge = new QLabel(this);
     m_sourceBadge->setStyleSheet(QStringLiteral(
-        "QLabel{color:#8F8F9C;background:#2A2A36;"
-        "border-radius:8px;padding:1px 7px;font-size:11px;}"));
+        "QLabel{color:#8F8F9C;background:transparent;"
+        "border:none;padding:0;font-size:11px;}"));
     m_sourceBadge->setVisible(false);
 
     auto *titleRow = new QHBoxLayout;
@@ -723,6 +725,7 @@ PlayerBar::PlayerBar(QWidget *parent)
     infoLayout->addWidget(m_artist);
 
     m_heartBtn = new FavoriteButton(this);
+    m_heartBtn->setObjectName(QStringLiteral("favoriteActionButton"));
     connect(m_heartBtn, &QPushButton::clicked, this, [this] {
         m_favorite = !m_favorite;
         static_cast<FavoriteButton *>(m_heartBtn)->setFavorite(m_favorite, true);
@@ -740,7 +743,9 @@ PlayerBar::PlayerBar(QWidget *parent)
     });
 
     auto *leftBox = new QWidget(this);
-    leftBox->setFixedWidth(240);
+    leftBox->setMinimumWidth(210);
+    leftBox->setMaximumWidth(270);
+    leftBox->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
     auto *leftLayout = new QHBoxLayout(leftBox);
     leftLayout->setContentsMargins(0, 0, 0, 0);
     leftLayout->setSpacing(10);
@@ -814,7 +819,9 @@ PlayerBar::PlayerBar(QWidget *parent)
     m_queueBtn = makeCtrlButton(QStringLiteral(":/icons/icon-queue.svg"), QStringLiteral("播放列表"));
 
     auto *rightBox = new QWidget(this);
-    rightBox->setFixedWidth(240);
+    rightBox->setMinimumWidth(222);
+    rightBox->setMaximumWidth(240);
+    rightBox->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
     auto *rightLayout = new QHBoxLayout(rightBox);
     rightLayout->setContentsMargins(0, 0, 0, 0);
     rightLayout->setSpacing(6);
@@ -861,7 +868,10 @@ PlayerBar::PlayerBar(QWidget *parent)
 void PlayerBar::paintEvent(QPaintEvent *)
 {
     QPainter p(this);
-    p.fillRect(rect(), QColor(0x1B, 0x1B, 0x24));
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(0x1B, 0x1B, 0x24));
+    p.drawRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), 16, 16);
 }
 
 void PlayerBar::resizeEvent(QResizeEvent *event)
@@ -870,9 +880,8 @@ void PlayerBar::resizeEvent(QResizeEvent *event)
     if (!m_rootLayout)
         return;
 
-    // 两侧信息区、控件区和 layout spacing 的最小总宽度为 652px。
-    // 窄窗口只收紧外侧留白，控件尺寸、间距和点击区域保持不变。
-    constexpr int fixedContentWidth = 652;
+    // 窄窗口先收紧两侧信息区和外边距，核心播放、收藏与方向按钮不参与压缩。
+    constexpr int fixedContentWidth = 612;
     const int horizontalMargin = qBound(12, (width() - fixedContentWidth) / 2, 44);
     m_rootLayout->setContentsMargins(horizontalMargin, 0, horizontalMargin, 0);
 }
