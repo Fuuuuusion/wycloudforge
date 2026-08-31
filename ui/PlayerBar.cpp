@@ -10,6 +10,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPushButton>
+#include <QResizeEvent>
 #include <QSvgRenderer>
 #include <QTimer>
 #include <QVariantAnimation>
@@ -824,12 +825,12 @@ PlayerBar::PlayerBar(QWidget *parent)
     rightLayout->addWidget(m_lyricsBtn);
     rightLayout->addWidget(m_queueBtn);
 
-    auto *layout = new QHBoxLayout(this);
-    layout->setContentsMargins(44, 0, 44, 0);
-    layout->setSpacing(16);
-    layout->addWidget(leftBox);
-    layout->addWidget(centerBox, 1);
-    layout->addWidget(rightBox);
+    m_rootLayout = new QHBoxLayout(this);
+    m_rootLayout->setContentsMargins(44, 0, 44, 0);
+    m_rootLayout->setSpacing(16);
+    m_rootLayout->addWidget(leftBox);
+    m_rootLayout->addWidget(centerBox, 1);
+    m_rootLayout->addWidget(rightBox);
 
     connect(m_modeBtn, &QPushButton::clicked, this, &PlayerBar::modeClicked);
     connect(m_prevBtn, &QPushButton::clicked, this, &PlayerBar::prevClicked);
@@ -861,6 +862,19 @@ void PlayerBar::paintEvent(QPaintEvent *)
 {
     QPainter p(this);
     p.fillRect(rect(), QColor(0x1B, 0x1B, 0x24));
+}
+
+void PlayerBar::resizeEvent(QResizeEvent *event)
+{
+    QWidget::resizeEvent(event);
+    if (!m_rootLayout)
+        return;
+
+    // 两侧信息区、控件区和 layout spacing 的最小总宽度为 652px。
+    // 窄窗口只收紧外侧留白，控件尺寸、间距和点击区域保持不变。
+    constexpr int fixedContentWidth = 652;
+    const int horizontalMargin = qBound(12, (width() - fixedContentWidth) / 2, 44);
+    m_rootLayout->setContentsMargins(horizontalMargin, 0, horizontalMargin, 0);
 }
 
 void PlayerBar::setSong(const core::Song &song, bool favorite, bool animateDownloadState)

@@ -5,8 +5,10 @@
 #include "core/Song.h"
 
 class QLabel;
+class QHBoxLayout;
 class QPaintEvent;
 class QPushButton;
+class QResizeEvent;
 class ProgressSlider;
 
 namespace ui {
@@ -42,6 +44,7 @@ signals:
 
 protected:
     void paintEvent(QPaintEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
 
 private:
     void updatePlayIcon();
@@ -64,6 +67,7 @@ private:
     QPushButton *m_muteBtn = nullptr;
     QPushButton *m_lyricsBtn = nullptr;
     QPushButton *m_queueBtn = nullptr;
+    QHBoxLayout *m_rootLayout = nullptr;
     ProgressSlider *m_progress = nullptr;
     ProgressSlider *m_volume = nullptr;
 

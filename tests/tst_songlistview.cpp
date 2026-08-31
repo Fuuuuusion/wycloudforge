@@ -355,6 +355,16 @@ void SongListViewTest::playerBarDirectionalControlsKeepGeometryAndSignals()
     QCOMPARE(previous->toolTip(), QStringLiteral("上一首"));
     QCOMPARE(next->toolTip(), QStringLiteral("下一首"));
 
+    bar.setFixedWidth(716);
+    bar.show();
+    QApplication::processEvents();
+    QVERIFY(previous->geometry().left() >= 0);
+    QVERIFY(previous->geometry().right() < bar.width());
+    QVERIFY(next->geometry().left() >= 0);
+    QVERIFY(next->geometry().right() < bar.width());
+    QCOMPARE(previous->size(), QSize(30, 30));
+    QCOMPARE(next->size(), QSize(30, 30));
+
     QSignalSpy previousSpy(&bar, &PlayerBar::prevClicked);
     QSignalSpy nextSpy(&bar, &PlayerBar::nextClicked);
     previous->click();
