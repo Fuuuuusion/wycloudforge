@@ -31,8 +31,8 @@ struct Song
     // onlineId/albumId 仅为旧网易云数据库兼容字段。
     int source = int(SourceId::Local);
     QString remoteId;
-    // 来源用于定位实际音频文件的身份。QQ 的 songmid 与 file.media_mid
-    // 并不总是相同；该字段不参与歌曲查重，只参与媒体地址解析。
+    // 平台返回的媒体文件元数据。它不参与歌曲查重，也不能直接作为当前
+    // QQ SDK 的 mediaId：file.media_mid 可能含 C400 等音质前缀。
     QString mediaRemoteId;
     QString albumRemoteId;
     QString artistRemoteId;

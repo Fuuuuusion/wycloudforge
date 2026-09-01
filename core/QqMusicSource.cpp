@@ -301,24 +301,10 @@ void QqMusicSource::songUrls(const QStringList &ids, JsonArrayFn ok, ErrFn err)
 
 void QqMusicSource::songUrls(const QList<Song> &songs, JsonArrayFn ok, ErrFn err)
 {
-    QJsonArray items;
-    for (const Song &song : songs) {
-        const QString remoteId = song.effectiveRemoteId().trimmed();
-        if (remoteId.isEmpty())
-            continue;
-        QJsonObject item{
-            { QStringLiteral("remoteId"), remoteId },
-            { QStringLiteral("mediaRemoteId"), song.mediaRemoteId.trimmed() }
-        };
-        items.append(item);
-    }
-    post(QStringLiteral("/v1/media"), {
-        { QStringLiteral("items"), items },
-        { QStringLiteral("credential"), m_cookie }
-    }, [ok = std::move(ok)](const QJsonObject &data) {
-        if (ok)
-            ok(data.value(QStringLiteral("addresses")).toArray());
-    }, std::move(err));
+    // file.media_mid is metadata rather than the mediaId contract expected by
+    // the current QQ SDK. Resolve with the stable songmid list, matching the
+    // playback path that is known to work for authenticated VIP accounts.
+    MusicSource::songUrls(songs, std::move(ok), std::move(err));
 }
 
 void QqMusicSource::lyric(const QString &id, String3Fn ok, ErrFn err)

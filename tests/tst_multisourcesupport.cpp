@@ -121,6 +121,7 @@ private slots:
     void autoStartsRealQqWrapperOnColdPort();
     void neteaseCategorizedSearchAndDiscovery();
     void qqCategorizedSearchAndDiscovery();
+    void qqMediaRequestUsesSongMidOnly();
 
 private:
     QTemporaryDir m_settingsDir;
@@ -564,6 +565,57 @@ void MultiSourceSupportTest::qqCategorizedSearchAndDiscovery()
     QCOMPARE(terms.size(), 1);
     QCOMPARE(terms.constFirst().text, QStringLiteral("QQ 热搜"));
     QCOMPARE(terms.constFirst().score, 98765.0);
+}
+
+void MultiSourceSupportTest::qqMediaRequestUsesSongMidOnly()
+{
+    QTcpServer server;
+    QVERIFY(server.listen(QHostAddress::LocalHost, 0));
+    QJsonObject requestBody;
+    serveJson(&server, [&requestBody](const QString &, const QUrl &url,
+                                     const QJsonObject &body) {
+        if (url.path() == QStringLiteral("/v1/media")) {
+            requestBody = body;
+            return QJsonObject{
+                { QStringLiteral("ok"), true },
+                { QStringLiteral("data"), QJsonObject{
+                    { QStringLiteral("addresses"), QJsonArray{
+                        QJsonObject{
+                            { QStringLiteral("remoteId"), QStringLiteral("0039MnYb0qxYhV") },
+                            { QStringLiteral("url"), QStringLiteral("https://example.test/vip-song.mp3") }
+                        }
+                    } }
+                } },
+                { QStringLiteral("error"), QJsonValue::Null }
+            };
+        }
+        return QJsonObject{};
+    });
+
+    QqMusicSource source;
+    source.setBaseUrl(baseUrl(server));
+    source.setCookie(QStringLiteral("test-credential"));
+    Song song;
+    song.source = int(SourceId::QqMusic);
+    song.remoteId = QStringLiteral("0039MnYb0qxYhV");
+    song.mediaRemoteId = QStringLiteral("C4000039MnYb0qxYhV");
+
+    bool finished = false;
+    QJsonArray addresses;
+    source.songUrls(QList<Song>{ song }, [&](const QJsonArray &value) {
+        addresses = value;
+        finished = true;
+    }, [&](const QString &) {
+        finished = true;
+    });
+    QTRY_VERIFY_WITH_TIMEOUT(finished, 3000);
+    QCOMPARE(addresses.size(), 1);
+    QCOMPARE(requestBody.value(QStringLiteral("ids")).toArray(),
+             QJsonArray{ QStringLiteral("0039MnYb0qxYhV") });
+    QVERIFY(!requestBody.contains(QStringLiteral("items")));
+    QVERIFY(!requestBody.contains(QStringLiteral("mediaRemoteId")));
+    QCOMPARE(requestBody.value(QStringLiteral("credential")).toString(),
+             QStringLiteral("test-credential"));
 }
 
 QTEST_MAIN(MultiSourceSupportTest)

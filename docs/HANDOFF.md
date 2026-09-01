@@ -572,3 +572,23 @@ a4dcb21  SongListModel 改多列表 + 登录补齐uid/昵称 + QPointer防闪退
 - 最终构建和新发布包分别使用空音乐目录、独立 SQLite、独立 QSettings、独立下载目录完成 Smoke，退出码均为 0；最终自建歌单页截图成功生成。未读取真实曲库、真实下载目录或真实设置。
 - 新包已切换到 `dist\NeteaseClone`；被替换版本保留在 `dist\NeteaseClone.previous-20260901-vip-cloud`。桌面 `仿网易云播放器.lnk` 已显式重写并复核目标为 `dist\NeteaseClone\NeteaseClone.exe`、工作目录为同一发布目录，正式窗口已启动。
 - 尚需真人账号验收：使用当前微信登录的 QQ VIP 账号，选取一首 QQ 官方客户端明确可播放的周杰伦歌曲，确认账号中心 VIP 状态、云歌单、播放和下载；若仍失败，应记录应用展示的上游详细错误，不提供或记录 Cookie、`qqmusic_key` 或完整临时播放 URL。
+
+## QQ VIP 播放与下载回归修复（2026-09-01）
+
+- 真人 A/B 已确认：同一微信 QQ VIP 账号、同一歌曲在 `a96f3af` 发布包中可以正常播放和下载，在 `57c6553` 中失败；两版共用同一数据库和登录凭据，因此排除数据库损坏、账号 VIP 失效及微信凭据缺失。
+- 根因：`57c6553` 把搜索结果的 `file.media_mid/strMediaMid` 直接作为 `@sansenjian/qq-music-api` 的 `mediaId`。该字段可能已经包含 `C400` 等音质前缀，而 SDK 在 128 kbps 模式会按 `M500 + songmid + mediaId + .mp3` 拼接 vkey 文件名，产生类似 `M500<songmid>C400<songmid>.mp3` 的无效名称。播放器和下载器共用完整歌曲地址解析接口，因此同时回归。
+- 修复：保留 `Song::mediaRemoteId`、SQLite 迁移、下载清单和云歌单元数据兼容，但当前 QQ 播放/下载不得把它直接传给 SDK。`QqMusicSource::songUrls(QList<Song>)` 恢复退化为稳定 `songmid` 列表；包装层新增 `media.js`，兼容 `ids/items` 输入但只调用 `getMusicPlay({songmid,quality:'128',cookie})`。上游详细错误、VIP 状态、云歌单和其他 `57c6553` 功能保持不变。
+- 回归覆盖：Qt 多源测试用带 `C400` 的歌曲断言实际 HTTP 请求只含 `ids=[songmid]`、不含 `items/mediaRemoteId`；QQ Node 参数捕获测试断言 SDK 调用对象不存在 `mediaId`，并覆盖旧 `ids`、新 `items` 和 100 首上限。
+
+### 本轮编译/测试与避错记录
+
+- 第一次构建保护检查把现有 `W:` 映射判为意外路径，没有进入 Ninja。根因是 `subst` 输出中的中文仓库路径在当前输出通道显示为乱码，字符串比较误判；不是源码错误。可行方案是在同一获准 PowerShell 命令中先解除 `W:`，再用 `(Get-Location).Path` 重新建立映射，并立即运行 `W:\build-ascii\run-target-build.bat`，不要解析乱码后的 `subst` 文本。
+- 首次真实 C++ 构建在新增 `tst_multisourcesupport` 报 `cannot convert 'core::SourceId' to 'int' in assignment`。根因是兼容期 `Song::source` 字段仍为 `int`，测试直接赋了强类型枚举；修复为显式 `int(SourceId::QqMusic)`。生产 QQ 修复文件此前已经编译成功，该错误不属于环境问题。
+- 首轮完整 CTest 为 7/8，`tst_playerservice` 只输出 FFmpeg WAV 探测后失败，没有 Qt 断言名称；本轮没有修改播放器状态机。按既有方案以显式 Qt 报告单跑，同一二进制结果为 16 通过、0 失败、1 个无音频设备跳过；随后完整 CTest 复跑 8/8，通过用时 43.84 秒。根因仍是 Windows 音频端点/FFmpeg 探测的瞬时环境时序，不放宽断言或修改生产播放器。
+- QQ Node 契约与媒体参数测试 12/12 通过；冷端口真实包装服务启动/探活/停止包含在通过的多源测试中。正式应用和全部测试目标构建成功。
+- 发布候选使用空音乐目录、独立 SQLite、独立 QSettings 和独立下载目录完成自建歌单页 smoke，退出码 0；截图及数据库均生成，未读取真实曲库、下载目录或设置。
+
+### 发布状态
+
+- 新正式包 38 个文件、90,532,166 字节，构建/发布 EXE SHA-256 为 `818165C6FCB46FF3B19E973D7D6288EF3AD2A87202EF6B9003EF3601EF3964B8`。被替换的 `57c6553` 包保留在 `dist\NeteaseClone.previous-20260901-qq-vip-regression`，其 EXE SHA-256 为 `8E403A87F43393F7C7A702A5F92B29330647538399ADC81C1A3960551C223423`。
+- 桌面快捷方式已显式重写并复核目标为 `dist\NeteaseClone\NeteaseClone.exe`。A/B 旧版进程已失去窗口但仍持有单实例锁；正常关闭和不带 `/F` 的进程树关闭均被 Windows 拒绝，且强制结束未获执行许可，因此本轮没有冒险中断真实数据库写入或强行启动第二实例。用户结束该旧进程树或重启后，快捷方式会直接启动修复版；仍需用真人 QQ VIP 账号完成最终播放/下载确认。

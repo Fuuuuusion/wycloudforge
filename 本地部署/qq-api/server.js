@@ -7,6 +7,7 @@ const { Worker } = require('node:worker_threads');
 const sdk = require('@sansenjian/qq-music-api/sdk');
 const services = require('@sansenjian/qq-music-api/services');
 const contract = require('./contract');
+const { mediaAddresses } = require('./media');
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT || 3200);
@@ -369,40 +370,6 @@ async function searchSuggestions(body) {
     option: {},
   }));
   return contract.suggestions(raw, limit);
-}
-
-async function mediaAddresses(body) {
-  const legacyItems = Array.isArray(body.ids)
-    ? body.ids.map((remoteId) => ({ remoteId: String(remoteId || ''), mediaRemoteId: '' }))
-    : [];
-  const items = (Array.isArray(body.items) ? body.items : legacyItems)
-    .map((item) => ({
-      remoteId: String(item && item.remoteId || '').trim(),
-      mediaRemoteId: String(item && item.mediaRemoteId || '').trim(),
-    }))
-    .filter((item) => item.remoteId)
-    .slice(0, 100);
-  const credential = String(body.credential || '');
-  const data = [];
-  for (const item of items) {
-    const { remoteId, mediaRemoteId } = item;
-    try {
-      const raw = contract.unwrap(await sdk.getMusicPlay({
-        songmid: remoteId,
-        mediaId: mediaRemoteId || undefined,
-        quality: '128',
-        cookie: credential,
-      }));
-      const address = contract.mediaAddress(raw, remoteId);
-      if (!address.url && !address.error) address.error = mediaRemoteId
-        ? 'QQ 音乐没有返回可用播放地址'
-        : '歌曲缺少媒体文件标识，无法解析受保护音频';
-      data.push(address);
-    } catch (error) {
-      data.push({ remoteId, url: '', error: error.message || '获取播放地址失败' });
-    }
-  }
-  return data;
 }
 
 async function lyrics(body) {
