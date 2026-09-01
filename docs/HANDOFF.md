@@ -516,3 +516,9 @@ a4dcb21  SongListModel 改多列表 + 登录补齐uid/昵称 + QPointer防闪退
 - QQ Node 契约测试 8/8 通过。`W:\build-ascii` 全部 Qt 目标构建成功，最终应用和定向测试在占位封面修复后再次链接成功。
 - 第一组隔离截图虽然使用独立数据库和设置目录，但未覆盖 `online/downloadDir`，启动重关联只读扫描了真实 `Music\NeteaseClone Downloads` 并把三首下载记录导入临时库；没有修改真实库或下载文件，但该组截图作废。避错要求：以后所有“空曲库”截图除了 `--db`、`--settings-dir`、空音乐目录，还必须在隔离 QSettings 中把 `online/downloadDir` 指向独立空目录。
 - 在全新数据库、设置、音乐和下载目录中重新完成正式构建 smoke，并生成 `1920x1080`、`1280x800`、`940x600`、搜索发现页及 125%/150% DPI 六张截图；应用均自行退出且退出码为 0。目视确认播放器与页面同色、圆角封面、歌名/歌手、横向收藏/下载、新图标、紧凑布局和高 DPI 均无裁切；关键词去底同时由像素级自动化测试覆盖。
+
+### 正式发布
+
+- 从 `W:\build-ascii` 生成 38 个文件、90,284,311 字节的新发布包；构建 EXE 与发布 EXE 的 SHA-256 均为 `C6E3EDEFC4FF1D17375DA1684AA6B018CCAA0734761ACFF5A44D8BE22A75621E`。`windeployqt` 仍只提示可选的 `dxcompiler.dll/dxil.dll` 缺失，本应用不使用对应 Direct3D 12 功能。
+- 新包使用独立音乐、下载、SQLite 和设置目录执行 smoke，应用自行退出且退出码为 0，独立数据库成功生成。随后新包已切换到 `dist\NeteaseClone`，旧包保留在 `dist\NeteaseClone.previous-20260901-172639`，可通过目录换回恢复。
+- 桌面 `仿网易云播放器.lnk` 的目标与工作目录继续固定指向 `dist\NeteaseClone\NeteaseClone.exe` 和该目录，目标 EXE 哈希已复核一致；新正式窗口已启动供用户预览。
