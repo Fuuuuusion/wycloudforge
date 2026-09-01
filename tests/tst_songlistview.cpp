@@ -714,10 +714,14 @@ void SongListViewTest::sourcePickerRequiresSecondClickAndKeepsGroupIdentity()
     SearchResultVariant neteaseVariant;
     neteaseVariant.item = makeItem(SourceId::Netease, QStringLiteral("netease-id"),
                                     QStringLiteral("netease://netease-id"), true);
+    SearchResultVariant unavailableNeteaseVariant;
+    unavailableNeteaseVariant.item = makeItem(
+        SourceId::Netease, QStringLiteral("netease-unavailable"),
+        QStringLiteral("netease://netease-unavailable"), false);
     SearchResultVariant qqVariant;
     qqVariant.item = makeItem(SourceId::QqMusic, QStringLiteral("qq-id"),
                               QStringLiteral("qqmusic://qq-id"), false);
-    group.variants = { localVariant, neteaseVariant, qqVariant };
+    group.variants = { localVariant, unavailableNeteaseVariant, neteaseVariant, qqVariant };
 
     SongListView view;
     view.resize(1200, 320);
@@ -756,6 +760,7 @@ void SongListViewTest::sourcePickerRequiresSecondClickAndKeepsGroupIdentity()
     QCOMPARE(sourceSpy.count(), 1);
     QCOMPARE(playSpy.count(), 1);
     QCOMPARE(view.songs().constFirst().sourceId(), SourceId::Netease);
+    QCOMPARE(view.songs().constFirst().remoteId, QStringLiteral("netease-id"));
     QCOMPARE(view.model()->index(0, 0).data(SongListModel::StableIdentityRole).toString(),
              group.identity);
 }

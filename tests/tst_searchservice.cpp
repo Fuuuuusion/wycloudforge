@@ -26,7 +26,8 @@ Song makeSong(const QString &title, const QString &artist = {}, const QString &a
 SearchResultItem makeOnlineItem(SourceId source, const QString &remoteId,
                                 const QString &title, const QString &artist,
                                 qint64 durationMs = 200000, int rank = 0,
-                                double popularity = -1.0)
+                                double popularity = -1.0,
+                                const QString &album = QStringLiteral("测试专辑"))
 {
     SearchResultItem item;
     item.type = SearchItemType::Song;
@@ -34,6 +35,7 @@ SearchResultItem makeOnlineItem(SourceId source, const QString &remoteId,
     item.remoteId = remoteId;
     item.title = title;
     item.artist = artist;
+    item.album = album;
     item.durationMs = durationMs;
     item.sourceRank = rank;
     item.popularity = popularity;
@@ -45,6 +47,7 @@ SearchResultItem makeOnlineItem(SourceId source, const QString &remoteId,
                                       : QStringLiteral("qqmusic"), remoteId);
     item.song.title = title;
     item.song.artist = artist;
+    item.song.album = album;
     item.song.durationMs = durationMs;
     return item;
 }
@@ -69,7 +72,9 @@ private slots:
     void groupsSameRecordingAndRejectsVersionMismatches();
     void selectsDownloadedThenPlayableVariant();
     void producesStableFinalOrder();
-    void rejectsAmbiguousVariantsRegardlessOfArrivalOrder();
+    void groupsMatchingMetadataRegardlessOfCandidateCount();
+    void separatesDifferentOrMissingAlbums();
+    void groupsMultipleReleasesByAlbum();
     void honorsOptionalSortModes();
     void persistsSearchCacheAndHistory();
     void ignoresCorruptCacheAndRecoversAfterRewrite();
@@ -307,6 +312,10 @@ void SearchServiceTest::groupsSameRecordingAndRejectsVersionMismatches()
         QStringLiteral("周杰伦"), 244000);
 
     QVERIFY(SearchAggregator::sameRecording(studio, same));
+    SearchResultItem sameSource = same;
+    sameSource.source = SourceId::Netease;
+    sameSource.song.source = int(SourceId::Netease);
+    QVERIFY(SearchAggregator::sameRecording(studio, sameSource));
     QVERIFY(!SearchAggregator::sameRecording(studio, live));
     QVERIFY(!SearchAggregator::sameRecording(studio, remix));
     QVERIFY(!SearchAggregator::sameRecording(studio, cover));
@@ -378,15 +387,17 @@ void SearchServiceTest::producesStableFinalOrder()
     QCOMPARE(forwardIds, backwardIds);
 }
 
-void SearchServiceTest::rejectsAmbiguousVariantsRegardlessOfArrivalOrder()
+void SearchServiceTest::groupsMatchingMetadataRegardlessOfCandidateCount()
 {
     const QList<SearchResultItem> items = {
         makeOnlineItem(SourceId::Netease, QStringLiteral("n-first"),
                        QStringLiteral("晴天"), QStringLiteral("周杰伦"), 240000),
+        makeOnlineItem(SourceId::Netease, QStringLiteral("n-duplicate"),
+                       QStringLiteral("晴天"), QStringLiteral("周杰伦"), 240500),
         makeOnlineItem(SourceId::Netease, QStringLiteral("n-second"),
-                       QStringLiteral("晴天"), QStringLiteral("周杰伦"), 241000),
+                       QStringLiteral("晴天"), QStringLiteral("周杰伦"), 246000),
         makeOnlineItem(SourceId::QqMusic, QStringLiteral("q-only"),
-                       QStringLiteral("晴天"), QStringLiteral("周杰伦"), 240500)
+                       QStringLiteral("晴天"), QStringLiteral("周杰伦"), 243000)
     };
     SearchAggregateOptions options;
     options.query = QStringLiteral("晴天");
@@ -396,10 +407,87 @@ void SearchServiceTest::rejectsAmbiguousVariantsRegardlessOfArrivalOrder()
     std::reverse(reversed.begin(), reversed.end());
     const QList<SearchResultGroup> backward = SearchAggregator::aggregate(reversed, options);
 
-    QCOMPARE(forward.size(), 3);
-    QCOMPARE(backward.size(), 3);
+    QCOMPARE(forward.size(), 2);
+    QCOMPARE(backward.size(), 2);
+    int largestGroup = 0;
     for (const SearchResultGroup &group : forward)
-        QCOMPARE(group.variants.size(), 1);
+        largestGroup = qMax(largestGroup, group.variants.size());
+    QCOMPARE(largestGroup, 3);
+    QStringList forwardIds;
+    QStringList backwardIds;
+    for (const SearchResultGroup &group : forward)
+        forwardIds.append(group.identity);
+    for (const SearchResultGroup &group : backward)
+        backwardIds.append(group.identity);
+    QCOMPARE(forwardIds, backwardIds);
+}
+
+void SearchServiceTest::separatesDifferentOrMissingAlbums()
+{
+    SearchResultItem original = makeOnlineItem(
+        SourceId::Netease, QStringLiteral("n-original"), QStringLiteral("我不难过"),
+        QStringLiteral("孙燕姿"), 320400, 0, -1.0, QStringLiteral("未完成"));
+    SearchResultItem compilation = makeOnlineItem(
+        SourceId::QqMusic, QStringLiteral("q-compilation"), QStringLiteral("我不难过"),
+        QStringLiteral("孙燕姿"), 320000, 0, -1.0, QStringLiteral("2 Her"));
+    QVERIFY(!SearchAggregator::sameRecording(original, compilation));
+
+    original.album.clear();
+    original.song.album.clear();
+    compilation.album.clear();
+    compilation.song.album.clear();
+    QVERIFY(!SearchAggregator::sameRecording(original, compilation));
+
+    SearchAggregateOptions options;
+    options.query = QStringLiteral("我不难过");
+    const QList<SearchResultGroup> groups = SearchAggregator::aggregate(
+        { original, compilation }, options);
+    QCOMPARE(groups.size(), 2);
+}
+
+void SearchServiceTest::groupsMultipleReleasesByAlbum()
+{
+    const QList<SearchResultItem> items = {
+        makeOnlineItem(SourceId::Netease, QStringLiteral("287398"),
+                       QStringLiteral("我不难过"), QStringLiteral("孙燕姿"),
+                       320400, 0, -1.0, QStringLiteral("未完成")),
+        makeOnlineItem(SourceId::Netease, QStringLiteral("32712816"),
+                       QStringLiteral("我不难过"), QStringLiteral("孙燕姿"),
+                       320400, 1, -1.0, QStringLiteral("2 Her")),
+        makeOnlineItem(SourceId::QqMusic, QStringLiteral("001fsNdn1zuZnA"),
+                       QStringLiteral("我不难过"), QStringLiteral("孙燕姿"),
+                       320000, 0, -1.0, QStringLiteral("未完成")),
+        makeOnlineItem(SourceId::QqMusic, QStringLiteral("003DfrHl3CLfrc"),
+                       QStringLiteral("我不难过"), QStringLiteral("孙燕姿"),
+                       320000, 1, -1.0, QStringLiteral("2 Her"))
+    };
+    SearchAggregateOptions options;
+    options.query = QStringLiteral("我不难过");
+
+    const QList<SearchResultGroup> forward = SearchAggregator::aggregate(items, options);
+    QList<SearchResultItem> reversed = items;
+    std::reverse(reversed.begin(), reversed.end());
+    const QList<SearchResultGroup> backward = SearchAggregator::aggregate(reversed, options);
+
+    QCOMPARE(forward.size(), 2);
+    QCOMPARE(backward.size(), 2);
+    QHash<QString, QSet<SourceId>> sourcesByAlbum;
+    for (const SearchResultGroup &group : forward) {
+        QCOMPARE(group.variants.size(), 2);
+        QSet<SourceId> sources;
+        QString album;
+        for (const SearchResultVariant &variant : group.variants) {
+            sources.insert(variant.item.source);
+            if (album.isEmpty())
+                album = variant.item.album;
+            else
+                QCOMPARE(variant.item.album, album);
+        }
+        sourcesByAlbum.insert(album, sources);
+    }
+    QCOMPARE(sourcesByAlbum.value(QStringLiteral("未完成")).size(), 2);
+    QCOMPARE(sourcesByAlbum.value(QStringLiteral("2 Her")).size(), 2);
+
     QStringList forwardIds;
     QStringList backwardIds;
     for (const SearchResultGroup &group : forward)

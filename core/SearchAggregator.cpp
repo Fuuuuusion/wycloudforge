@@ -113,22 +113,36 @@ bool groupHasSource(const SearchResultGroup &group, SourceId source)
 }
 
 bool canJoinGroup(const SearchResultVariant &variant, const SearchResultGroup &group,
-                  qint64 durationToleranceMs,
-                  const QSet<QString> &ambiguousIdentities)
+                  qint64 durationToleranceMs)
 {
-    if (ambiguousIdentities.contains(variant.item.stableIdentity()))
-        return false;
-    if (groupHasSource(group, variant.item.source))
-        return false;
     for (const SearchResultVariant &existing : group.variants) {
-        if (ambiguousIdentities.contains(existing.item.stableIdentity()))
-            return false;
         if (!SearchAggregator::sameRecording(variant.item, existing.item,
                                               durationToleranceMs)) {
             return false;
         }
     }
     return !group.variants.isEmpty();
+}
+
+qint64 itemDuration(const SearchResultItem &item)
+{
+    return item.durationMs > 0 ? item.durationMs : item.song.durationMs;
+}
+
+qint64 largestDurationDelta(const SearchResultVariant &variant,
+                            const SearchResultGroup &group)
+{
+    const qint64 duration = itemDuration(variant.item);
+    qint64 largest = 0;
+    for (const SearchResultVariant &existing : group.variants)
+        largest = qMax(largest, qAbs(duration - itemDuration(existing.item)));
+    return largest;
+}
+
+QString groupTieIdentity(const SearchResultGroup &group)
+{
+    return group.variants.isEmpty()
+        ? QString() : group.variants.constFirst().item.stableIdentity();
 }
 
 bool betterPreferredVariant(const SearchResultVariant &left,
@@ -283,8 +297,7 @@ bool SearchAggregator::sameRecording(const SearchResultItem &left,
                                      const SearchResultItem &right,
                                      qint64 durationToleranceMs)
 {
-    if (left.type != SearchItemType::Song || right.type != SearchItemType::Song
-        || left.source == right.source) {
+    if (left.type != SearchItemType::Song || right.type != SearchItemType::Song) {
         return false;
     }
     const QString leftTitle = normalizedMatchText(
@@ -299,6 +312,12 @@ bool SearchAggregator::sameRecording(const SearchResultItem &left,
         right.artist.isEmpty() ? right.song.artist : right.artist);
     if (leftArtist.isEmpty() || leftArtist != rightArtist)
         return false;
+    const QString leftAlbum = normalizedMatchText(
+        left.album.isEmpty() ? left.song.album : left.album);
+    const QString rightAlbum = normalizedMatchText(
+        right.album.isEmpty() ? right.song.album : right.album);
+    if (leftAlbum.isEmpty() || leftAlbum != rightAlbum)
+        return false;
     const QString leftVersion = versionSignature(
         left.title.isEmpty() ? left.song.title : left.title);
     const QString rightVersion = versionSignature(
@@ -307,8 +326,8 @@ bool SearchAggregator::sameRecording(const SearchResultItem &left,
         return false;
     const qint64 leftDuration = left.durationMs > 0 ? left.durationMs : left.song.durationMs;
     const qint64 rightDuration = right.durationMs > 0 ? right.durationMs : right.song.durationMs;
-    return leftDuration <= 0 || rightDuration <= 0
-        || qAbs(leftDuration - rightDuration) <= qMax<qint64>(0, durationToleranceMs);
+    return leftDuration > 0 && rightDuration > 0
+        && qAbs(leftDuration - rightDuration) <= qMax<qint64>(0, durationToleranceMs);
 }
 
 QList<SearchResultGroup> SearchAggregator::aggregate(
@@ -357,22 +376,6 @@ QList<SearchResultGroup> SearchAggregator::aggregate(
         }
     }
 
-    QSet<QString> ambiguousIdentities;
-    for (int i = 0; i < variants.size(); ++i) {
-        QHash<int, int> matchesBySource;
-        for (int j = 0; j < variants.size(); ++j) {
-            if (i == j || !sameRecording(variants.at(i).item, variants.at(j).item,
-                                         options.durationToleranceMs)) {
-                continue;
-            }
-            const int sourceKey = int(variants.at(j).item.source);
-            const int matches = matchesBySource.value(sourceKey) + 1;
-            matchesBySource.insert(sourceKey, matches);
-            if (matches > 1)
-                ambiguousIdentities.insert(variants.at(i).item.stableIdentity());
-        }
-    }
-
     std::sort(variants.begin(), variants.end(), [](const SearchResultVariant &left,
                                                     const SearchResultVariant &right) {
         if (left.item.source != right.item.source)
@@ -386,14 +389,25 @@ QList<SearchResultGroup> SearchAggregator::aggregate(
         QList<int> candidates;
         if (variant.item.type == SearchItemType::Song) {
             for (int i = 0; i < groups.size(); ++i) {
-                if (canJoinGroup(variant, groups.at(i), options.durationToleranceMs,
-                                 ambiguousIdentities)) {
+                if (canJoinGroup(variant, groups.at(i), options.durationToleranceMs)) {
                     candidates.append(i);
                 }
             }
         }
-        if (candidates.size() == 1) {
-            groups[candidates.constFirst()].variants.append(variant);
+        if (!candidates.isEmpty()) {
+            int bestCandidate = candidates.constFirst();
+            for (int i = 1; i < candidates.size(); ++i) {
+                const int candidate = candidates.at(i);
+                const qint64 candidateDelta = largestDurationDelta(variant, groups.at(candidate));
+                const qint64 bestDelta = largestDurationDelta(variant, groups.at(bestCandidate));
+                if (candidateDelta < bestDelta
+                    || (candidateDelta == bestDelta
+                        && groupTieIdentity(groups.at(candidate))
+                            < groupTieIdentity(groups.at(bestCandidate)))) {
+                    bestCandidate = candidate;
+                }
+            }
+            groups[bestCandidate].variants.append(variant);
         } else {
             SearchResultGroup group;
             group.variants.append(variant);

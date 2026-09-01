@@ -4,6 +4,7 @@
 #include <QFileInfo>
 #include <QHash>
 
+#include <limits>
 #include <utility>
 
 namespace ui {
@@ -34,6 +35,28 @@ bool choiceAvailable(const core::SearchResultItem &item)
     if (item.source == core::SourceId::Local)
         return false;
     return item.playable && !item.song.missing;
+}
+
+bool betterSourceVariant(const core::SearchResultVariant &left,
+                         const core::SearchResultVariant &right)
+{
+    const bool leftAvailable = choiceAvailable(left.item);
+    const bool rightAvailable = choiceAvailable(right.item);
+    if (leftAvailable != rightAvailable)
+        return leftAvailable;
+    if (left.localPriority != right.localPriority)
+        return left.localPriority > right.localPriority;
+    if (left.item.playable != right.item.playable)
+        return left.item.playable;
+    if (left.heatPercentile != right.heatPercentile)
+        return left.heatPercentile > right.heatPercentile;
+    const int leftRank = left.item.sourceRank >= 0
+        ? left.item.sourceRank : std::numeric_limits<int>::max();
+    const int rightRank = right.item.sourceRank >= 0
+        ? right.item.sourceRank : std::numeric_limits<int>::max();
+    if (leftRank != rightRank)
+        return leftRank < rightRank;
+    return left.item.stableIdentity() < right.item.stableIdentity();
 }
 
 QString defaultUnavailableReason(core::SourceId source, bool versionExists)
@@ -176,15 +199,27 @@ void SongListModel::setSearchResultGroups(const QList<core::SearchResultGroup> &
     for (const core::SearchResultGroup &group : groups) {
         RowContext row;
         row.identity = group.identity;
+        QHash<int, const core::SearchResultVariant *> preferredBySource;
         for (const core::SearchResultVariant &variant : group.variants) {
             if (variant.item.type != core::SearchItemType::Song)
                 continue;
+            const int sourceKey = int(variant.item.source);
+            const auto current = preferredBySource.constFind(sourceKey);
+            if (current == preferredBySource.cend()
+                || betterSourceVariant(variant, **current)) {
+                preferredBySource.insert(sourceKey, &variant);
+            }
+        }
+        for (core::SourceId source : priority) {
+            const core::SearchResultVariant *variant = preferredBySource.value(int(source));
+            if (!variant)
+                continue;
             SongSourceChoice choice;
-            choice.source = variant.item.source;
-            choice.song = variant.item.song;
-            choice.available = choiceAvailable(variant.item);
+            choice.source = variant->item.source;
+            choice.song = variant->item.song;
+            choice.available = choiceAvailable(variant->item);
             if (!choice.available) {
-                choice.unavailableReason = variant.item.availabilityError.trimmed();
+                choice.unavailableReason = variant->item.availabilityError.trimmed();
                 if (choice.unavailableReason.isEmpty())
                     choice.unavailableReason = defaultUnavailableReason(choice.source, true);
             }

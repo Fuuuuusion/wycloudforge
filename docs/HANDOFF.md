@@ -460,3 +460,16 @@ a4dcb21  SongListModel 改多列表 + 登录补齐uid/昵称 + QPointer防闪退
 - 使用仓库现有 `scripts/package.ps1` 从 `build-ascii` 生成全新的 `dist/NeteaseClone.new`。`windeployqt` 只提示未找到可选的 `dxcompiler.dll/dxil.dll`；当前应用不使用 Direct3D 12 对应功能，该提示不影响 Qt Widgets、FFmpeg 多媒体或现有播放器功能，无需伪造或额外复制未知版本 DLL。
 - 新发布目录包含 38 个文件、共 90,243,405 字节；发布 EXE 与已通过完整回归的构建 EXE SHA-256 均为 `8D99A9B6B4F8E7461DBE0A008BDAD887D8185FE38E09C6CB58A834281E7A34B0`。使用空音乐目录、独立 SQLite 和独立设置目录启动发布包，应用自行退出且退出码为 0。
 - 验证通过后将新目录切换为 `dist/NeteaseClone`，旧发布版本保留在 `dist/NeteaseClone.previous-20260901-135821`。桌面 `仿网易云播放器.lnk` 未被重写，时间戳仍为 2026-08-31 16:12:03，内嵌目标与工作目录均继续指向 `dist/NeteaseClone`，因此现在会启动新的 UI 布局版本。
+
+## 搜索同曲合并规则修正（2026-09-01）
+
+- 用户明确放弃在应用内部署小型 AI，搜索歌曲合并继续使用可解释的确定性规则。现规则要求歌曲类型、规范化歌名、主要歌手、规范化专辑和版本标签一致，并且双方时长都有效、差值不超过 3000ms；缺失专辑或时长时不进行推测合并。
+- 删除了“一首歌在另一来源有多个候选就全部保持独立”的全局歧义否决。相同字段的同来源重复远端记录也会保留在同一个 `SearchResultGroup`；跨来源多发行按专辑分别配对，例如孙燕姿《我不难过》的《未完成》网易云/QQ版本合为一行，《2 Her》网易云/QQ版本合为另一行。
+- 若一个新结果同时符合两个时长簇，不再新建第三个孤立组，而是选择最大时长差最小的候选组；完全相同时按稳定远端身份确定，保证来源回调顺序不改变结果。底层全部远端记录仍保留，不覆盖数据库身份。
+- `SongListModel` 对同一组内的同来源重复记录只暴露一个来源按钮，代表版本按本地文件可用性、下载/缓存、可播放状态、来源热度/名次和稳定身份选择；不可播放的早到记录不再遮蔽同来源后续可播放版本。
+- 新增固定回归覆盖同来源重复、多候选到达顺序、专辑不同或缺失不合并，以及《我不难过》的《未完成》/《2 Her》真实远端 ID 多发行场景。`tst_searchservice` 和 `tst_songlistview` 定向测试均通过；`W:\build-ascii` 全部目标增量构建成功，空曲库、独立数据库与独立设置目录的正式应用 smoke 退出码为 0。
+
+### 本轮编译/测试记录
+
+- 首次尝试用 `ctest -R "^(tst_searchservice|tst_songlistview)$"` 同时运行两个定向测试时，外层 PowerShell 在进入 `cmd.exe` 前把正则中的 `|` 当成管道，随后报 `tst_searchservice` 不是命令；CTest 实际没有启动。根因是多层 shell 转义，不是源码或测试失败。可行方案是逐项使用不含管道的 `-R tst_searchservice` / `-R tst_songlistview`，或对外层 PowerShell 单独转义管道；本轮改为逐项运行后两项均通过。
+- 完整 8 项 Qt CTest 本轮为 7/8：搜索、页面、歌曲列表、数据库/DPAPI 等 7 项通过，`tst_playerservice` 的 `playPauseAndPosition`、`autoAdvanceInOrderMode` 和 `downloadedOnlineSongPlayback` 在进入 `PlayingState` 后位置仍停在 0。直接运行和独立隐藏桌面进程重跑得到同样 3 个失败，`onlineUrlRetriesOnce` 同时明确以“无可用音频输出设备”跳过；Windows Audio 服务运行且能枚举多个状态为 OK 的声卡/端点，因此根因仍是既有的自动化执行上下文没有可推进的 Qt Multimedia 真实音频时钟，不是本轮搜索聚合或 `PlayerService` 改动（本轮未修改播放器）。可行方案仍是在具有活动默认输出的交互桌面终端重跑播放器计时测试，或以后把媒体结束/队列推进拆成不依赖真实声卡的确定性测试；本轮未放宽断言或伪造通过。
