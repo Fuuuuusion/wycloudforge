@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QDialog>
+#include <QSet>
 
 class QCheckBox;
 class QLabel;
@@ -27,10 +28,16 @@ public:
 
     QStringList folders() const;
     int lyricFontSize() const;
+    void setProtectedCacheSongIds(const QSet<qint64> &songIds)
+    {
+        m_protectedCacheSongIds = songIds;
+        updateCacheStats();
+    }
 
 signals:
     void rescanRequested();
     void databaseReloadRequested();
+    void cacheCleared();
 
 private:
     void updateCacheStats();
@@ -49,6 +56,7 @@ private:
     core::ApiService *m_apiService = nullptr;
     core::NeteaseApiClient *m_apiClient = nullptr;
     core::LibraryService *m_library = nullptr;
+    QSet<qint64> m_protectedCacheSongIds;
 };
 
 } // namespace ui

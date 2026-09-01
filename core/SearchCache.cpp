@@ -369,4 +369,49 @@ void SearchCache::clearHistory() const
     QSettings().remove(QStringLiteral("search/history"));
 }
 
+void SearchCache::payloadUsage(qint64 *bytes, int *files) const
+{
+    qint64 totalBytes = 0;
+    int totalFiles = 0;
+    const QStringList kinds = {
+        QStringLiteral("results"),
+        QStringLiteral("suggestions"),
+        QStringLiteral("hot")
+    };
+    for (const QString &kind : kinds) {
+        const QDir directory(QDir(m_rootPath).filePath(kind));
+        const QFileInfoList entries = directory.entryInfoList(
+            QDir::Files | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System);
+        for (const QFileInfo &entry : entries) {
+            totalBytes += qMax<qint64>(0, entry.size());
+            ++totalFiles;
+        }
+    }
+    if (bytes)
+        *bytes = totalBytes;
+    if (files)
+        *files = totalFiles;
+}
+
+QStringList SearchCache::clearPayloads() const
+{
+    QStringList failures;
+    const QStringList kinds = {
+        QStringLiteral("results"),
+        QStringLiteral("suggestions"),
+        QStringLiteral("hot")
+    };
+    for (const QString &kind : kinds) {
+        QDir directory(QDir(m_rootPath).filePath(kind));
+        const QFileInfoList entries = directory.entryInfoList(
+            QDir::Files | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System);
+        for (const QFileInfo &entry : entries) {
+            if (!QFile::remove(entry.absoluteFilePath()))
+                failures.append(entry.absoluteFilePath());
+        }
+        QDir(m_rootPath).rmdir(kind);
+    }
+    return failures;
+}
+
 } // namespace core

@@ -5,6 +5,7 @@
 #include "core/ApiService.h"
 #include "core/LibraryService.h"
 #include "core/NeteaseApiClient.h"
+#include "ui/CoverProvider.h"
 
 #include <QCheckBox>
 #include <QDialogButtonBox>
@@ -24,6 +25,17 @@
 #include <QVBoxLayout>
 
 namespace ui {
+namespace {
+
+QString formatCacheBytes(qint64 bytes)
+{
+    const double megabytes = double(qMax<qint64>(0, bytes)) / 1024.0 / 1024.0;
+    if (megabytes >= 0.1)
+        return QStringLiteral("%1 MB").arg(megabytes, 0, 'f', 1);
+    return QStringLiteral("%1 KB").arg(qMax<qint64>(0, bytes) / 1024);
+}
+
+} // namespace
 
 SettingsDialog::SettingsDialog(core::ApiService *apiService, core::NeteaseApiClient *apiClient,
                                core::LibraryService *library, QWidget *parent)
@@ -169,17 +181,39 @@ SettingsDialog::SettingsDialog(core::ApiService *apiService, core::NeteaseApiCli
 
     m_cacheStats = new QLabel(this);
     m_cacheStats->setStyleSheet(QStringLiteral("color:#9A9AA5;font-size:12px;"));
+    m_cacheStats->setWordWrap(true);
     layout->addWidget(m_cacheStats);
     auto *clearBtn = new QPushButton(QStringLiteral("一键清空缓存"), this);
     layout->addWidget(clearBtn, 0, Qt::AlignLeft);
     connect(clearBtn, &QPushButton::clicked, this, [this] {
         if (!m_library)
             return;
-        if (QMessageBox::question(this, QStringLiteral("清空缓存"),
-                                  QStringLiteral("确定删除所有已缓存的在线歌曲文件?"))
+        if (QMessageBox::question(
+                this, QStringLiteral("清空缓存"),
+                QStringLiteral(
+                    "将清理播放缓存、在线封面、推荐/搜索缓存，以及没有收藏、歌单、下载或播放记录的纯浏览在线歌曲。\n\n"
+                    "永久下载、本地歌曲、收藏、自建歌单、播放历史、歌词、登录状态和搜索历史不会删除。确定继续吗？"))
             == QMessageBox::Yes) {
-            m_library->clearCache();
+            const core::CacheClearResult result = m_library->clearCache(m_protectedCacheSongIds);
+            CoverProvider::clearCache();
             updateCacheStats();
+            emit cacheCleared();
+            QString summary = QStringLiteral(
+                "已释放 %1：播放缓存 %2 首、在线封面 %3 个、推荐/搜索缓存 %4 个、纯浏览记录 %5 条。")
+                                  .arg(formatCacheBytes(result.releasedBytes))
+                                  .arg(result.playbackSongs)
+                                  .arg(result.coverFiles)
+                                  .arg(result.responseFiles)
+                                  .arg(result.transientOnlineSongs);
+            if (!result.failures.isEmpty()) {
+                const int shown = qMin(3, int(result.failures.size()));
+                summary += QStringLiteral("\n\n%1 项未完全清理：\n%2")
+                               .arg(result.failures.size())
+                               .arg(result.failures.mid(0, shown).join(QLatin1Char('\n')));
+                QMessageBox::warning(this, QStringLiteral("缓存清理完成"), summary);
+            } else {
+                QMessageBox::information(this, QStringLiteral("缓存清理完成"), summary);
+            }
         }
     });
 
@@ -266,12 +300,21 @@ void SettingsDialog::updateCacheStats()
 {
     if (!m_library)
         return;
-    qint64 bytes = 0;
-    int count = 0;
-    m_library->cacheUsage(&bytes, &count);
-    m_cacheStats->setText(QStringLiteral("缓存:%1 首 · %2 MB")
-                              .arg(count)
-                              .arg(bytes / 1024 / 1024));
+    const core::CacheUsageBreakdown usage =
+        m_library->cacheUsageDetailed(m_protectedCacheSongIds);
+    m_cacheStats->setText(QStringLiteral(
+        "播放缓存：%1 首 · %2\n"
+        "在线封面：%3 个 · %4\n"
+        "推荐/搜索缓存：%5 个 · %6\n"
+        "纯浏览在线记录：%7 条 · 合计可释放 %8")
+                              .arg(usage.playbackSongs)
+                              .arg(formatCacheBytes(usage.playbackBytes))
+                              .arg(usage.coverFiles)
+                              .arg(formatCacheBytes(usage.coverBytes))
+                              .arg(usage.responseFiles)
+                              .arg(formatCacheBytes(usage.responseBytes))
+                              .arg(usage.transientOnlineSongs)
+                              .arg(formatCacheBytes(usage.totalBytes())));
 }
 
 } // namespace ui

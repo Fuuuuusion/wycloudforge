@@ -10,6 +10,8 @@
 #include "ui/SourceIcons.h"
 
 #include <QButtonGroup>
+#include <QDateTime>
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QHBoxLayout>
@@ -19,13 +21,55 @@
 #include <QLabel>
 #include <QPointer>
 #include <QPushButton>
+#include <QSaveFile>
 #include <QScrollArea>
 #include <QSizePolicy>
 #include <QTextStream>
 #include <QUrl>
 #include <QVBoxLayout>
 
+#include <functional>
+#include <memory>
+
 namespace ui {
+namespace {
+
+QStringList songPayloadIdentity(const QJsonArray &payload, core::MusicSource *source)
+{
+    QStringList identities;
+    identities.reserve(payload.size());
+    for (const QJsonValue &value : payload) {
+        const core::Song song = source ? source->songFromJson(value.toObject()) : core::Song{};
+        identities.append(song.hasRemoteIdentity() ? song.stableIdentity()
+                                                   : song.title + QLatin1Char('|') + song.artist);
+    }
+    return identities;
+}
+
+QStringList playlistPayloadIdentity(const QJsonArray &payload)
+{
+    QStringList identities;
+    identities.reserve(payload.size());
+    for (const QJsonValue &value : payload) {
+        const QJsonObject object = value.toObject();
+        QString remoteId = object.value(QStringLiteral("remoteId")).toVariant().toString();
+        if (remoteId.isEmpty())
+            remoteId = object.value(QStringLiteral("id")).toVariant().toString();
+        identities.append(remoteId.isEmpty() ? object.value(QStringLiteral("name")).toString()
+                                             : remoteId);
+    }
+    return identities;
+}
+
+struct RefreshBatch
+{
+    int pending = 2;
+    int successes = 0;
+    bool changed = false;
+    QStringList errors;
+};
+
+} // namespace
 
 RecommendPage::RecommendPage(QWidget *parent)
     : QWidget(parent)
@@ -194,42 +238,149 @@ void RecommendPage::updateSourceButtons()
     }
 }
 
-void RecommendPage::refresh()
+void RecommendPage::refresh(bool forceNetwork)
 {
-    // 启动时先展示上次成功获取的内容，避免登录校验和 API 自启动期间整页空白。
-    // 在线请求完成后会用最新结果无缝替换缓存。
+    // 启动和来源切换仍然缓存优先；手动刷新保留当前内容，直接请求平台。
     core::MusicSource *source = m_source;
-    if (!source)
+    if (!source) {
+        emit refreshStateChanged(false, QStringLiteral("当前没有可用的推荐来源"));
         return;
+    }
     const int generation = ++m_requestGeneration;
-    loadCache(source);
+    const int sourceKey = int(source->sourceId());
+    if (!forceNetwork)
+        loadCache(source);
     const bool loggedIn = source->sourceId() == core::SourceId::Netease
         ? core::SettingsService::onlineUid() > 0
         : !core::SettingsService::qqUserId().isEmpty();
-    if (!loggedIn || !m_source)
+    if (!loggedIn || source != m_source) {
+        emit refreshStateChanged(false, QStringLiteral("登录后才能刷新当前来源推荐"));
         return;
-    source->recommendSongs([this, source, generation](const QJsonArray &songs) {
-        if (generation != m_requestGeneration || source != m_source)
+    }
+
+    emit refreshStateChanged(true, QStringLiteral("正在刷新%1推荐…").arg(source->sourceName()));
+    const auto batch = std::make_shared<RefreshBatch>();
+    const QPointer<RecommendPage> pageGuard(this);
+    const auto finishOne = [pageGuard, source, generation, sourceKey, batch](
+                               bool success, bool changed, const QString &error) {
+        if (!pageGuard || generation != pageGuard->m_requestGeneration
+            || source != pageGuard->m_source) {
             return;
-        buildDaily(songs, source);
-        const auto playlistsReady = [this, source, songs, generation](const QJsonArray &pls) {
-            if (generation != m_requestGeneration || source != m_source)
+        }
+        if (success) {
+            ++batch->successes;
+            batch->changed = batch->changed || changed;
+        } else if (!error.isEmpty()) {
+            batch->errors.append(error);
+        }
+        if (--batch->pending > 0)
+            return;
+        if (batch->successes > 0) {
+            pageGuard->saveCache(pageGuard->m_songPayloads.value(sourceKey),
+                                 pageGuard->m_playlistPayloads.value(sourceKey), source);
+        }
+        QString message;
+        if (batch->successes == 0) {
+            message = QStringLiteral("刷新失败，继续显示上次内容");
+            if (!batch->errors.isEmpty())
+                message += QStringLiteral("：%1").arg(batch->errors.join(QStringLiteral("；")));
+        } else if (!batch->errors.isEmpty()) {
+            message = QStringLiteral("部分推荐已刷新：%1")
+                          .arg(batch->errors.join(QStringLiteral("；")));
+        } else if (batch->changed) {
+            message = QStringLiteral("推荐内容已刷新");
+        } else {
+            message = QStringLiteral("刷新成功，平台返回内容未变化");
+        }
+        emit pageGuard->refreshStateChanged(false, message);
+    };
+
+    source->recommendSongs(
+        [pageGuard, source, generation, sourceKey, finishOne](const QJsonArray &songs) {
+            if (!pageGuard || generation != pageGuard->m_requestGeneration
+                || source != pageGuard->m_source) {
                 return;
-            buildPlaylists(pls, source);
-            saveCache(songs, pls, source);
-        };
-        const auto playlistsFailed = [this, source, songs, generation](const QString &) {
-            if (generation == m_requestGeneration && source == m_source)
-                saveCache(songs, QJsonArray(), source);
-        };
-        if (source->sourceId() == core::SourceId::QqMusic)
-            source->userPlaylists(core::SettingsService::qqUserId(), playlistsReady, playlistsFailed);
-        else
-            source->topPlaylists(QString(), 0, playlistsReady, playlistsFailed);
-    }, [this, source, generation](const QString &) {
-        if (generation == m_requestGeneration && source == m_source)
-            loadCache(source);
-    });
+            }
+            if (songs.isEmpty()) {
+                finishOne(false, false, QStringLiteral("平台未返回推荐歌曲"));
+                return;
+            }
+            const bool changed = songPayloadIdentity(
+                                     pageGuard->m_songPayloads.value(sourceKey), source)
+                != songPayloadIdentity(songs, source);
+            pageGuard->m_songPayloads.insert(sourceKey, songs);
+            pageGuard->buildDaily(songs, source);
+            finishOne(true, changed, QString());
+        },
+        [pageGuard, source, generation, finishOne](const QString &message) {
+            if (pageGuard && generation == pageGuard->m_requestGeneration
+                && source == pageGuard->m_source) {
+                finishOne(false, false, QStringLiteral("推荐歌曲：%1").arg(message));
+            }
+        });
+
+    const int requestedOffset = forceNetwork ? m_playlistOffsets.value(sourceKey, 0) + 6
+                                             : m_playlistOffsets.value(sourceKey, 0);
+    const auto playlistRequest = std::make_shared<std::function<void(int, bool)>>();
+    const std::weak_ptr<std::function<void(int, bool)>> weakPlaylistRequest = playlistRequest;
+    *playlistRequest = [pageGuard, source, generation, sourceKey, finishOne,
+                        weakPlaylistRequest](
+                           int offset, bool fallbackUsed) {
+        if (!pageGuard || generation != pageGuard->m_requestGeneration
+            || source != pageGuard->m_source) {
+            return;
+        }
+        const auto requestHolder = weakPlaylistRequest.lock();
+        if (!requestHolder)
+            return;
+        source->topPlaylists(
+            QString(), offset,
+            [pageGuard, source, generation, sourceKey, offset, fallbackUsed, finishOne,
+             requestHolder](const QJsonArray &playlists) {
+                if (!pageGuard || generation != pageGuard->m_requestGeneration
+                    || source != pageGuard->m_source) {
+                    return;
+                }
+                if (playlists.isEmpty() && offset > 0 && !fallbackUsed) {
+                    (*requestHolder)(0, true);
+                    return;
+                }
+                if (playlists.isEmpty()) {
+                    finishOne(false, false, QStringLiteral("平台未返回推荐歌单"));
+                    return;
+                }
+                const bool changed = playlistPayloadIdentity(
+                                         pageGuard->m_playlistPayloads.value(sourceKey))
+                    != playlistPayloadIdentity(playlists);
+                pageGuard->m_playlistOffsets.insert(sourceKey, offset);
+                pageGuard->m_playlistPayloads.insert(sourceKey, playlists);
+                pageGuard->buildPlaylists(playlists, source);
+                finishOne(true, changed, QString());
+            },
+            [pageGuard, source, generation, finishOne,
+             requestHolder](const QString &message) {
+                if (pageGuard && generation == pageGuard->m_requestGeneration
+                    && source == pageGuard->m_source) {
+                    finishOne(false, false, QStringLiteral("推荐歌单：%1").arg(message));
+                }
+            });
+    };
+    (*playlistRequest)(requestedOffset, false);
+}
+
+void RecommendPage::resetAfterCacheClear()
+{
+    ++m_requestGeneration;
+    m_songPayloads.clear();
+    m_playlistPayloads.clear();
+    m_playlistOffsets.clear();
+    showEmpty();
+    emit refreshStateChanged(false, QStringLiteral("缓存已清理，可重新刷新推荐"));
+}
+
+core::SourceId RecommendPage::activeSourceId() const
+{
+    return m_source ? m_source->sourceId() : core::SourceId::Netease;
 }
 
 QList<core::Song> RecommendPage::currentSongs() const
@@ -244,6 +395,7 @@ void RecommendPage::setPlaylistMenuItems(const QList<QPair<int, QString>> &items
 
 void RecommendPage::buildDaily(const QJsonArray &arr, core::MusicSource *source)
 {
+    const int generation = m_requestGeneration;
     QList<core::Song> songs;
     for (const QJsonValue &v : arr) {
         core::Song s = source ? source->songFromJson(v.toObject()) : core::Song();
@@ -275,16 +427,24 @@ void RecommendPage::buildDaily(const QJsonArray &arr, core::MusicSource *source)
             continue;
         }
         const qint64 songId = song.id;
-        source->downloadToFile(QUrl(song.coverUrl), path, [this, songId, path](bool ok) {
-            if (!ok || !m_lib)
+        const QPointer<RecommendPage> pageGuard(this);
+        source->downloadToFile(QUrl(song.coverUrl), path,
+                               [pageGuard, songId, path, generation](bool ok) {
+            if (!pageGuard || generation != pageGuard->m_requestGeneration) {
+                if (ok)
+                    QFile::remove(path);
                 return;
-            m_lib->setSongCoverPath(songId, path);
+            }
+            if (!ok || !pageGuard->m_lib)
+                return;
+            pageGuard->m_lib->setSongCoverPath(songId, path);
         });
     }
 }
 
 void RecommendPage::buildPlaylists(const QJsonArray &arr, core::MusicSource *source)
 {
+    const int generation = m_requestGeneration;
     while (QLayoutItem *item = m_playlistRow->takeAt(0)) {
         delete item->widget();
         delete item;
@@ -331,7 +491,14 @@ void RecommendPage::buildPlaylists(const QJsonArray &arr, core::MusicSource *sou
                     card->setCover(pm);
             } else {
                 const QPointer<CoverCard> guard(card);
-                source->downloadToFile(QUrl(pic), path, [guard, path](bool ok) {
+                const QPointer<RecommendPage> pageGuard(this);
+                source->downloadToFile(QUrl(pic), path,
+                                       [pageGuard, guard, path, generation](bool ok) {
+                    if (!pageGuard || generation != pageGuard->m_requestGeneration) {
+                        if (ok)
+                            QFile::remove(path);
+                        return;
+                    }
                     if (!ok || !guard)
                         return;
                     QPixmap pm(path);
@@ -353,11 +520,21 @@ void RecommendPage::saveCache(const QJsonArray &songs, const QJsonArray &playlis
                               core::MusicSource *source)
 {
     QJsonObject root;
+    root.insert(QStringLiteral("version"), 2);
+    root.insert(QStringLiteral("updatedAtMs"),
+                QString::number(QDateTime::currentMSecsSinceEpoch()));
+    root.insert(QStringLiteral("playlistOffset"),
+                m_playlistOffsets.value(int(source ? source->sourceId()
+                                                    : core::SourceId::Netease), 0));
     root.insert(QStringLiteral("songs"), songs);
     root.insert(QStringLiteral("playlists"), playlists);
-    QFile f(cachePath(source ? source->sourceId() : core::SourceId::Netease));
-    if (f.open(QIODevice::WriteOnly | QIODevice::Text))
-        f.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
+    QSaveFile file(cachePath(source ? source->sourceId() : core::SourceId::Netease));
+    if (!QDir().mkpath(QFileInfo(file.fileName()).absolutePath())
+        || !file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        return;
+    }
+    if (file.write(QJsonDocument(root).toJson(QJsonDocument::Compact)) >= 0)
+        file.commit();
 }
 
 void RecommendPage::loadCache(core::MusicSource *source)
@@ -368,10 +545,18 @@ void RecommendPage::loadCache(core::MusicSource *source)
         return;
     }
     const QJsonObject root = QJsonDocument::fromJson(f.readAll()).object();
-    buildDaily(root.value(QStringLiteral("songs")).toArray(), source);
-    buildPlaylists(root.value(QStringLiteral("playlists")).toArray(), source);
-    if (root.isEmpty())
+    if (root.isEmpty()) {
         showEmpty();
+        return;
+    }
+    const int sourceKey = int(source ? source->sourceId() : core::SourceId::Netease);
+    const QJsonArray songs = root.value(QStringLiteral("songs")).toArray();
+    const QJsonArray playlists = root.value(QStringLiteral("playlists")).toArray();
+    m_songPayloads.insert(sourceKey, songs);
+    m_playlistPayloads.insert(sourceKey, playlists);
+    m_playlistOffsets.insert(sourceKey, root.value(QStringLiteral("playlistOffset")).toInt(0));
+    buildDaily(songs, source);
+    buildPlaylists(playlists, source);
 }
 
 QString RecommendPage::cachePath(core::SourceId sourceId) const

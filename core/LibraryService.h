@@ -3,6 +3,7 @@
 #include "core/Song.h"
 
 #include <QObject>
+#include <QSet>
 #include <QSqlDatabase>
 #include <QStringList>
 
@@ -10,6 +11,31 @@ class QFileSystemWatcher;
 class QTimer;
 
 namespace core {
+
+struct CacheUsageBreakdown
+{
+    qint64 playbackBytes = 0;
+    int playbackSongs = 0;
+    qint64 coverBytes = 0;
+    int coverFiles = 0;
+    qint64 responseBytes = 0;
+    int responseFiles = 0;
+    int transientOnlineSongs = 0;
+
+    qint64 totalBytes() const { return playbackBytes + coverBytes + responseBytes; }
+};
+
+struct CacheClearResult
+{
+    qint64 releasedBytes = 0;
+    int playbackSongs = 0;
+    int coverFiles = 0;
+    int responseFiles = 0;
+    int transientOnlineSongs = 0;
+    QStringList failures;
+
+    bool complete() const { return failures.isEmpty(); }
+};
 
 class LibraryService : public QObject
 {
@@ -58,8 +84,9 @@ public:
     bool isSongCached(qint64 songId) const;
     void setSongCached(qint64 songId, const QString &path, qint64 sizeBytes);
     void invalidateSongCache(qint64 songId);
-    void clearCache();
+    CacheClearResult clearCache(const QSet<qint64> &protectedSongIds = {});
     void cacheUsage(qint64 *bytes, int *count) const;
+    CacheUsageBreakdown cacheUsageDetailed(const QSet<qint64> &protectedSongIds = {}) const;
 
     // 用户主动下载(与自动播放缓存完全分离)
     QString downloadDir() const;

@@ -54,6 +54,8 @@ add_library(neteclone_ui STATIC
     AccountPanel.cpp
     AccountSettingsButton.h
     AccountSettingsButton.cpp
+    SidebarFooter.h
+    SidebarFooter.cpp
     AccountDialog.h
     AccountDialog.cpp
     PlaylistEditDialog.h

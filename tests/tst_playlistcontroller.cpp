@@ -2,6 +2,7 @@
 #include "core/LyricsLoader.h"
 #include "core/MusicSource.h"
 #include "core/PlaylistController.h"
+#include "core/SearchCache.h"
 #include "core/SettingsService.h"
 
 #include <QFile>
@@ -36,6 +37,7 @@ private slots:
     void downloadBackupRecoversLegacyOrphan();
     void localAvailabilityClassification();
     void stringRemoteIdentityPersists();
+    void managedCacheClearPreservesUserData();
 
 private:
     QTemporaryDir *m_dir = nullptr;
@@ -52,6 +54,10 @@ void PlaylistControllerTest::init()
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, m_dir->path());
     SettingsService::setOnlineDownloadDir(m_dir->filePath(QStringLiteral("downloads")));
+    SettingsService::setRecommendCachePathOverride(
+        m_dir->filePath(QStringLiteral("recommend.json")));
+    SearchCache::setDefaultRootPathOverride(
+        m_dir->filePath(QStringLiteral("search-cache")));
     LibraryService::setDatabasePathOverride(m_dir->filePath(QStringLiteral("t.db")));
     m_library = new LibraryService;
     QVERIFY2(m_library->openDatabase(), qPrintable(m_library->lastError()));
@@ -65,6 +71,8 @@ void PlaylistControllerTest::cleanup()
     delete m_library;
     delete m_dir;
     LibraryService::setDatabasePathOverride(QString());
+    SettingsService::setRecommendCachePathOverride(QString());
+    SearchCache::setDefaultRootPathOverride(QString());
 }
 
 void PlaylistControllerTest::createRenameDelete()
@@ -786,6 +794,198 @@ void PlaylistControllerTest::stringRemoteIdentityPersists()
     QCOMPARE(restored.onlineId, qint64(0));
     QCOMPARE(m_controller->songsOf(playlistId).first().stableIdentity(),
              QStringLiteral("2:0039MnYb0qxYhV"));
+}
+
+void PlaylistControllerTest::managedCacheClearPreservesUserData()
+{
+    const auto writeFile = [](const QString &path, const QByteArray &contents) {
+        if (!QDir().mkpath(QFileInfo(path).absolutePath()))
+            return false;
+        QFile file(path);
+        return file.open(QIODevice::WriteOnly)
+            && file.write(contents) == contents.size();
+    };
+    const auto addOnlineSong = [this](SourceId source, const QString &remoteId,
+                                      const QString &title) {
+        Song song;
+        song.source = int(source);
+        song.remoteId = remoteId;
+        song.onlineId = source == SourceId::Netease ? remoteId.toLongLong() : 0;
+        song.filePath = (source == SourceId::Netease
+                             ? QStringLiteral("netease://")
+                             : QStringLiteral("qqmusic://")) + remoteId;
+        song.title = title;
+        song.artist = QStringLiteral("缓存测试歌手");
+        song.album = QStringLiteral("缓存测试专辑");
+        song.durationMs = 180000;
+        return m_library->upsertOnlineSong(song);
+    };
+
+    const qint64 transientId = addOnlineSong(
+        SourceId::Netease, QStringLiteral("910001"), QStringLiteral("纯浏览记录"));
+    const qint64 favoriteId = addOnlineSong(
+        SourceId::Netease, QStringLiteral("910002"), QStringLiteral("收藏记录"));
+    const qint64 playlistSongId = addOnlineSong(
+        SourceId::QqMusic, QStringLiteral("CACHE_PLAYLIST_MID"), QStringLiteral("歌单记录"));
+    const qint64 recentId = addOnlineSong(
+        SourceId::Netease, QStringLiteral("910004"), QStringLiteral("播放历史记录"));
+    const qint64 lyricId = addOnlineSong(
+        SourceId::QqMusic, QStringLiteral("CACHE_LYRIC_MID"), QStringLiteral("歌词记录"));
+    const qint64 queueId = addOnlineSong(
+        SourceId::Netease, QStringLiteral("910006"), QStringLiteral("当前队列记录"));
+    const qint64 downloadedId = addOnlineSong(
+        SourceId::QqMusic, QStringLiteral("CACHE_DOWNLOAD_MID"), QStringLiteral("永久下载记录"));
+    QVERIFY(transientId > 0);
+    QVERIFY(favoriteId > 0);
+    QVERIFY(playlistSongId > 0);
+    QVERIFY(recentId > 0);
+    QVERIFY(lyricId > 0);
+    QVERIFY(queueId > 0);
+    QVERIFY(downloadedId > 0);
+
+    QVERIFY(m_controller->setFavorite(favoriteId, true));
+    const int playlistId = m_controller->createPlaylist(QStringLiteral("缓存保护歌单"));
+    QVERIFY(playlistId > 1);
+    QVERIFY(m_controller->addSong(playlistId, playlistSongId));
+    m_library->markPlayed(recentId);
+    m_controller->recordPlay(recentId);
+
+    const QString lyricPath = m_library->lyricCachePathFor(m_library->songById(lyricId));
+    QVERIFY(writeFile(lyricPath, QByteArrayLiteral("[00:01.00]must survive\n")));
+    m_library->setSongLyricPath(lyricId, lyricPath);
+
+    const QString playbackPath = m_library->cacheFilePathFor(m_library->songById(queueId));
+    QVERIFY(writeFile(playbackPath, QByteArrayLiteral("temporary audio")));
+    const QString legacyPlaybackLyric = LyricsLoader::sidecarPathFor(playbackPath);
+    const QString preservedPlaybackLyric = m_library->lyricCachePathFor(
+        m_library->songById(queueId));
+    QVERIFY(writeFile(legacyPlaybackLyric,
+                      QByteArrayLiteral("[00:02.00]legacy cache lyric\n")));
+    m_library->setSongCached(queueId, playbackPath, QFileInfo(playbackPath).size());
+
+    const QString transientCover = m_library->songCoverCachePath(
+        m_library->songById(transientId));
+    const QString favoriteCover = m_library->songCoverCachePath(
+        m_library->songById(favoriteId));
+    const QString queueCover = m_library->songCoverCachePath(m_library->songById(queueId));
+    QVERIFY(writeFile(transientCover, QByteArrayLiteral("transient cover")));
+    QVERIFY(writeFile(favoriteCover, QByteArrayLiteral("favorite cover")));
+    QVERIFY(writeFile(queueCover, QByteArrayLiteral("queue cover")));
+    m_library->setSongCoverPath(transientId, transientCover);
+    m_library->setSongCoverPath(favoriteId, favoriteCover);
+    m_library->setSongCoverPath(queueId, queueCover);
+
+    const QString downloadedCover = m_library->songCoverCachePath(
+        m_library->songById(downloadedId));
+    QVERIFY(writeFile(downloadedCover, QByteArrayLiteral("downloaded cover")));
+    m_library->setSongCoverPath(downloadedId, downloadedCover);
+    const QString downloadedAudio = QDir(m_library->downloadDir()).filePath(
+        QStringLiteral("缓存测试歌手 - 永久下载记录.mp3"));
+    QVERIFY(writeFile(downloadedAudio, QByteArrayLiteral("permanent audio")));
+    QVERIFY(m_library->setSongDownloaded(downloadedId, downloadedAudio));
+
+    const QString localAudio = m_dir->filePath(QStringLiteral("local-song.mp3"));
+    const QString localCover = m_library->coverCacheDir()
+        + QStringLiteral("/local-import-cover.jpg");
+    QVERIFY(writeFile(localAudio, QByteArrayLiteral("local audio")));
+    QVERIFY(writeFile(localCover, QByteArrayLiteral("local cover")));
+    QSqlQuery insertLocal(m_library->database());
+    insertLocal.prepare(QStringLiteral(
+        "INSERT INTO songs(path,title,source,cover_path,has_cover) VALUES(?,?,0,?,1)"));
+    insertLocal.addBindValue(localAudio);
+    insertLocal.addBindValue(QStringLiteral("本地歌曲"));
+    insertLocal.addBindValue(localCover);
+    QVERIFY(insertLocal.exec());
+    const qint64 localId = insertLocal.lastInsertId().toLongLong();
+
+    const QString playlistCover = m_library->playlistCoverCachePath(
+        SourceId::Netease, QStringLiteral("910099"));
+    QVERIFY(writeFile(playlistCover, QByteArrayLiteral("user playlist cover")));
+    QVERIFY(m_controller->setPlaylistCover(playlistId, playlistCover));
+    const QString recommendationCover = m_library->playlistCoverCachePath(
+        SourceId::QqMusic, QStringLiteral("CACHE_RECOMMEND_PLAYLIST"));
+    QVERIFY(writeFile(recommendationCover, QByteArrayLiteral("recommend cover")));
+
+    const QString recommendPath = SettingsService::recommendCachePath();
+    const QString qqRecommendPath = QFileInfo(recommendPath).absolutePath()
+        + QStringLiteral("/recommend-qq.json");
+    QVERIFY(writeFile(recommendPath, QByteArrayLiteral("{\"source\":\"netease\"}")));
+    QVERIFY(writeFile(qqRecommendPath, QByteArrayLiteral("{\"source\":\"qq\"}")));
+    const QString searchRoot = m_dir->filePath(QStringLiteral("search-cache"));
+    QVERIFY(writeFile(QDir(searchRoot).filePath(QStringLiteral("results/result.json")),
+                      QByteArrayLiteral("search result")));
+    QVERIFY(writeFile(QDir(searchRoot).filePath(QStringLiteral("suggestions/suggestion.json")),
+                      QByteArrayLiteral("search suggestion")));
+    QVERIFY(writeFile(QDir(searchRoot).filePath(QStringLiteral("hot/hot.json")),
+                      QByteArrayLiteral("hot terms")));
+    SearchCache searchCache;
+    searchCache.addHistory(QStringLiteral("孙燕姿"));
+    QCOMPARE(searchCache.history(), QStringList{ QStringLiteral("孙燕姿") });
+
+    m_library->reloadDatabase();
+    const CacheUsageBreakdown before = m_library->cacheUsageDetailed({ queueId });
+    QCOMPARE(before.playbackSongs, 1);
+    QVERIFY(before.coverFiles >= 4);
+    QCOMPARE(before.responseFiles, 5);
+    QCOMPARE(before.transientOnlineSongs, 1);
+
+    const CacheClearResult result = m_library->clearCache({ queueId });
+    QVERIFY2(result.complete(), qPrintable(result.failures.join(QLatin1Char('\n'))));
+    QCOMPARE(result.playbackSongs, 1);
+    QVERIFY(result.coverFiles >= 4);
+    QCOMPARE(result.responseFiles, 5);
+    QCOMPARE(result.transientOnlineSongs, 1);
+
+    QVERIFY(m_library->songById(transientId).id <= 0);
+    QVERIFY(m_library->songById(favoriteId).id > 0);
+    QVERIFY(m_controller->isFavorite(favoriteId));
+    QVERIFY(m_library->songById(playlistSongId).id > 0);
+    QVERIFY(m_controller->isInPlaylist(playlistId, playlistSongId));
+    QVERIFY(m_library->songById(recentId).id > 0);
+    QCOMPARE(m_controller->recentSongs(10).first().id, recentId);
+    QVERIFY(m_library->songById(lyricId).id > 0);
+    QVERIFY(QFileInfo(lyricPath).isFile());
+    QCOMPARE(LyricsLoader::load(m_library->songById(lyricId)).first().text,
+             QStringLiteral("must survive"));
+    QVERIFY(m_library->songById(queueId).id > 0);
+    QVERIFY(!QFileInfo::exists(playbackPath));
+    QVERIFY(!m_library->songById(queueId).isCached());
+    QVERIFY(!QFileInfo::exists(legacyPlaybackLyric));
+    QVERIFY(QFileInfo(preservedPlaybackLyric).isFile());
+    QCOMPARE(LyricsLoader::load(m_library->songById(queueId)).first().text,
+             QStringLiteral("legacy cache lyric"));
+
+    const Song downloaded = m_library->songById(downloadedId);
+    QVERIFY(downloaded.id > 0);
+    QVERIFY(downloaded.isDownloaded());
+    QVERIFY(QFileInfo(downloadedAudio).isFile());
+    QCOMPARE(QDir::cleanPath(downloaded.coverPath), QDir::cleanPath(downloadedCover));
+    QVERIFY(QFileInfo(downloadedCover).isFile());
+    const Song local = m_library->songById(localId);
+    QVERIFY(local.id > 0);
+    QCOMPARE(QDir::cleanPath(local.coverPath), QDir::cleanPath(localCover));
+    QVERIFY(QFileInfo(localCover).isFile());
+    QVERIFY(QFileInfo(playlistCover).isFile());
+
+    QVERIFY(!QFileInfo::exists(transientCover));
+    QVERIFY(!QFileInfo::exists(favoriteCover));
+    QVERIFY(!QFileInfo::exists(queueCover));
+    QVERIFY(!QFileInfo::exists(recommendationCover));
+    QVERIFY(!QFileInfo::exists(recommendPath));
+    QVERIFY(!QFileInfo::exists(qqRecommendPath));
+    QVERIFY(!QFileInfo::exists(QDir(searchRoot).filePath(
+        QStringLiteral("results/result.json"))));
+    QVERIFY(!QFileInfo::exists(QDir(searchRoot).filePath(
+        QStringLiteral("suggestions/suggestion.json"))));
+    QVERIFY(!QFileInfo::exists(QDir(searchRoot).filePath(QStringLiteral("hot/hot.json"))));
+    QCOMPARE(searchCache.history(), QStringList{ QStringLiteral("孙燕姿") });
+
+    const CacheUsageBreakdown after = m_library->cacheUsageDetailed({ queueId });
+    QCOMPARE(after.totalBytes(), qint64(0));
+    QCOMPARE(after.playbackSongs, 0);
+    QCOMPARE(after.coverFiles, 0);
+    QCOMPARE(after.responseFiles, 0);
+    QCOMPARE(after.transientOnlineSongs, 0);
 }
 
 QTEST_MAIN(PlaylistControllerTest)

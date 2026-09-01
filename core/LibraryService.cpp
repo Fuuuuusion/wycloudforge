@@ -1,6 +1,7 @@
 #include "LibraryService.h"
 
 #include "core/SettingsService.h"
+#include "core/SearchCache.h"
 #include "core/LyricsLoader.h"
 #include "core/TagReader.h"
 
@@ -63,6 +64,20 @@ bool isPathInside(const QString &path, const QString &directory)
     const QString directoryKey = normalizedFileKey(directory);
     return fileKey == directoryKey
         || fileKey.startsWith(directoryKey + QLatin1Char('/'));
+}
+
+bool isManagedOnlineCoverName(const QString &fileName)
+{
+    static const QRegularExpression pattern(QStringLiteral(
+        "^(?:song_[1-9][0-9]*_[0-9a-f]{40}|playlist_(?:[1-9][0-9]*|[1-9][0-9]*_[0-9a-f]{40}))\\.(?:jpe?g|png|webp)$"),
+        QRegularExpression::CaseInsensitiveOption);
+    return pattern.match(fileName).hasMatch();
+}
+
+QString qqRecommendCachePath()
+{
+    const QString neteasePath = SettingsService::recommendCachePath();
+    return QFileInfo(neteasePath).absolutePath() + QStringLiteral("/recommend-qq.json");
 }
 
 QString safeDownloadPart(QString value)
@@ -1993,8 +2008,10 @@ QString LibraryService::cacheDir() const
 
 QString LibraryService::coverCacheDir() const
 {
-    const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
-        + QStringLiteral("/covers");
+    const QString root = m_dbPath.isEmpty()
+        ? QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+        : QFileInfo(m_dbPath).absolutePath();
+    const QString dir = root + QStringLiteral("/covers");
     QDir().mkpath(dir);
     return dir;
 }
@@ -2169,32 +2186,280 @@ void LibraryService::invalidateSongCache(qint64 songId)
     emit libraryChanged();
 }
 
-void LibraryService::clearCache()
+CacheClearResult LibraryService::clearCache(const QSet<qint64> &protectedSongIds)
 {
-    QDir dir(cacheDir());
-    if (m_db.isOpen()) {
-        QSqlQuery paths(m_db);
-        paths.exec(QStringLiteral("SELECT cache_path FROM song_cache"));
-        while (paths.next()) {
-            const QString path = paths.value(0).toString();
-            const QString relative = QDir(cacheDir()).relativeFilePath(path);
-            if (!relative.startsWith(QStringLiteral("..")) && !QFileInfo(path).isRelative())
-                QFile::remove(path);
+    CacheClearResult result;
+    if (!m_db.isOpen()) {
+        result.failures.append(QStringLiteral("数据库未打开，未执行缓存清理"));
+        return result;
+    }
+
+    const QString playbackRoot = cacheDir();
+    const QString coverRoot = coverCacheDir();
+
+    struct PlaybackEntry
+    {
+        qint64 songId = 0;
+        QString path;
+    };
+    QList<PlaybackEntry> playbackEntries;
+    QSqlQuery playbackRows(m_db);
+    if (playbackRows.exec(QStringLiteral("SELECT song_id,cache_path FROM song_cache"))) {
+        while (playbackRows.next())
+            playbackEntries.append({ playbackRows.value(0).toLongLong(),
+                                     playbackRows.value(1).toString() });
+    } else {
+        result.failures.append(QStringLiteral("读取播放缓存失败：%1")
+                                   .arg(playbackRows.lastError().text()));
+    }
+    playbackRows.finish();
+
+    QSet<qint64> clearedPlaybackIds;
+    QSet<QString> removedFileKeys;
+    QSet<QString> failedFileKeys;
+    const auto removeManagedFile = [&result, &removedFileKeys, &failedFileKeys](
+                                       const QString &path, const QString &root,
+                                       const QString &label) {
+        if (path.isEmpty())
+            return true;
+        const QFileInfo info(path);
+        const QString key = normalizedFileKey(path);
+        if (failedFileKeys.contains(key))
+            return false;
+        if (info.isRelative() || !isPathInside(path, root)) {
+            result.failures.append(QStringLiteral("%1路径越界，已保留：%2")
+                                       .arg(label, QDir::toNativeSeparators(path)));
+            failedFileKeys.insert(key);
+            return false;
         }
-        QSqlQuery q(m_db);
-        q.exec(QStringLiteral("DELETE FROM song_cache"));
-        q.exec(QStringLiteral("UPDATE songs SET cache_path='' WHERE source>0"));
+        if (removedFileKeys.contains(key) || !info.exists())
+            return true;
+        const qint64 bytes = qMax<qint64>(0, info.size());
+        if (!QFile::remove(info.absoluteFilePath())) {
+            result.failures.append(QStringLiteral("无法删除%1：%2")
+                                       .arg(label, QDir::toNativeSeparators(path)));
+            failedFileKeys.insert(key);
+            return false;
+        }
+        removedFileKeys.insert(key);
+        result.releasedBytes += bytes;
+        return true;
+    };
+
+    for (const PlaybackEntry &entry : std::as_const(playbackEntries)) {
+        const QString sidecar = LyricsLoader::sidecarPathFor(entry.path);
+        const QFileInfo sidecarInfo(sidecar);
+        if (sidecarInfo.isFile() && sidecarInfo.size() > 0) {
+            const Song song = songById(entry.songId);
+            const QString preservedLyricPath = lyricCachePathFor(song);
+            bool lyricPreserved = !preservedLyricPath.isEmpty();
+            if (lyricPreserved) {
+                const QFileInfo preservedInfo(preservedLyricPath);
+                if (!preservedInfo.isFile() || preservedInfo.size() <= 0) {
+                    if (preservedInfo.exists())
+                        QFile::remove(preservedInfo.absoluteFilePath());
+                    lyricPreserved = QDir().mkpath(preservedInfo.absolutePath())
+                        && QFile::copy(sidecarInfo.absoluteFilePath(),
+                                       preservedInfo.absoluteFilePath());
+                }
+            }
+            if (!lyricPreserved) {
+                result.failures.append(QStringLiteral(
+                    "无法迁移缓存歌曲歌词，已保留该播放缓存：%1")
+                                           .arg(QDir::toNativeSeparators(sidecar)));
+                continue;
+            }
+            setSongLyricPath(entry.songId, preservedLyricPath);
+            if (normalizedFileKey(sidecar) != normalizedFileKey(preservedLyricPath)
+                && !QFile::remove(sidecarInfo.absoluteFilePath())) {
+                result.failures.append(QStringLiteral("无法删除已迁移的旧歌词副本：%1")
+                                           .arg(QDir::toNativeSeparators(sidecar)));
+            }
+        }
+        if (!removeManagedFile(entry.path, playbackRoot, QStringLiteral("播放缓存")))
+            continue;
+        LyricsLoader::invalidate(entry.path);
+        clearedPlaybackIds.insert(entry.songId);
+        ++result.playbackSongs;
     }
-    // 清理数据库外的残留播放文件，但不触碰 covers/ 下的本地与线上封面。
-    for (const QFileInfo &fi : dir.entryInfoList(QDir::Files | QDir::NoDotAndDotDot))
-        QFile::remove(fi.absoluteFilePath());
-    for (Song &s : m_songs) {
-        s.lyricPath.clear();
-        s.cachePath.clear();
-        refreshLyricPath(s);
+    // 清掉没有数据库记录的旧播放缓存残留；仅限明确的 cache/ 根目录。
+    const QDir playbackDirectory(playbackRoot);
+    for (const QFileInfo &entry : playbackDirectory.entryInfoList(
+             QDir::Files | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System)) {
+        // 旧版本可能把唯一歌词副本放在 cache/ 内。没有歌曲映射的 LRC 无法
+        // 安全判断是否可丢弃，因此保留；有映射的副本已在上方迁移至 lyrics/。
+        if (entry.suffix().compare(QStringLiteral("lrc"), Qt::CaseInsensitive) == 0)
+            continue;
+        removeManagedFile(entry.absoluteFilePath(), playbackRoot, QStringLiteral("残留播放缓存"));
     }
+
+    QSet<QString> protectedCoverKeys;
+    QHash<QString, QString> candidateCoverPaths;
+    QHash<QString, QList<qint64>> candidateCoverSongIds;
+    QSqlQuery songCovers(m_db);
+    if (songCovers.exec(QStringLiteral(
+            "SELECT id,source,cover_path,download_path FROM songs WHERE cover_path<>''"))) {
+        while (songCovers.next()) {
+            const qint64 songId = songCovers.value(0).toLongLong();
+            const int source = songCovers.value(1).toInt();
+            const QString path = songCovers.value(2).toString();
+            const QString downloadPath = songCovers.value(3).toString();
+            if (path.isEmpty())
+                continue;
+            const QString key = normalizedFileKey(path);
+            if (source == int(SourceId::Local) || !downloadPath.isEmpty()) {
+                protectedCoverKeys.insert(key);
+            } else if (source > int(SourceId::Local) && isPathInside(path, coverRoot)) {
+                candidateCoverPaths.insert(key, path);
+                candidateCoverSongIds[key].append(songId);
+            }
+        }
+    } else {
+        result.failures.append(QStringLiteral("读取歌曲封面引用失败：%1")
+                                   .arg(songCovers.lastError().text()));
+    }
+    songCovers.finish();
+    QSqlQuery playlistCovers(m_db);
+    if (playlistCovers.exec(QStringLiteral(
+            "SELECT cover_path FROM playlists WHERE cover_path<>''"))) {
+        while (playlistCovers.next())
+            protectedCoverKeys.insert(normalizedFileKey(playlistCovers.value(0).toString()));
+    }
+    playlistCovers.finish();
+    QList<DownloadManifestRecord> downloadRecords;
+    if (loadDownloadManifest(downloadDir(), &downloadRecords)) {
+        for (const DownloadManifestRecord &record : std::as_const(downloadRecords)) {
+            if (!record.song.coverPath.isEmpty())
+                protectedCoverKeys.insert(normalizedFileKey(record.song.coverPath));
+        }
+    }
+    const QDir coverDirectory(coverRoot);
+    for (const QFileInfo &entry : coverDirectory.entryInfoList(
+             QDir::Files | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System)) {
+        if (isManagedOnlineCoverName(entry.fileName()))
+            candidateCoverPaths.insert(normalizedFileKey(entry.absoluteFilePath()),
+                                       entry.absoluteFilePath());
+    }
+
+    QSet<QString> clearedCoverKeys;
+    for (auto it = candidateCoverPaths.constBegin(); it != candidateCoverPaths.constEnd(); ++it) {
+        if (protectedCoverKeys.contains(it.key()))
+            continue;
+        const QFileInfo before(it.value());
+        const bool existed = before.exists();
+        if (!removeManagedFile(it.value(), coverRoot, QStringLiteral("在线封面")))
+            continue;
+        clearedCoverKeys.insert(it.key());
+        if (existed)
+            ++result.coverFiles;
+    }
+
+    const QStringList recommendationPaths = {
+        SettingsService::recommendCachePath(),
+        qqRecommendCachePath()
+    };
+    for (const QString &path : recommendationPaths) {
+        const QFileInfo info(path);
+        if (!info.exists())
+            continue;
+        const qint64 bytes = qMax<qint64>(0, info.size());
+        if (QFile::remove(info.absoluteFilePath())) {
+            result.releasedBytes += bytes;
+            ++result.responseFiles;
+        } else {
+            result.failures.append(QStringLiteral("无法删除推荐缓存：%1")
+                                       .arg(QDir::toNativeSeparators(path)));
+        }
+    }
+
+    SearchCache searchCache;
+    qint64 searchBytesBefore = 0;
+    int searchFilesBefore = 0;
+    searchCache.payloadUsage(&searchBytesBefore, &searchFilesBefore);
+    result.failures.append(searchCache.clearPayloads());
+    qint64 searchBytesAfter = 0;
+    int searchFilesAfter = 0;
+    searchCache.payloadUsage(&searchBytesAfter, &searchFilesAfter);
+    result.releasedBytes += qMax<qint64>(0, searchBytesBefore - searchBytesAfter);
+    result.responseFiles += qMax(0, searchFilesBefore - searchFilesAfter);
+
+    if (!m_db.transaction()) {
+        result.failures.append(QStringLiteral("无法开始缓存清理事务：%1")
+                                   .arg(m_db.lastError().text()));
+        reloadSongs();
+        emit cacheChanged();
+        emit libraryChanged();
+        return result;
+    }
+
+    bool databaseOk = true;
+    for (qint64 songId : std::as_const(clearedPlaybackIds)) {
+        QSqlQuery remove(m_db);
+        remove.prepare(QStringLiteral("DELETE FROM song_cache WHERE song_id=?"));
+        remove.addBindValue(songId);
+        databaseOk = remove.exec() && databaseOk;
+        QSqlQuery clear(m_db);
+        clear.prepare(QStringLiteral("UPDATE songs SET cache_path='' WHERE id=?"));
+        clear.addBindValue(songId);
+        databaseOk = clear.exec() && databaseOk;
+    }
+    for (const QString &key : std::as_const(clearedCoverKeys)) {
+        for (qint64 songId : candidateCoverSongIds.value(key)) {
+            QSqlQuery clear(m_db);
+            clear.prepare(QStringLiteral(
+                "UPDATE songs SET cover_path='',has_cover=0 WHERE id=?"));
+            clear.addBindValue(songId);
+            databaseOk = clear.exec() && databaseOk;
+        }
+    }
+
+    QSet<qint64> effectiveProtectedSongIds = protectedSongIds;
+    for (const Song &song : std::as_const(m_songs)) {
+        if (song.id > 0 && !song.lyricPath.isEmpty()
+            && QFileInfo(song.lyricPath).isFile() && QFileInfo(song.lyricPath).size() > 0) {
+            effectiveProtectedSongIds.insert(song.id);
+        }
+    }
+    QString transientWhere = QStringLiteral(
+        "source>0 AND COALESCE(download_path,'')='' "
+        "AND COALESCE(play_count,0)=0 AND COALESCE(last_played_ms,0)=0 "
+        "AND NOT EXISTS(SELECT 1 FROM playlist_songs ps WHERE ps.song_id=songs.id) "
+        "AND NOT EXISTS(SELECT 1 FROM recent r WHERE r.song_id=songs.id) "
+        "AND NOT EXISTS(SELECT 1 FROM song_cache sc WHERE sc.song_id=songs.id)");
+    const QList<qint64> protectedIds = effectiveProtectedSongIds.values();
+    if (!protectedIds.isEmpty()) {
+        QStringList placeholders;
+        placeholders.fill(QStringLiteral("?"), protectedIds.size());
+        transientWhere += QStringLiteral(" AND id NOT IN (%1)").arg(placeholders.join(QLatin1Char(',')));
+    }
+    QSqlQuery removeTransient(m_db);
+    removeTransient.prepare(QStringLiteral("DELETE FROM songs WHERE ") + transientWhere);
+    for (qint64 songId : protectedIds)
+        removeTransient.addBindValue(songId);
+    if (removeTransient.exec())
+        result.transientOnlineSongs = qMax(0, int(removeTransient.numRowsAffected()));
+    else {
+        databaseOk = false;
+        result.failures.append(QStringLiteral("删除纯浏览在线记录失败：%1")
+                                   .arg(removeTransient.lastError().text()));
+    }
+
+    if (!databaseOk || !m_db.commit()) {
+        m_db.rollback();
+        result.failures.append(QStringLiteral("缓存清理数据库事务未能提交：%1")
+                                   .arg(m_db.lastError().text()));
+        result.transientOnlineSongs = 0;
+    } else {
+        QSqlQuery checkpoint(m_db);
+        if (!checkpoint.exec(QStringLiteral("PRAGMA wal_checkpoint(TRUNCATE)")))
+            result.failures.append(QStringLiteral("缓存已清理，但 WAL 整理失败：%1")
+                                       .arg(checkpoint.lastError().text()));
+    }
+
+    reloadSongs();
     emit cacheChanged();
     emit libraryChanged();
+    return result;
 }
 
 void LibraryService::cacheUsage(qint64 *bytes, int *count) const
@@ -2213,6 +2478,114 @@ void LibraryService::cacheUsage(qint64 *bytes, int *count) const
         *bytes = b;
     if (count)
         *count = c;
+}
+
+CacheUsageBreakdown LibraryService::cacheUsageDetailed(
+    const QSet<qint64> &protectedSongIds) const
+{
+    CacheUsageBreakdown usage;
+    cacheUsage(&usage.playbackBytes, &usage.playbackSongs);
+
+    const QString coverRoot = coverCacheDir();
+    QSet<QString> protectedCoverKeys;
+    QSet<QString> candidateCoverKeys;
+    QHash<QString, qint64> candidateCoverBytes;
+    if (m_db.isOpen()) {
+        QSqlQuery songCovers(m_db);
+        if (songCovers.exec(QStringLiteral(
+                "SELECT source,cover_path,download_path FROM songs WHERE cover_path<>''"))) {
+            while (songCovers.next()) {
+                const int source = songCovers.value(0).toInt();
+                const QString path = songCovers.value(1).toString();
+                const QString downloadPath = songCovers.value(2).toString();
+                if (path.isEmpty())
+                    continue;
+                const QString key = normalizedFileKey(path);
+                if (source == int(SourceId::Local) || !downloadPath.isEmpty()) {
+                    protectedCoverKeys.insert(key);
+                } else if (source > int(SourceId::Local) && isPathInside(path, coverRoot)) {
+                    candidateCoverKeys.insert(key);
+                    candidateCoverBytes.insert(key, qMax<qint64>(0, QFileInfo(path).size()));
+                }
+            }
+        }
+        QSqlQuery playlistCovers(m_db);
+        if (playlistCovers.exec(QStringLiteral(
+                "SELECT cover_path FROM playlists WHERE cover_path<>''"))) {
+            while (playlistCovers.next())
+                protectedCoverKeys.insert(normalizedFileKey(playlistCovers.value(0).toString()));
+        }
+    }
+    QList<DownloadManifestRecord> downloadRecords;
+    if (loadDownloadManifest(downloadDir(), &downloadRecords)) {
+        for (const DownloadManifestRecord &record : std::as_const(downloadRecords)) {
+            if (!record.song.coverPath.isEmpty())
+                protectedCoverKeys.insert(normalizedFileKey(record.song.coverPath));
+        }
+    }
+    const QDir coverDirectory(coverRoot);
+    for (const QFileInfo &entry : coverDirectory.entryInfoList(
+             QDir::Files | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System)) {
+        if (!isManagedOnlineCoverName(entry.fileName()))
+            continue;
+        const QString key = normalizedFileKey(entry.absoluteFilePath());
+        candidateCoverKeys.insert(key);
+        candidateCoverBytes.insert(key, qMax<qint64>(0, entry.size()));
+    }
+    for (const QString &key : std::as_const(candidateCoverKeys)) {
+        if (protectedCoverKeys.contains(key))
+            continue;
+        ++usage.coverFiles;
+        usage.coverBytes += candidateCoverBytes.value(key);
+    }
+
+    const QStringList recommendationPaths = {
+        SettingsService::recommendCachePath(),
+        qqRecommendCachePath()
+    };
+    for (const QString &path : recommendationPaths) {
+        const QFileInfo info(path);
+        if (!info.isFile())
+            continue;
+        ++usage.responseFiles;
+        usage.responseBytes += qMax<qint64>(0, info.size());
+    }
+    SearchCache searchCache;
+    qint64 searchBytes = 0;
+    int searchFiles = 0;
+    searchCache.payloadUsage(&searchBytes, &searchFiles);
+    usage.responseBytes += searchBytes;
+    usage.responseFiles += searchFiles;
+
+    if (m_db.isOpen()) {
+        QSet<qint64> effectiveProtectedSongIds = protectedSongIds;
+        for (const Song &song : m_songs) {
+            if (song.id > 0 && !song.lyricPath.isEmpty()
+                && QFileInfo(song.lyricPath).isFile() && QFileInfo(song.lyricPath).size() > 0) {
+                effectiveProtectedSongIds.insert(song.id);
+            }
+        }
+        QString where = QStringLiteral(
+            "source>0 AND COALESCE(download_path,'')='' "
+            "AND COALESCE(play_count,0)=0 AND COALESCE(last_played_ms,0)=0 "
+            "AND NOT EXISTS(SELECT 1 FROM playlist_songs ps WHERE ps.song_id=songs.id) "
+            "AND NOT EXISTS(SELECT 1 FROM recent r WHERE r.song_id=songs.id) "
+            "AND NOT EXISTS(SELECT 1 FROM song_cache sc WHERE sc.song_id=songs.id)");
+        const QList<qint64> protectedIds = effectiveProtectedSongIds.values();
+        if (!protectedIds.isEmpty()) {
+            QStringList placeholders;
+            placeholders.fill(QStringLiteral("?"), protectedIds.size());
+            where += QStringLiteral(" AND id NOT IN (%1)").arg(
+                placeholders.join(QLatin1Char(',')));
+        }
+        QSqlQuery count(m_db);
+        count.prepare(QStringLiteral("SELECT COUNT(*) FROM songs WHERE ") + where);
+        for (qint64 songId : protectedIds)
+            count.addBindValue(songId);
+        if (count.exec() && count.next())
+            usage.transientOnlineSongs = count.value(0).toInt();
+    }
+    return usage;
 }
 
 QString LibraryService::downloadDir() const

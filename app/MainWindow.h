@@ -36,6 +36,7 @@ class TitleBar;
 }
 
 class QStackedWidget;
+class QPushButton;
 
 class MainWindow : public QMainWindow
 {
@@ -97,6 +98,9 @@ private:
     void handleBatchCreatePlaylist(const QList<core::Song> &songs);
     void refreshSongListStates();
     void refreshDownloadVisualStates();
+    void refreshFromSidebar();
+    void finishSidebarRefresh(const QString &message);
+    void resetManagedCacheViews();
     bool focusIsEditable() const;
 
     core::LibraryService m_library{ this };
@@ -122,6 +126,7 @@ private:
     ui::SearchPage *m_search = nullptr;
     ui::DownloadPage *m_downloadPage = nullptr;
     QStackedWidget *m_stack = nullptr;
+    QPushButton *m_sidebarRefreshButton = nullptr;
 
     qint64 m_currentSongId = -1;
     int m_playlistContext = -1;
@@ -132,7 +137,9 @@ private:
     bool m_qqApiReady = false;
     bool m_qqApiStarting = false;
     bool m_qqSearchExecutionPending = false;
+    bool m_sidebarRefreshInProgress = false;
     quint64 m_onlineDetailGeneration = 0;
+    quint64 m_onlineCoverGeneration = 0;
     QSet<QString> m_metadataAttempted;
     QHash<QString, qint64> m_activeDownloadSongIds;
     QSet<qint64> m_onlineCoverAttempted;

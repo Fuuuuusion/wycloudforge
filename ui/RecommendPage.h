@@ -2,6 +2,8 @@
 
 #include "core/Song.h"
 
+#include <QHash>
+#include <QJsonArray>
 #include <QWidget>
 
 class QHBoxLayout;
@@ -29,7 +31,9 @@ public:
     void setSourceRegistry(core::MusicSourceRegistry *registry);
     void setActiveSource(core::SourceId sourceId);
     void setSourceAvailable(core::SourceId sourceId, bool available);
-    void refresh();
+    void refresh(bool forceNetwork = false);
+    void resetAfterCacheClear();
+    core::SourceId activeSourceId() const;
     QList<core::Song> currentSongs() const;
     void setPlaylistMenuItems(const QList<QPair<int, QString>> &items);
 
@@ -40,6 +44,7 @@ signals:
     void heartRequested(int row);
     void addToPlaylistRequested(int row, int playlistId);
     void sourceActivationRequested(int sourceId);
+    void refreshStateChanged(bool busy, const QString &message);
 
 private:
     QString cachePath(core::SourceId sourceId) const;
@@ -60,6 +65,9 @@ private:
     QPushButton *m_neteaseButton = nullptr;
     QPushButton *m_qqButton = nullptr;
     SongListView *m_list = nullptr;
+    QHash<int, QJsonArray> m_songPayloads;
+    QHash<int, QJsonArray> m_playlistPayloads;
+    QHash<int, int> m_playlistOffsets;
     int m_requestGeneration = 0;
     bool m_neteaseAvailable = false;
     bool m_qqAvailable = false;

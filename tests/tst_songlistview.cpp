@@ -8,9 +8,11 @@
 #include "ui/AccountPanel.h"
 #include "ui/AccountSettingsButton.h"
 #include "ui/SideBar.h"
+#include "ui/SidebarFooter.h"
 #include "ui/SourceIcons.h"
 #include "ui/TitleBar.h"
 #include "core/NeteaseApiClient.h"
+#include "core/QqMusicSource.h"
 #include "core/SettingsService.h"
 
 #include <QAbstractItemModel>
@@ -47,6 +49,39 @@ public:
     }
 };
 
+class RecordingQqRecommendSource final : public QqMusicSource
+{
+public:
+    using QqMusicSource::QqMusicSource;
+
+    void recommendSongs(JsonArrayFn ok, ErrFn = {}) override
+    {
+        ++recommendCalls;
+        if (ok)
+            ok(songs);
+    }
+
+    void topPlaylists(const QString &, int offset, JsonArrayFn ok, ErrFn = {}) override
+    {
+        playlistOffsets.append(offset);
+        if (ok)
+            ok(playlists);
+    }
+
+    void userPlaylists(const QString &, JsonArrayFn ok, ErrFn = {}) override
+    {
+        ++userPlaylistCalls;
+        if (ok)
+            ok(QJsonArray());
+    }
+
+    QJsonArray songs;
+    QJsonArray playlists;
+    QList<int> playlistOffsets;
+    int recommendCalls = 0;
+    int userPlaylistCalls = 0;
+};
+
 class SongListViewTest : public QObject
 {
     Q_OBJECT
@@ -73,6 +108,8 @@ private slots:
     void collectionPagesDisplayMergedSourcesOnce();
     void sourceSwitchIsVisibleAndExclusive();
     void sourceIconResourcesPreserveSizeAndAlpha();
+    void sidebarFooterKeepsConfirmedGeometryAndRefreshIcon();
+    void manualRecommendRefreshUsesPlatformTopListsAndFeedback();
     void recommendedPlaylistsScrollAtNarrowWidths();
     void accountActionIsExplicitAndPreservesSignal();
     void layoutComponentsFollowConfirmedGeometry();
@@ -1160,6 +1197,120 @@ void SongListViewTest::sourceIconResourcesPreserveSizeAndAlpha()
             }
         }
     }
+}
+
+void SongListViewTest::sidebarFooterKeepsConfirmedGeometryAndRefreshIcon()
+{
+    SidebarFooter footer;
+    footer.resize(240, 128);
+    footer.show();
+    QApplication::processEvents();
+
+    auto *settings = footer.settingsButton();
+    auto *refresh = footer.refreshButton();
+    QVERIFY(settings);
+    QVERIFY(refresh);
+    QCOMPARE(settings->size(), QSize(28, 28));
+    QCOMPARE(refresh->size(), QSize(28, 28));
+    QCOMPARE(refresh->iconSize(), QSize(18, 18));
+    QCOMPARE(settings->geometry().left(), 18);
+    QCOMPARE(settings->geometry().bottom(), footer.height() - 18 - 1);
+    QCOMPARE(refresh->geometry().left() - settings->geometry().right() - 1, 12);
+    QCOMPARE(refresh->geometry().bottom(), settings->geometry().bottom());
+
+    const QImage icon = refresh->icon().pixmap(refresh->iconSize()).toImage();
+    QVERIFY(!icon.isNull());
+    QColor strongestPixel;
+    int strongestAlpha = -1;
+    for (int y = 0; y < icon.height(); ++y) {
+        for (int x = 0; x < icon.width(); ++x) {
+            const QColor pixel = icon.pixelColor(x, y);
+            if (pixel.alpha() > strongestAlpha) {
+                strongestAlpha = pixel.alpha();
+                strongestPixel = pixel;
+            }
+        }
+    }
+    QVERIFY(strongestAlpha > 0);
+    QCOMPARE(strongestPixel.red(), 184);
+    QCOMPARE(strongestPixel.green(), 184);
+    QCOMPARE(strongestPixel.blue(), 196);
+
+    QSignalSpy refreshSpy(&footer, &SidebarFooter::refreshClicked);
+    refresh->click();
+    QCOMPARE(refreshSpy.count(), 1);
+}
+
+void SongListViewTest::manualRecommendRefreshUsesPlatformTopListsAndFeedback()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QSettings::Format previousFormat = QSettings::defaultFormat();
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, dir.path());
+    const QString previousQqUserId = SettingsService::qqUserId();
+    struct RestoreSettings
+    {
+        QString qqUserId;
+        QSettings::Format format = QSettings::NativeFormat;
+        ~RestoreSettings()
+        {
+            SettingsService::setQqUserId(qqUserId);
+            SettingsService::setRecommendCachePathOverride(QString());
+            QSettings::setDefaultFormat(format);
+        }
+    } restore{ previousQqUserId, previousFormat };
+
+    const QString recommendPath = dir.filePath(QStringLiteral("recommend.json"));
+    SettingsService::setRecommendCachePathOverride(recommendPath);
+    SettingsService::setQqUserId(QStringLiteral("qq-refresh-test"));
+    QSettings().sync();
+    QCOMPARE(SettingsService::qqUserId(), QStringLiteral("qq-refresh-test"));
+
+    RecordingQqRecommendSource source;
+    source.songs = QJsonArray{
+        QJsonObject{
+            { QStringLiteral("remoteId"), QStringLiteral("QQ_REFRESH_SONG") },
+            { QStringLiteral("title"), QStringLiteral("刷新歌曲") },
+            { QStringLiteral("artist"), QStringLiteral("刷新歌手") },
+            { QStringLiteral("album"), QStringLiteral("刷新专辑") },
+            { QStringLiteral("durationMs"), QStringLiteral("180000") }
+        }
+    };
+    source.playlists = QJsonArray{
+        QJsonObject{
+            { QStringLiteral("remoteId"), QStringLiteral("QQ_REFRESH_PLAYLIST") },
+            { QStringLiteral("name"), QStringLiteral("刷新歌单") }
+        }
+    };
+
+    RecommendPage page;
+    page.setSourceProvider(&source, nullptr);
+    QCOMPARE(page.activeSourceId(), SourceId::QqMusic);
+    QSignalSpy stateSpy(&page, &RecommendPage::refreshStateChanged);
+
+    page.refresh(true);
+    QCOMPARE(source.recommendCalls, 1);
+    QCOMPARE(source.userPlaylistCalls, 0);
+    QCOMPARE(source.playlistOffsets, QList<int>{ 6 });
+    QCOMPARE(page.currentSongs().size(), 1);
+    QCOMPARE(page.currentSongs().first().remoteId, QStringLiteral("QQ_REFRESH_SONG"));
+    QCOMPARE(stateSpy.count(), 2);
+    QCOMPARE(stateSpy.at(0).at(0).toBool(), true);
+    QCOMPARE(stateSpy.at(1).at(0).toBool(), false);
+    QCOMPARE(stateSpy.at(1).at(1).toString(), QStringLiteral("推荐内容已刷新"));
+    const QString qqCachePath = QFileInfo(recommendPath).absolutePath()
+        + QStringLiteral("/recommend-qq.json");
+    QVERIFY(QFileInfo(qqCachePath).isFile());
+
+    stateSpy.clear();
+    page.refresh(true);
+    QCOMPARE(source.recommendCalls, 2);
+    QCOMPARE(source.userPlaylistCalls, 0);
+    QCOMPARE(source.playlistOffsets, (QList<int>{ 6, 12 }));
+    QCOMPARE(stateSpy.count(), 2);
+    QCOMPARE(stateSpy.at(1).at(1).toString(),
+             QStringLiteral("刷新成功，平台返回内容未变化"));
 }
 
 void SongListViewTest::recommendedPlaylistsScrollAtNarrowWidths()

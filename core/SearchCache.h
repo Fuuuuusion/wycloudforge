@@ -34,6 +34,10 @@ public:
     void addHistory(const QString &query, int limit = 20) const;
     void clearHistory() const;
 
+    // 搜索响应属于可丢弃缓存；搜索历史保存在 QSettings 中，不受这两个接口影响。
+    void payloadUsage(qint64 *bytes, int *files) const;
+    QStringList clearPayloads() const;
+
     static QString normalizedQuery(const QString &query);
 
 private:

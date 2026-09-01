@@ -53,6 +53,7 @@ public:
     QString resolvedSearchText(const QString &fallback) const;
     void refreshLocalResults();
     void refreshOnlineCovers();
+    void resetAfterCacheClear();
     void setSearchScope(core::SearchScope scope);
     void setSearchCategory(core::SearchCategory category);
     void setSortMode(core::SearchSortMode mode);

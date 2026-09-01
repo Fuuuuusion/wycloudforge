@@ -1630,14 +1630,24 @@ void SearchPage::startCoverDownloads()
         }
         const QString path = m_lib->songCoverCachePath(song);
         const qint64 id = song.id;
+        const quint64 generation = m_searchGeneration;
         ++m_coverDownloadsActive;
         const QPointer<SearchPage> guard(this);
         source->downloadToFile(QUrl(song.coverUrl), path,
-                               [guard, identity, id, path](bool ok) {
-            if (!guard)
+                               [guard, identity, id, path, generation](bool ok) {
+            if (!guard) {
+                if (ok)
+                    QFile::remove(path);
                 return;
+            }
             guard->m_coverDownloadsActive = qMax(0, guard->m_coverDownloadsActive - 1);
             guard->m_coverDownloads.remove(identity);
+            if (generation != guard->m_searchGeneration) {
+                if (ok)
+                    QFile::remove(path);
+                guard->startCoverDownloads();
+                return;
+            }
             if (ok && guard->m_lib) {
                 guard->setOnlineCover(identity, path);
                 if (id > 0)
@@ -1646,6 +1656,42 @@ void SearchPage::startCoverDownloads()
             guard->startCoverDownloads();
         });
     }
+}
+
+void SearchPage::resetAfterCacheClear()
+{
+    cancelActiveSearch();
+    ++m_searchGeneration;
+    ++m_localRequestGeneration;
+    ++m_assistantGeneration;
+    m_coverDownloadQueue.clear();
+    m_albumCoverQueue.clear();
+    m_coverDownloads.clear();
+    m_albumCoverLookups.clear();
+    for (core::SearchResultItem &item : m_onlineItems) {
+        if (item.type != core::SearchItemType::Song
+            && item.type != core::SearchItemType::Lyric) {
+            continue;
+        }
+        core::Song &song = item.song;
+        const core::Song stored = m_lib && song.hasRemoteIdentity()
+            ? m_lib->songByRemoteId(song.source, song.effectiveRemoteId()) : core::Song{};
+        if (stored.id > 0) {
+            song.id = stored.id;
+            song.coverPath = stored.coverPath;
+            song.cachePath = stored.cachePath;
+            song.downloadPath = stored.downloadPath;
+            song.lyricPath = stored.lyricPath;
+        } else {
+            song.id = -1;
+            song.coverPath.clear();
+            song.cachePath.clear();
+            song.downloadPath.clear();
+            song.lyricPath.clear();
+        }
+    }
+    rebuildAggregatedOnlineResults();
+    renderGenericResults();
 }
 
 void SearchPage::startAlbumCoverLookups()
