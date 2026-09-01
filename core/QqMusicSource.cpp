@@ -131,6 +131,13 @@ void QqMusicSource::validateCredential(const QString &credential, const QString 
     }, std::move(ok), std::move(err));
 }
 
+void QqMusicSource::vipStatus(OkFn ok, ErrFn err)
+{
+    post(QStringLiteral("/v1/account/vip"), {
+        { QStringLiteral("credential"), m_cookie }
+    }, std::move(ok), std::move(err));
+}
+
 void QqMusicSource::searchSongs(const QString &keywords, int limit, JsonArrayFn ok, ErrFn err)
 {
     searchSongsPage(keywords, limit, 0, std::move(ok), std::move(err));
@@ -285,6 +292,28 @@ void QqMusicSource::songUrls(const QStringList &ids, JsonArrayFn ok, ErrFn err)
         jsonIds.append(id);
     post(QStringLiteral("/v1/media"), {
         { QStringLiteral("ids"), jsonIds },
+        { QStringLiteral("credential"), m_cookie }
+    }, [ok = std::move(ok)](const QJsonObject &data) {
+        if (ok)
+            ok(data.value(QStringLiteral("addresses")).toArray());
+    }, std::move(err));
+}
+
+void QqMusicSource::songUrls(const QList<Song> &songs, JsonArrayFn ok, ErrFn err)
+{
+    QJsonArray items;
+    for (const Song &song : songs) {
+        const QString remoteId = song.effectiveRemoteId().trimmed();
+        if (remoteId.isEmpty())
+            continue;
+        QJsonObject item{
+            { QStringLiteral("remoteId"), remoteId },
+            { QStringLiteral("mediaRemoteId"), song.mediaRemoteId.trimmed() }
+        };
+        items.append(item);
+    }
+    post(QStringLiteral("/v1/media"), {
+        { QStringLiteral("items"), items },
         { QStringLiteral("credential"), m_cookie }
     }, [ok = std::move(ok)](const QJsonObject &data) {
         if (ok)
@@ -542,12 +571,14 @@ void QqMusicSource::cancelDownload(DownloadId id)
 
 Song QqMusicSource::songFromJson(const QJsonObject &obj) const
 {
-    return MusicSource::makeOnlineSong(
+    Song song = MusicSource::makeOnlineSong(
         SourceId::QqMusic, sourceScheme(), obj.value(QStringLiteral("remoteId")).toString(),
         obj.value(QStringLiteral("title")).toString(), obj.value(QStringLiteral("artist")).toString(),
         obj.value(QStringLiteral("album")).toString(), obj.value(QStringLiteral("durationMs")).toVariant().toLongLong(),
         obj.value(QStringLiteral("coverUrl")).toString(), obj.value(QStringLiteral("albumRemoteId")).toString(),
         obj.value(QStringLiteral("artistRemoteId")).toString());
+    song.mediaRemoteId = obj.value(QStringLiteral("mediaRemoteId")).toString().trimmed();
+    return song;
 }
 
 } // namespace core

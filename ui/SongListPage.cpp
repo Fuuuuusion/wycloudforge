@@ -55,12 +55,14 @@ SongListPage::SongListPage(QWidget *parent)
     actions->addWidget(playAll);
 
     m_moreBtn = new QToolButton(info);
+    m_moreBtn->setObjectName(QStringLiteral("songListMoreButton"));
     m_moreBtn->setText(QStringLiteral("···"));
     m_moreBtn->setCursor(Qt::PointingHandCursor);
     m_moreBtn->setStyleSheet(QStringLiteral(
         "QToolButton{background:#1B1B24;border:none;border-radius:18px;"
         "padding:4px 14px;color:#C8C8D0;font-size:15px;}"
         "QToolButton:hover{background:#3A2024;color:#FF5A5A;}"));
+    m_moreBtn->hide();
     actions->addWidget(m_moreBtn);
     actions->addStretch(1);
     infoLayout->addWidget(m_title);
@@ -77,7 +79,12 @@ SongListPage::SongListPage(QWidget *parent)
     });
     connect(m_view, &SongListView::heartRequested, this, &SongListPage::heartRequested);
     connect(m_view, &SongListView::addToPlaylistRequested, this, &SongListPage::addToPlaylistRequested);
-    connect(m_view, &SongListView::removeFromPlaylistRequested, this, &SongListPage::removeFromPlaylistRequested);
+    connect(m_view, &SongListView::removeFromPlaylistRequested, this, [this](int row) {
+        if (m_playbackQueueContext)
+            emit removeFromPlaybackQueueRequested(row);
+        else
+            emit removeFromPlaylistRequested(row);
+    });
     connect(m_view, &SongListView::deleteFromLibraryRequested, this, &SongListPage::deleteFromLibraryRequested);
 }
 
@@ -170,6 +177,7 @@ void SongListPage::setHeaderCoverPath(const QString &path)
 void SongListPage::setPlaylistContext(int playlistId)
 {
     m_playlistContext = playlistId;
+    m_playbackQueueContext = false;
     // QToolButton 仍持有旧菜单指针时直接 delete 可能触发 QtWidgets 访问冲突。
     // 先解除绑定，再延迟销毁旧菜单，避免刷新歌单详情时使用悬空指针。
     if (QMenu *oldMenu = m_moreBtn->menu()) {
@@ -193,6 +201,32 @@ void SongListPage::setPlaylistContext(int playlistId)
     }
     m_moreBtn->setMenu(menu);
     m_moreBtn->setPopupMode(QToolButton::InstantPopup);
+    m_moreBtn->setVisible(!menu->isEmpty());
+}
+
+void SongListPage::setPlaybackQueueContext()
+{
+    m_playlistContext = -1;
+    m_playbackQueueContext = true;
+    if (QMenu *oldMenu = m_moreBtn->menu()) {
+        m_moreBtn->setMenu(nullptr);
+        oldMenu->deleteLater();
+    }
+    auto *menu = new QMenu(m_moreBtn);
+    menu->addAction(QStringLiteral("保存为新建歌单"), this,
+                    &SongListPage::savePlaybackQueueRequested);
+    menu->addAction(QStringLiteral("清空播放列表"), this,
+                    &SongListPage::clearPlaybackQueueRequested);
+    m_moreBtn->setMenu(menu);
+    m_moreBtn->setPopupMode(QToolButton::InstantPopup);
+    m_moreBtn->show();
+    m_view->setRemovable(true);
+}
+
+void SongListPage::setReadOnlyContext()
+{
+    setPlaylistContext(-1);
+    m_view->setRemovable(false);
 }
 
 void SongListPage::setPlaylistMenuItems(const QList<QPair<int, QString>> &items)

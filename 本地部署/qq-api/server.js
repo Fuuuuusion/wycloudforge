@@ -129,6 +129,13 @@ async function validateCredential(credential, loginMethod = '') {
   return { ...profile, loginMethod };
 }
 
+async function vipStatus(credential) {
+  if (!credential || !accountUserId(credential))
+    throw new Error('QQ 音乐登录凭据不完整');
+  const raw = contract.unwrap(await services.getVipInfo({ cookie: credential }));
+  return contract.vipPayload(raw);
+}
+
 function runAuthWorker(attempt) {
   if (attempt.worker) throw new Error('登录状态请求仍在进行中');
   return new Promise((resolve, reject) => {
@@ -365,13 +372,32 @@ async function searchSuggestions(body) {
 }
 
 async function mediaAddresses(body) {
-  const ids = Array.isArray(body.ids) ? body.ids.map(String).filter(Boolean).slice(0, 100) : [];
+  const legacyItems = Array.isArray(body.ids)
+    ? body.ids.map((remoteId) => ({ remoteId: String(remoteId || ''), mediaRemoteId: '' }))
+    : [];
+  const items = (Array.isArray(body.items) ? body.items : legacyItems)
+    .map((item) => ({
+      remoteId: String(item && item.remoteId || '').trim(),
+      mediaRemoteId: String(item && item.mediaRemoteId || '').trim(),
+    }))
+    .filter((item) => item.remoteId)
+    .slice(0, 100);
   const credential = String(body.credential || '');
   const data = [];
-  for (const remoteId of ids) {
+  for (const item of items) {
+    const { remoteId, mediaRemoteId } = item;
     try {
-      const raw = contract.unwrap(await sdk.getMusicPlay({ songmid: remoteId, quality: '128', credential, cookie: credential }));
-      data.push({ remoteId, url: contract.collectUrls(raw)[0] || '', error: '' });
+      const raw = contract.unwrap(await sdk.getMusicPlay({
+        songmid: remoteId,
+        mediaId: mediaRemoteId || undefined,
+        quality: '128',
+        cookie: credential,
+      }));
+      const address = contract.mediaAddress(raw, remoteId);
+      if (!address.url && !address.error) address.error = mediaRemoteId
+        ? 'QQ 音乐没有返回可用播放地址'
+        : '歌曲缺少媒体文件标识，无法解析受保护音频';
+      data.push(address);
     } catch (error) {
       data.push({ remoteId, url: '', error: error.message || '获取播放地址失败' });
     }
@@ -512,6 +538,7 @@ async function route(request, response) {
     return success(response, { canceled: true });
   }
   if (url.pathname === '/auth/validate') return success(response, await validateCredential(String(body.credential || ''), String(body.loginMethod || 'saved')));
+  if (url.pathname === '/v1/account/vip') return success(response, await vipStatus(String(body.credential || '')));
   if (url.pathname === '/auth/logout') return success(response, { loggedOut: true });
   if (url.pathname === '/v1/account/playlists') {
     return success(response, { playlists: await accountPlaylists(body) });

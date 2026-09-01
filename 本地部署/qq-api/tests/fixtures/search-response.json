@@ -5,6 +5,7 @@
       "list": [
         {
           "songmid": "0039MnYb0qxYhV",
+          "file": { "media_mid": "MEDIA_DIFFERENT_FROM_SONG_MID" },
           "songname": "测试歌曲",
           "interval": 245,
           "singer": [{ "mid": "0025NhlN2yWrP4", "name": "测试歌手", "unknown": "ignored" }],

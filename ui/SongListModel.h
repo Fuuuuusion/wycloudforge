@@ -60,6 +60,7 @@ public:
     core::SourceId activeSourceAt(int row) const;
     bool activateSource(int row, core::SourceId source, QString *error = nullptr);
     void setPlayingId(qint64 playingId);
+    void setPlayingSong(const core::Song &song);
     void setFavoriteIds(const QSet<qint64> &ids);
     void setBatchMode(bool enabled);
     void setSelectedIdentities(const QSet<QString> &identities);
@@ -76,6 +77,7 @@ private:
     QList<core::Song> m_songs;
     QList<RowContext> m_rows;
     qint64 m_playingId = -1;
+    QString m_playingIdentity;
     QSet<qint64> m_favoriteIds;
     QSet<QString> m_selectedIdentities;
     QSet<QString> m_downloadingIdentities;

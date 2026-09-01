@@ -1320,6 +1320,14 @@ QList<core::Song> SongListView::selectedSongs() const
     return result;
 }
 
+void SongListView::setPlayingSong(const core::Song &song)
+{
+    const bool changed = m_model->playingId() != song.id;
+    m_model->setPlayingSong(song);
+    if (changed || !song.stableIdentity().isEmpty())
+        viewport()->update();
+}
+
 QList<core::Song> SongListView::selectedMemberSongs() const
 {
     QList<core::Song> result;

@@ -2,6 +2,7 @@
 
 #include "ui/CoverCard.h"
 #include "ui/CoverProvider.h"
+#include "ui/SourceIcons.h"
 
 #include <QFileInfo>
 #include <QGridLayout>
@@ -56,6 +57,12 @@ void SelfPlaylistsPage::setPlaylists(const QList<core::PlaylistController::Playl
     rebuild();
 }
 
+void SelfPlaylistsPage::setCloudPlaylists(const QList<core::OnlinePlaylist> &playlists)
+{
+    m_cloudPlaylists = playlists;
+    rebuild();
+}
+
 void SelfPlaylistsPage::rebuild()
 {
     while (QLayoutItem *item = m_grid->takeAt(0)) {
@@ -88,6 +95,27 @@ void SelfPlaylistsPage::rebuild()
         card->setCover(cover);
         card->setText(pl.name, pl.description);
         connect(card, &CoverCard::clicked, this, [this, id = pl.id] { emit openPlaylistRequested(id); });
+        addCard(card);
+    }
+
+    for (const core::OnlinePlaylist &playlist : m_cloudPlaylists) {
+        auto *card = new CoverCard(this);
+        card->setFixedCardSize(132, 116);
+        card->setFullCoverCard(true);
+        QPixmap cover;
+        if (!playlist.coverPath.isEmpty() && QFileInfo::exists(playlist.coverPath))
+            cover = QPixmap(playlist.coverPath);
+        if (cover.isNull())
+            cover = CoverProvider::placeholder(playlist.name, 116, 6);
+        card->setCover(cover);
+        card->setText(playlist.name, sourceDisplayName(playlist.source));
+        card->setToolTip(QStringLiteral("%1\n%2")
+                             .arg(playlist.name, sourceDisplayName(playlist.source)));
+        connect(card, &CoverCard::clicked, this,
+                [this, source = playlist.source, remoteId = playlist.remoteId,
+                 name = playlist.name] {
+            emit openCloudPlaylistRequested(int(source), remoteId, name);
+        });
         addCard(card);
     }
 

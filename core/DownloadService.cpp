@@ -131,7 +131,7 @@ void DownloadService::resolveUrl(qint64 taskId)
     Task *task = taskFor(taskId);
     if (!task || taskId != m_activeTaskId || !m_activeSource)
         return;
-    m_activeSource->songUrls({ task->song.effectiveRemoteId() },
+    m_activeSource->songUrls(QList<Song>{ task->song },
                        [this, taskId](const QJsonArray &array) {
         Task *task = taskFor(taskId);
         if (!task || taskId != m_activeTaskId)

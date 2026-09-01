@@ -12,6 +12,7 @@ test('normalizes fixture and ignores unknown fields', () => {
   assert.equal(songs.length, 1);
   assert.deepEqual(songs[0], {
     remoteId: '0039MnYb0qxYhV',
+    mediaRemoteId: 'MEDIA_DIFFERENT_FROM_SONG_MID',
     title: '测试歌曲',
     artist: '测试歌手',
     artistRemoteId: '0025NhlN2yWrP4',
@@ -19,6 +20,23 @@ test('normalizes fixture and ignores unknown fields', () => {
     albumRemoteId: '004DABuD2r4V8n',
     durationMs: 245000,
     coverUrl: 'https://y.gtimg.cn/music/photo_new/T002R300x300M000004DABuD2r4V8n.jpg?max_age=2592000',
+  });
+});
+
+test('preserves QQ media identity and upstream playback errors', () => {
+  assert.deepEqual(contract.mediaAddress({ playUrl: {
+    SONG_MID: { url: '', error: 'Cookie 已失效或 uin 缺失' },
+  } }, 'SONG_MID'), {
+    remoteId: 'SONG_MID',
+    url: '',
+    error: 'Cookie 已失效或 uin 缺失',
+  });
+  assert.deepEqual(contract.mediaAddress({ playUrl: {
+    SONG_MID: { url: 'https://example.test/song.mp3' },
+  } }, 'SONG_MID'), {
+    remoteId: 'SONG_MID',
+    url: 'https://example.test/song.mp3',
+    error: '',
   });
 });
 
@@ -38,6 +56,25 @@ test('maps all QQ and WeChat QR states', () => {
 test('keeps large QQ music id as text', () => {
   const profile = contract.profilePayload({ musicid: '9223372036854775808123', nickname: '微信用户' });
   assert.equal(profile.userId, '9223372036854775808123');
+});
+
+test('normalizes QQ VIP entitlement without relying on profile login', () => {
+  assert.deepEqual(contract.vipPayload({ req_1: { data: {
+    is_vip: 1,
+    vip_level: 5,
+    vip_end_time: 4102444800,
+  } } }), {
+    recognized: true,
+    active: true,
+    level: 5,
+    expiresAt: 4102444800000,
+  });
+  assert.deepEqual(contract.vipPayload({ req_1: { data: { is_vip: 0 } } }), {
+    recognized: true,
+    active: false,
+    level: 0,
+    expiresAt: 0,
+  });
 });
 
 test('normalizes WeChat profile and cloud playlists without narrowing musicid', () => {
@@ -81,6 +118,7 @@ test('normalizes current QQ new-song response used by recommendation fallback', 
   }] } } });
   assert.equal(songs.length, 1);
   assert.equal(songs[0].remoteId, '003CURRENTSONGMID');
+  assert.equal(songs[0].mediaRemoteId, '');
   assert.equal(songs[0].durationMs, 201000);
   assert.equal(songs[0].artist, '推荐歌手');
 });

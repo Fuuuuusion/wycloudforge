@@ -70,7 +70,7 @@ QList<Song> PlaylistController::songsOf(int playlistId) const
     q.prepare(QStringLiteral(
         "SELECT s.id,s.path,s.title,s.artist,s.album,s.duration_ms,s.cover_path,s.missing,s.play_count,s.last_played_ms,"
         "s.source,s.online_id,s.cover_url,s.album_id,COALESCE(NULLIF(sc.cache_path,''),s.cache_path,''),s.download_path,"
-        "s.remote_id,s.album_remote_id,s.artist_remote_id "
+        "s.remote_id,s.album_remote_id,s.artist_remote_id,s.media_remote_id "
         "FROM playlist_songs ps JOIN songs s ON s.id=ps.song_id "
         "LEFT JOIN song_cache sc ON sc.song_id=s.id "
         "WHERE ps.playlist_id=? ORDER BY ps.position, s.id"));
@@ -97,6 +97,7 @@ QList<Song> PlaylistController::songsOf(int playlistId) const
         s.remoteId = q.value(16).toString();
         s.albumRemoteId = q.value(17).toString();
         s.artistRemoteId = q.value(18).toString();
+        s.mediaRemoteId = q.value(19).toString();
         if (s.remoteId.isEmpty() && s.onlineId > 0)
             s.remoteId = QString::number(s.onlineId);
         if (s.albumRemoteId.isEmpty() && s.albumId > 0)
@@ -611,7 +612,7 @@ QList<Song> PlaylistController::recentSongs(int limit) const
     const QString sql = QStringLiteral(
         "SELECT s.id,s.path,s.title,s.artist,s.album,s.duration_ms,s.cover_path,s.missing,s.play_count,s.last_played_ms,"
         "s.source,s.online_id,s.cover_url,s.album_id,COALESCE(NULLIF(sc.cache_path,''),s.cache_path,''),s.download_path,"
-        "s.remote_id,s.album_remote_id,s.artist_remote_id "
+        "s.remote_id,s.album_remote_id,s.artist_remote_id,s.media_remote_id "
         "FROM recent r JOIN songs s ON s.id=r.song_id "
         "LEFT JOIN song_cache sc ON sc.song_id=s.id "
         "ORDER BY r.played_ms DESC, r.rowid DESC LIMIT %1").arg(safeLimit);
@@ -640,6 +641,7 @@ QList<Song> PlaylistController::recentSongs(int limit) const
         s.remoteId = q.value(16).toString();
         s.albumRemoteId = q.value(17).toString();
         s.artistRemoteId = q.value(18).toString();
+        s.mediaRemoteId = q.value(19).toString();
         if (s.remoteId.isEmpty() && s.onlineId > 0)
             s.remoteId = QString::number(s.onlineId);
         if (s.albumRemoteId.isEmpty() && s.albumId > 0)

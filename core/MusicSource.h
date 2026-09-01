@@ -54,6 +54,22 @@ struct MediaAddress
     QString error;
 };
 
+struct OnlinePlaylist
+{
+    SourceId source = SourceId::Local;
+    QString remoteId;
+    QString name;
+    QString coverUrl;
+    QString coverPath;
+    QString description;
+
+    QString stableIdentity() const
+    {
+        return QStringLiteral("%1:%2").arg(int(source)).arg(remoteId);
+    }
+    bool isValid() const { return source != SourceId::Local && !remoteId.isEmpty(); }
+};
+
 // 在线音乐源统一接口:网易云 / QQ音乐 各自实现,播放器与页面只面向此接口
 class MusicSource
 {
@@ -77,6 +93,7 @@ public:
         qint64 sizeBytes = 0;
     };
     using DownloadDoneFn = std::function<void(const DownloadResult &)>;
+    using OnlinePlaylistsFn = std::function<void(const QList<OnlinePlaylist> &)>;
 
     virtual ~MusicSource() = default;
 
@@ -102,6 +119,9 @@ public:
     // 来源可以覆盖以实际终止网络请求；默认由 generation 逻辑取消旧结果。
     virtual void cancelSearch(quint64 generation);
     virtual void songUrls(const QStringList &ids, JsonArrayFn ok, ErrFn err = {}) = 0;
+    // 播放和下载优先传完整歌曲，使来源可以使用独立的媒体文件身份。
+    // 默认实现退化为字符串远端 ID，网易云等来源无需重复实现。
+    virtual void songUrls(const QList<Song> &songs, JsonArrayFn ok, ErrFn err = {});
     // 原文 / 翻译 / 音译
     virtual void lyric(const QString &id, String3Fn ok, ErrFn err = {}) = 0;
     virtual void songDetail(const QString &id, OkFn ok, ErrFn err = {}) = 0;
@@ -121,6 +141,10 @@ public:
     virtual void loginStatus(OkFn ok, ErrFn err = {}) = 0;
     virtual void logout(OkFn ok, ErrFn err = {}) = 0;
     virtual void userPlaylists(const QString &uid, JsonArrayFn ok, ErrFn err = {}) = 0;
+    // 将平台响应转换成稳定歌单 DTO，页面和主窗口不解析平台原始字段。
+    virtual OnlinePlaylist playlistFromJson(const QJsonObject &obj) const;
+    virtual void userPlaylistItems(const QString &uid, OnlinePlaylistsFn ok,
+                                   ErrFn err = {});
     virtual void like(const QString &id, bool like, OkFn ok, ErrFn err = {}) = 0;
     virtual void likeList(const QString &uid, JsonArrayFn ok, ErrFn err = {}) = 0;
 

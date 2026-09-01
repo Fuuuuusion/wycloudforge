@@ -76,6 +76,7 @@ void ProgressSlider::mousePressEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton) {
         m_dragging = true;
+        emit dragStarted();
         setValue(valueFromX(event->position().x()));
         event->accept();
     }
@@ -92,8 +93,11 @@ void ProgressSlider::mouseMoveEvent(QMouseEvent *event)
 void ProgressSlider::mouseReleaseEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton && m_dragging) {
-        m_dragging = false;
+        // seekFinished 在 dragFinished 之前发出，让播放器同步 seek 产生的
+        // positionChanged 仍处于拖动保护期，不能把刚释放的目标位置覆盖掉。
         emit seekFinished(m_value);
+        m_dragging = false;
+        emit dragFinished();
         update();
         event->accept();
     }

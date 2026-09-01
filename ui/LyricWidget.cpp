@@ -20,6 +20,9 @@ LyricWidget::LyricWidget(QWidget *parent)
     : QWidget(parent)
 {
     setCursor(Qt::PointingHandCursor);
+    m_previewTimer.setSingleShot(true);
+    m_previewTimer.setInterval(5000);
+    connect(&m_previewTimer, &QTimer::timeout, this, &LyricWidget::finishPreview);
 }
 
 void LyricWidget::setLyrics(const QList<core::LyricLine> &lines, const QList<core::LyricLine> &secondary)
@@ -29,6 +32,9 @@ void LyricWidget::setLyrics(const QList<core::LyricLine> &lines, const QList<cor
     m_current = -1;
     m_offset = 0;
     m_target = 0;
+    m_preview = 0;
+    m_previewing = false;
+    m_previewTimer.stop();
     update();
 }
 
@@ -44,8 +50,12 @@ void LyricWidget::setPosition(qint64 ms)
     if (idx == m_current)
         return;
     m_current = idx;
-    m_preview = 0; // 播放推进时回到跟随当前行
-    updateTarget();
+    // 手动滚动预览期间只更新高亮行，不抢回滚动位置。最后一次滚轮操作
+    // 满 5 秒后，再一次性回到当前播放歌词。
+    if (m_previewing)
+        update();
+    else
+        updateTarget();
 }
 
 void LyricWidget::setFontSize(int px)
@@ -62,6 +72,9 @@ void LyricWidget::clear()
     m_current = -1;
     m_offset = 0;
     m_target = 0;
+    m_preview = 0;
+    m_previewing = false;
+    m_previewTimer.stop();
     update();
 }
 
@@ -76,6 +89,15 @@ void LyricWidget::updateTarget()
     m_target = currentCenter - height() / 2.0;
     m_offset = m_target;
     update();
+}
+
+void LyricWidget::finishPreview()
+{
+    if (!m_previewing)
+        return;
+    m_previewing = false;
+    m_preview = 0;
+    updateTarget();
 }
 
 void LyricWidget::paintEvent(QPaintEvent *)
@@ -145,6 +167,8 @@ void LyricWidget::wheelEvent(QWheelEvent *event)
     const qreal delta = event->angleDelta().y();
     m_preview += (-delta) / 120.0 * lineH;
     m_preview = qBound(-maxScroll, m_preview, maxScroll);
+    m_previewing = true;
+    m_previewTimer.start();
     update();
     event->accept();
 }

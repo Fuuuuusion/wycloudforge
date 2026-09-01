@@ -1,6 +1,8 @@
 #include "ui/SongListView.h"
 #include "ui/SongListModel.h"
 #include "ui/PlayerBar.h"
+#include "ui/ProgressSlider.h"
+#include "ui/LyricWidget.h"
 #include "ui/CoverCard.h"
 #include "ui/FavoritesPage.h"
 #include "ui/RecommendPage.h"
@@ -24,6 +26,7 @@
 #include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QPushButton>
 #include <QScreen>
 #include <QScrollArea>
@@ -96,6 +99,13 @@ private slots:
     void playerBarDirectionalControlsKeepGeometryAndSignals();
     void playerBarHighDpiIconsRemainComplete();
     void playerBarVisualRefinementUsesResourcesAndTooltips();
+    void invalidTemporaryIdsNeverShowPlayingState();
+    void playerBarHoverAnimationsStartFromRestingState();
+    void playerUtilityButtonsKeepTransparentBackground();
+    void playingProgressDragCommitsOnceWithoutPositionOverwrite();
+    void lyricPreviewWaitsForIdleDelay();
+    void songListContextMenusMatchPageSemantics();
+    void cloudPlaylistBadgeIsInformationalOnly();
     void songRowActionIconsStayVerticallyCentered();
     void highlightedSearchTextKeepsRedGlyphsWithoutBackground();
     void rowHoverKeepsBackgroundClear();
@@ -529,6 +539,210 @@ void SongListViewTest::playerBarHighDpiIconsRemainComplete()
     QVERIFY2(favoriteDifferences <= 180,
              qPrintable(QStringLiteral("favorite mirrored pixel differences: %1")
                             .arg(favoriteDifferences)));
+}
+
+void SongListViewTest::invalidTemporaryIdsNeverShowPlayingState()
+{
+    Song temporary;
+    temporary.id = -1;
+    temporary.source = int(SourceId::Netease);
+    temporary.remoteId = QStringLiteral("temporary-search-result");
+    temporary.filePath = QStringLiteral("netease://temporary-search-result");
+    temporary.title = QStringLiteral("尚未播放");
+
+    SongListModel model;
+    model.setSongs({ temporary }, -1);
+    QVERIFY(!model.index(0, 0).data(SongListModel::IsPlayingRole).toBool());
+
+    Song playing = temporary;
+    playing.id = 42;
+    model.setPlayingSong(playing);
+    QVERIFY(model.index(0, 0).data(SongListModel::IsPlayingRole).toBool());
+
+    temporary.id = 42;
+    model.setSongs({ temporary }, 42);
+    QVERIFY(model.index(0, 0).data(SongListModel::IsPlayingRole).toBool());
+}
+
+void SongListViewTest::playerBarHoverAnimationsStartFromRestingState()
+{
+    Song song;
+    song.id = 902;
+    song.source = int(SourceId::Netease);
+    song.remoteId = QStringLiteral("hover-actions");
+    song.filePath = QStringLiteral("netease://hover-actions");
+    song.title = QStringLiteral("Hover");
+
+    PlayerBar bar;
+    bar.resize(1200, 204);
+    bar.setSong(song, false);
+    bar.show();
+    QApplication::processEvents();
+    auto *favorite = bar.findChild<QPushButton *>(QStringLiteral("favoriteActionButton"));
+    auto *download = bar.findChild<QPushButton *>(QStringLiteral("downloadActionButton"));
+    QVERIFY(favorite);
+    QVERIFY(download);
+
+    QEnterEvent favoriteEnter(favorite->rect().center(), favorite->rect().center(),
+                              favorite->mapToGlobal(favorite->rect().center()));
+    QApplication::sendEvent(favorite, &favoriteEnter);
+    QVERIFY(favorite->property("hoverProgress").toReal() < 0.95);
+    QTRY_VERIFY_WITH_TIMEOUT(favorite->property("hoverProgress").toReal() > 0.99, 500);
+
+    QEvent favoriteLeave(QEvent::Leave);
+    QApplication::sendEvent(favorite, &favoriteLeave);
+    QTRY_VERIFY_WITH_TIMEOUT(favorite->property("hoverProgress").toReal() < 0.01, 500);
+    QEnterEvent downloadEnter(download->rect().center(), download->rect().center(),
+                              download->mapToGlobal(download->rect().center()));
+    QApplication::sendEvent(download, &downloadEnter);
+    QVERIFY(download->property("hoverProgress").toReal() < 0.95);
+    QTRY_VERIFY_WITH_TIMEOUT(download->property("hoverProgress").toReal() > 0.99, 500);
+}
+
+void SongListViewTest::playerUtilityButtonsKeepTransparentBackground()
+{
+    PlayerBar bar;
+    QFile theme(QStringLiteral(":/theme.qss"));
+    QVERIFY(theme.open(QIODevice::ReadOnly));
+    bar.setStyleSheet(QString::fromUtf8(theme.readAll()));
+    bar.resize(1200, 204);
+    bar.show();
+    QApplication::processEvents();
+
+    const QStringList names = {
+        QStringLiteral("playerModeButton"), QStringLiteral("playerLyricsButton"),
+        QStringLiteral("playerQueueButton"), QStringLiteral("playerMuteButton"),
+    };
+    for (const QString &name : names) {
+        auto *button = bar.findChild<QPushButton *>(name);
+        QVERIFY2(button, qPrintable(name));
+        const QImage image = button->grab().toImage().convertToFormat(QImage::Format_ARGB32);
+        QCOMPARE(image.pixelColor(image.width() / 2, 4).alpha(), 0);
+    }
+}
+
+void SongListViewTest::playingProgressDragCommitsOnceWithoutPositionOverwrite()
+{
+    Song song;
+    song.id = 903;
+    song.filePath = QStringLiteral("C:/music/progress.mp3");
+    song.title = QStringLiteral("Progress");
+    song.durationMs = 100000;
+
+    PlayerBar bar;
+    bar.resize(1200, 204);
+    bar.setSong(song, false);
+    bar.setPosition(30000);
+    bar.show();
+    QApplication::processEvents();
+    auto *progress = bar.findChild<ProgressSlider *>(QStringLiteral("playerProgress"));
+    QVERIFY(progress);
+    QSignalSpy seekSpy(&bar, &PlayerBar::seekRequested);
+
+    const QPoint target(qRound(progress->width() * 0.78), progress->height() / 2);
+    QTest::mousePress(progress, Qt::LeftButton, Qt::NoModifier,
+                      QPoint(6, progress->height() / 2));
+    QTest::mouseMove(progress, target);
+    QVERIFY(progress->isDragging());
+    const int draggedValue = progress->value();
+    QVERIFY(draggedValue > 700);
+    bar.setPosition(31000); // 模拟播放状态持续回写位置
+    QCOMPARE(progress->value(), draggedValue);
+
+    QTest::mouseRelease(progress, Qt::LeftButton, Qt::NoModifier, target);
+    QCOMPARE(seekSpy.count(), 1);
+    QVERIFY(!progress->isDragging());
+    const qint64 requested = seekSpy.takeFirst().at(0).toLongLong();
+    QVERIFY(requested > 70000 && requested < 85000);
+}
+
+void SongListViewTest::lyricPreviewWaitsForIdleDelay()
+{
+    QList<LyricLine> lines;
+    for (int i = 0; i < 20; ++i)
+        lines.append({ qint64(i) * 1000, QStringLiteral("第 %1 行").arg(i) });
+    LyricWidget lyric;
+    lyric.resize(500, 260);
+    lyric.setPreviewReturnDelay(80);
+    lyric.setLyrics(lines);
+    lyric.setPosition(2000);
+    lyric.show();
+    QApplication::processEvents();
+
+    QWheelEvent wheel(QPointF(250, 130), QPointF(250, 130), QPoint(), QPoint(0, -120),
+                      Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+    QApplication::sendEvent(&lyric, &wheel);
+    QVERIFY(lyric.isPreviewing());
+    const qreal previewOffset = lyric.previewOffset();
+    QVERIFY(previewOffset > 0);
+    lyric.setPosition(4000);
+    QVERIFY(lyric.isPreviewing());
+    QCOMPARE(lyric.previewOffset(), previewOffset);
+
+    QTest::qWait(45);
+    QWheelEvent again(QPointF(250, 130), QPointF(250, 130), QPoint(), QPoint(0, -120),
+                      Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+    QApplication::sendEvent(&lyric, &again);
+    QTest::qWait(45);
+    QVERIFY(lyric.isPreviewing()); // 第二次滚动重新计算 5 秒空闲期
+    QTRY_VERIFY_WITH_TIMEOUT(!lyric.isPreviewing(), 300);
+    QCOMPARE(lyric.previewOffset(), 0.0);
+}
+
+void SongListViewTest::songListContextMenusMatchPageSemantics()
+{
+    SongListPage page;
+    auto *more = page.findChild<QToolButton *>(QStringLiteral("songListMoreButton"));
+    QVERIFY(more);
+    page.setReadOnlyContext();
+    QVERIFY(more->isHidden());
+
+    page.setPlaybackQueueContext();
+    QVERIFY(!more->isHidden());
+    QVERIFY(more->menu());
+    QCOMPARE(more->menu()->actions().size(), 2);
+    QCOMPARE(more->menu()->actions().at(0)->text(), QStringLiteral("保存为新建歌单"));
+    QCOMPARE(more->menu()->actions().at(1)->text(), QStringLiteral("清空播放列表"));
+
+    page.setPlaylistContext(2);
+    QVERIFY(more->menu());
+    QVERIFY(more->menu()->actions().size() >= 3);
+}
+
+void SongListViewTest::cloudPlaylistBadgeIsInformationalOnly()
+{
+    SideBar sidebar;
+    SideBar::PlaylistItem local;
+    local.id = 2;
+    local.name = QStringLiteral("本地歌单");
+    SideBar::PlaylistItem cloud;
+    cloud.cloud = true;
+    cloud.source = SourceId::QqMusic;
+    cloud.remoteId = QStringLiteral("cloud-1");
+    cloud.name = QStringLiteral("QQ 云歌单");
+    sidebar.setPlaylists({ local, cloud });
+    sidebar.show();
+    QApplication::processEvents();
+
+    const QList<QLabel *> badges = sidebar.findChildren<QLabel *>(
+        QStringLiteral("cloudPlaylistSourceBadge"));
+    QCOMPARE(badges.size(), 1);
+    QVERIFY(!badges.first()->pixmap().isNull());
+    QVERIFY(badges.first()->testAttribute(Qt::WA_TransparentForMouseEvents));
+
+    QSignalSpy cloudSpy(&sidebar, &SideBar::cloudPlaylistSelected);
+    QPushButton *cloudButton = nullptr;
+    for (QPushButton *button : sidebar.findChildren<QPushButton *>()) {
+        if (button->text() == cloud.name) {
+            cloudButton = button;
+            break;
+        }
+    }
+    QVERIFY(cloudButton);
+    cloudButton->click();
+    QCOMPARE(cloudSpy.count(), 1);
+    QCOMPARE(cloudSpy.first().at(0).toInt(), int(SourceId::QqMusic));
+    QCOMPARE(cloudSpy.first().at(1).toString(), cloud.remoteId);
 }
 
 void SongListViewTest::playerBarVisualRefinementUsesResourcesAndTooltips()

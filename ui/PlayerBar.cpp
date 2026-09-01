@@ -110,9 +110,14 @@ public:
         setCursor(Qt::PointingHandCursor);
         setToolTip(QStringLiteral("喜欢"));
         setAccessibleName(QStringLiteral("喜欢"));
+        setProperty("hoverProgress", 0.0);
 
         m_hoverAnimation.setDuration(200);
-        connect(&m_hoverAnimation, &QVariantAnimation::valueChanged, this, [this] { update(); });
+        connect(&m_hoverAnimation, &QVariantAnimation::valueChanged, this,
+                [this](const QVariant &value) {
+            setProperty("hoverProgress", value);
+            update();
+        });
         m_bounceAnimation.setDuration(200);
         m_bounceAnimation.setStartValue(0.0);
         m_bounceAnimation.setEndValue(1.0);
@@ -140,12 +145,14 @@ protected:
     void enterEvent(QEnterEvent *event) override
     {
         animateHoverTo(1.0);
+        m_hovered = true;
         QPushButton::enterEvent(event);
     }
 
     void leaveEvent(QEvent *event) override
     {
         animateHoverTo(0.0);
+        m_hovered = false;
         QPushButton::leaveEvent(event);
     }
 
@@ -229,7 +236,7 @@ private:
     {
         return m_hoverAnimation.state() == QAbstractAnimation::Running
             ? m_hoverAnimation.currentValue().toReal()
-            : (underMouse() ? 1.0 : 0.0);
+            : (m_hovered ? 1.0 : 0.0);
     }
 
     void ensurePixmap(const QColor &color)
@@ -250,6 +257,7 @@ private:
     qreal m_cachedDpr = 0.0;
     bool m_favorite = false;
     bool m_showFocusRing = false;
+    bool m_hovered = false;
 };
 
 class DownloadStateButton final : public QPushButton
@@ -262,9 +270,14 @@ public:
     {
         setFixedSize(30, 30);
         setCursor(Qt::PointingHandCursor);
+        setProperty("hoverProgress", 0.0);
 
         m_hoverAnimation.setDuration(200);
-        connect(&m_hoverAnimation, &QVariantAnimation::valueChanged, this, [this] { update(); });
+        connect(&m_hoverAnimation, &QVariantAnimation::valueChanged, this,
+                [this](const QVariant &value) {
+            setProperty("hoverProgress", value);
+            update();
+        });
         m_stateAnimation.setDuration(200);
         m_stateAnimation.setStartValue(0.0);
         m_stateAnimation.setEndValue(1.0);
@@ -305,12 +318,14 @@ protected:
     void enterEvent(QEnterEvent *event) override
     {
         animateHoverTo(1.0);
+        m_hovered = true;
         QPushButton::enterEvent(event);
     }
 
     void leaveEvent(QEvent *event) override
     {
         animateHoverTo(0.0);
+        m_hovered = false;
         QPushButton::leaveEvent(event);
     }
 
@@ -396,7 +411,7 @@ private:
     {
         return m_hoverAnimation.state() == QAbstractAnimation::Running
             ? m_hoverAnimation.currentValue().toReal()
-            : (underMouse() && isEnabled() ? 1.0 : 0.0);
+            : (m_hovered && isEnabled() ? 1.0 : 0.0);
     }
 
     void drawState(QPainter &painter, State state, qreal opacity, qreal transitionProgress)
@@ -450,6 +465,7 @@ private:
     State m_fromState = Unavailable;
     int m_loadingAngle = 0;
     bool m_showFocusRing = false;
+    bool m_hovered = false;
 };
 
 class DirectionalButton final : public QPushButton
@@ -929,8 +945,18 @@ PlayerBar::PlayerBar(QWidget *parent)
         emit volumeChanged(v);
     });
     connect(m_progress, &ProgressSlider::seekFinished, this, [this](int v) {
-        if (m_durationMs > 0)
-            emit seekRequested(qint64(v) * m_durationMs / 1000);
+        if (m_durationMs > 0) {
+            const qint64 targetMs = qint64(v) * m_durationMs / 1000;
+            m_positionMs = targetMs;
+            updateTimeLabel();
+            emit seekRequested(targetMs);
+        }
+    });
+    connect(m_progress, &ProgressSlider::dragStarted, this, [this] {
+        m_progressDragging = true;
+    });
+    connect(m_progress, &ProgressSlider::dragFinished, this, [this] {
+        m_progressDragging = false;
     });
     updateResponsiveLayout();
 }
@@ -1039,7 +1065,7 @@ void PlayerBar::setPosition(qint64 ms)
 {
     m_positionMs = ms;
     updateTimeLabel();
-    if (m_durationMs > 0)
+    if (m_durationMs > 0 && !m_progressDragging)
         m_progress->setValue(int(ms * 1000 / m_durationMs));
 }
 

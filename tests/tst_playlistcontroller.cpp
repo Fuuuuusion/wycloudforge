@@ -604,6 +604,7 @@ void PlaylistControllerTest::downloadManifestRestoresMissingOnlineRow()
     qq.coverPath = coverPath;
     qq.source = int(SourceId::QqMusic);
     qq.remoteId = QStringLiteral("004NQRUH4anAYS");
+    qq.mediaRemoteId = QStringLiteral("C400004NQRUH4anAYS");
     qq.albumRemoteId = QStringLiteral("000-album-mid");
     qq.artistRemoteId = QStringLiteral("000-artist-mid");
     const qint64 qqId = m_library->upsertOnlineSong(qq);
@@ -632,6 +633,7 @@ void PlaylistControllerTest::downloadManifestRestoresMissingOnlineRow()
     QVERIFY(manifest.open(QIODevice::ReadOnly));
     const QByteArray manifestData = manifest.readAll();
     QVERIFY(manifestData.contains("004NQRUH4anAYS"));
+    QVERIFY(manifestData.contains("C400004NQRUH4anAYS"));
     manifest.close();
 
     QSqlQuery remove(m_library->database());
@@ -645,6 +647,7 @@ void PlaylistControllerTest::downloadManifestRestoresMissingOnlineRow()
     QCOMPARE(restored.title, qq.title);
     QCOMPARE(restored.album, qq.album);
     QCOMPARE(restored.albumRemoteId, qq.albumRemoteId);
+    QCOMPARE(restored.mediaRemoteId, qq.mediaRemoteId);
     QCOMPARE(restored.coverPath, coverPath);
     QCOMPARE(QDir::cleanPath(restored.downloadPath), QDir::cleanPath(downloadPath));
     QVERIFY(restored.isDownloaded());
@@ -761,6 +764,7 @@ void PlaylistControllerTest::stringRemoteIdentityPersists()
     Song qq;
     qq.source = int(SourceId::QqMusic);
     qq.remoteId = QStringLiteral("0039MnYb0qxYhV");
+    qq.mediaRemoteId = QStringLiteral("C4000039MnYb0qxYhV");
     qq.albumRemoteId = QStringLiteral("004DABuD2r4V8n");
     qq.artistRemoteId = QStringLiteral("0025NhlN2yWrP4");
     qq.filePath = QStringLiteral("qqmusic://0039MnYb0qxYhV");
@@ -789,11 +793,13 @@ void PlaylistControllerTest::stringRemoteIdentityPersists()
     QCOMPARE(restored.id, songId);
     QCOMPARE(restored.title, updated.title);
     QCOMPARE(restored.remoteId, qq.remoteId);
+    QCOMPARE(restored.mediaRemoteId, qq.mediaRemoteId);
     QCOMPARE(restored.albumRemoteId, qq.albumRemoteId);
     QCOMPARE(restored.artistRemoteId, qq.artistRemoteId);
     QCOMPARE(restored.onlineId, qint64(0));
-    QCOMPARE(m_controller->songsOf(playlistId).first().stableIdentity(),
-             QStringLiteral("2:0039MnYb0qxYhV"));
+    const Song playlistSong = m_controller->songsOf(playlistId).first();
+    QCOMPARE(playlistSong.stableIdentity(), QStringLiteral("2:0039MnYb0qxYhV"));
+    QCOMPARE(playlistSong.mediaRemoteId, qq.mediaRemoteId);
 }
 
 void PlaylistControllerTest::managedCacheClearPreservesUserData()

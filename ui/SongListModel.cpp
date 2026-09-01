@@ -96,7 +96,12 @@ QVariant SongListModel::data(const QModelIndex &index, int role) const
     case ArtistRole: return song.artist;
     case AlbumRole: return song.album;
     case DurationRole: return song.durationMs;
-    case IsPlayingRole: return song.id == m_playingId;
+    // 在线搜索结果在写入曲库前使用 -1 作为临时数据库 ID。两个无效 ID
+    // 相等不代表歌曲正在播放，否则空闲搜索页会把所有临时结果都画成播放中。
+    case IsPlayingRole:
+        return (song.id > 0 && m_playingId > 0 && song.id == m_playingId)
+            || (!m_playingIdentity.isEmpty()
+                && song.stableIdentity() == m_playingIdentity);
     case SourceRole: return song.source;
     case CachedRole: return song.isCached();
     case MissingRole: return song.missing;
@@ -185,6 +190,8 @@ void SongListModel::setSongs(const QList<core::Song> &songs, qint64 playingId)
         row.activeSource = choice.source;
         m_rows.append(row);
     }
+    if (m_playingId != playingId)
+        m_playingIdentity.clear();
     m_playingId = playingId;
     endResetModel();
 }
@@ -273,6 +280,8 @@ void SongListModel::setSearchResultGroups(const QList<core::SearchResultGroup> &
         m_rows.append(row);
         m_songs.append(activeSong);
     }
+    if (m_playingId != playingId)
+        m_playingIdentity.clear();
     m_playingId = playingId;
     endResetModel();
 }
@@ -410,8 +419,23 @@ void SongListModel::setPlayingId(qint64 playingId)
     if (m_playingId == playingId)
         return;
     m_playingId = playingId;
+    m_playingIdentity.clear();
     if (!m_songs.isEmpty())
         emit dataChanged(index(0, 0), index(m_songs.size() - 1, columnCount() - 1));
+}
+
+void SongListModel::setPlayingSong(const core::Song &song)
+{
+    const qint64 playingId = song.id > 0 ? song.id : -1;
+    const QString identity = song.hasRemoteIdentity() || !song.filePath.isEmpty()
+        ? song.stableIdentity() : QString();
+    if (m_playingId == playingId && m_playingIdentity == identity)
+        return;
+    m_playingId = playingId;
+    m_playingIdentity = identity;
+    if (!m_songs.isEmpty())
+        emit dataChanged(index(0, 0), index(m_songs.size() - 1, columnCount() - 1),
+                         { IsPlayingRole });
 }
 
 void SongListModel::setFavoriteIds(const QSet<qint64> &ids)

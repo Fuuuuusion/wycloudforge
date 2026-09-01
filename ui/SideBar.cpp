@@ -1,6 +1,7 @@
 #include "SideBar.h"
 
 #include "ui/CoverProvider.h"
+#include "ui/SourceIcons.h"
 #include "ui/SvgIcon.h"
 
 #include <QButtonGroup>
@@ -104,6 +105,37 @@ private:
     bool m_hover = false;
 };
 
+class PlaylistButton final : public QPushButton
+{
+public:
+    explicit PlaylistButton(core::SourceId source, QWidget *parent = nullptr)
+        : QPushButton(parent)
+    {
+        if (source == core::SourceId::Local)
+            return;
+        m_sourceBadge = new QLabel(this);
+        m_sourceBadge->setObjectName(QStringLiteral("cloudPlaylistSourceBadge"));
+        m_sourceBadge->setFixedSize(20, 20);
+        m_sourceBadge->setPixmap(sourceIcon(source).pixmap(18, 18));
+        m_sourceBadge->setAlignment(Qt::AlignCenter);
+        m_sourceBadge->setToolTip(sourceDisplayName(source));
+        m_sourceBadge->setAttribute(Qt::WA_TransparentForMouseEvents);
+        m_sourceBadge->show();
+    }
+
+protected:
+    void resizeEvent(QResizeEvent *event) override
+    {
+        QPushButton::resizeEvent(event);
+        if (m_sourceBadge)
+            m_sourceBadge->move(width() - m_sourceBadge->width() - 10,
+                                (height() - m_sourceBadge->height()) / 2);
+    }
+
+private:
+    QLabel *m_sourceBadge = nullptr;
+};
+
 } // namespace
 
 SideBar::SideBar(QWidget *parent)
@@ -192,13 +224,16 @@ void SideBar::addNavButton(const QString &text, const QString &icon, int pageId)
     connect(btn, &QPushButton::clicked, this, [this, pageId] { emit pageRequested(pageId); });
 }
 
-void SideBar::setPlaylists(const QList<PlaylistItem> &items, int activeId)
+void SideBar::setPlaylists(const QList<PlaylistItem> &items, int activeId,
+                           const QString &activeCloudIdentity)
 {
     m_activePlaylist = activeId;
-    rebuildPlaylistButtons(items, activeId);
+    m_activeCloudIdentity = activeCloudIdentity;
+    rebuildPlaylistButtons(items, activeId, activeCloudIdentity);
 }
 
-void SideBar::rebuildPlaylistButtons(const QList<PlaylistItem> &items, int activeId)
+void SideBar::rebuildPlaylistButtons(const QList<PlaylistItem> &items, int activeId,
+                                     const QString &activeCloudIdentity)
 {
     // 每次重建时连同旧的 stretch 一起清空。此前只删除按钮、却不断追加
     // addStretch()，多次刷新后新歌单按钮会被旧 stretch 推到可视区域之外。
@@ -208,10 +243,16 @@ void SideBar::rebuildPlaylistButtons(const QList<PlaylistItem> &items, int activ
     }
     m_playlistIds.clear();
 
+    int cloudButtonId = -2;
     for (const PlaylistItem &item : items) {
-        auto *btn = new QPushButton(m_playlistSection);
+        auto *btn = new PlaylistButton(item.cloud ? item.source : core::SourceId::Local,
+                                       m_playlistSection);
         btn->setProperty("class", "playlistBtn");
-        btn->setStyleSheet(QLatin1String(kPlaylistStyle));
+        QString style = QLatin1String(kPlaylistStyle);
+        if (item.cloud)
+            style.replace(QStringLiteral("padding:6px 10px"),
+                          QStringLiteral("padding:6px 34px 6px 10px"));
+        btn->setStyleSheet(style);
         QPixmap cover;
         if (!item.coverPath.isEmpty() && QFileInfo::exists(item.coverPath))
             cover = QPixmap(item.coverPath);
@@ -225,14 +266,27 @@ void SideBar::rebuildPlaylistButtons(const QList<PlaylistItem> &items, int activ
         btn->setCheckable(true);
         btn->setCursor(Qt::PointingHandCursor);
         btn->setToolTip(item.description.isEmpty() ? item.name : item.name + QStringLiteral("\n") + item.description);
-        m_playlistGroup->addButton(btn, item.id);
-        m_playlistIds.append(item.id);
+        const int groupId = item.cloud ? cloudButtonId-- : item.id;
+        m_playlistGroup->addButton(btn, groupId);
+        m_playlistIds.append(groupId);
         m_playlistLayout->addWidget(btn);
-        connect(btn, &QPushButton::clicked, this, [this, id = item.id] { emit playlistSelected(id); });
+        if (item.cloud) {
+            connect(btn, &QPushButton::clicked, this,
+                    [this, source = item.source, remoteId = item.remoteId, name = item.name] {
+                emit cloudPlaylistSelected(int(source), remoteId, name);
+            });
+            if (item.stableIdentity() == activeCloudIdentity)
+                btn->setChecked(true);
+        } else {
+            connect(btn, &QPushButton::clicked, this,
+                    [this, id = item.id] { emit playlistSelected(id); });
+        }
     }
 
-    if (auto *btn = m_playlistGroup->button(activeId))
-        btn->setChecked(true);
+    if (activeCloudIdentity.isEmpty()) {
+        if (auto *btn = m_playlistGroup->button(activeId))
+            btn->setChecked(true);
+    }
 }
 
 void SideBar::setActivePage(int pageId)

@@ -27,6 +27,8 @@ public:
     void setLibrary(class LibraryService *library) { m_lib = library; }
 
     void setPlaylist(const QList<Song> &songs, int startIndex = -1);
+    bool removeAt(int index);
+    void clearPlaylist();
     void playIndex(int index);
     void playPause();
     void play();

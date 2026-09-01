@@ -104,8 +104,14 @@ AccountDialog::AccountDialog(core::MusicSource *netease, core::QqMusicSource *qq
     auto *qqName = new QLabel(qqLoggedIn ? core::SettingsService::qqNickname()
                                          : QStringLiteral("未登录"), qqRow);
     qqName->setProperty("class", "accountName");
-    auto *qqStatus = new QLabel(qqLoggedIn ? QStringLiteral("已登录 · QQ音乐")
-                                           : QStringLiteral("QQ音乐 · QQ/微信扫码"), qqRow);
+    QString qqStatusText = QStringLiteral("QQ音乐 · QQ/微信扫码");
+    if (qqLoggedIn) {
+        const int vip = core::SettingsService::qqVipStatus();
+        qqStatusText = vip > 0 ? QStringLiteral("已登录 · VIP 已识别")
+                     : vip == 0 ? QStringLiteral("已登录 · 普通账号")
+                                : QStringLiteral("已登录 · VIP 状态待验证");
+    }
+    auto *qqStatus = new QLabel(qqStatusText, qqRow);
     qqStatus->setProperty("class", "accountSub");
     qqInfo->addWidget(qqName);
     qqInfo->addWidget(qqStatus);
@@ -178,6 +184,7 @@ void AccountDialog::logoutQq()
     core::SettingsService::setQqNickname(QString());
     core::SettingsService::setQqAvatarUrl(QString());
     core::SettingsService::setQqAvatarRemoteUrl(QString());
+    core::SettingsService::setQqVipStatus(-1);
     if (m_qq)
         m_qq->setCookie(QString());
     emit accountStateChanged();

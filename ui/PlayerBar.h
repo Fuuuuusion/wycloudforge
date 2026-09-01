@@ -84,6 +84,7 @@ private:
     int m_volumeValue = 70;
     qint64 m_positionMs = 0;
     qint64 m_durationMs = 0;
+    bool m_progressDragging = false;
 };
 
 } // namespace ui

@@ -2,6 +2,8 @@
 
 #include "core/CredentialStore.h"
 
+#include <QDir>
+#include <QFileInfo>
 #include <QStandardPaths>
 #include <QSettings>
 
@@ -373,6 +375,16 @@ void SettingsService::setQqAvatarRemoteUrl(const QString &url)
     QSettings().setValue(QStringLiteral("qq/avatarRemoteUrl"), url);
 }
 
+int SettingsService::qqVipStatus(int fallback)
+{
+    return QSettings().value(QStringLiteral("qq/vipStatus"), fallback).toInt();
+}
+
+void SettingsService::setQqVipStatus(int status)
+{
+    QSettings().setValue(QStringLiteral("qq/vipStatus"), qBound(-1, status, 1));
+}
+
 int SettingsService::avatarSource(int fallback)
 {
     QSettings s;
@@ -403,6 +415,12 @@ QString SettingsService::recommendCachePath()
         return s_recommendCachePathOverride;
     return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
         + QStringLiteral("/recommend.json");
+}
+
+QString SettingsService::cloudPlaylistCachePath()
+{
+    const QFileInfo recommendFile(recommendCachePath());
+    return recommendFile.dir().filePath(QStringLiteral("cloud-playlists.json"));
 }
 
 void SettingsService::setRecommendCachePathOverride(const QString &path)

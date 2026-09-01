@@ -73,6 +73,9 @@ public:
     static void setQqAvatarUrl(const QString &url);
     static QString qqAvatarRemoteUrl();
     static void setQqAvatarRemoteUrl(const QString &url);
+    // -1=未验证，0=普通账号，1=VIP 已识别
+    static int qqVipStatus(int fallback = -1);
+    static void setQqVipStatus(int status);
 
     // 头像来源:0 网易云 / 1 QQ音乐 / 2 本地上传
     static int avatarSource(int fallback = 0);
@@ -82,6 +85,7 @@ public:
 
     // 推荐缓存文件
     static QString recommendCachePath();
+    static QString cloudPlaylistCachePath();
     static void setRecommendCachePathOverride(const QString &path);
 
 private:

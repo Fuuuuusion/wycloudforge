@@ -172,12 +172,12 @@ QLabel[class="nowSub"] {
 QPushButton[class="ctrlBtn"] {
     border: none;
     border-radius: 15px;
-    background: #1B1B24;
+    background: transparent;
     padding: 3px;
     color: #C8C8D0;
 }
 QPushButton[class="ctrlBtn"]:hover {
-    background: #2A2A36;
+    background: transparent;
     color: #E8E8E8;
 }
 QPushButton#playPauseBtn {

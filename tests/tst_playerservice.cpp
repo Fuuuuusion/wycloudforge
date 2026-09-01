@@ -51,6 +51,16 @@ public:
             ok(result);
     }
 
+    void songUrls(const QList<Song> &songs, MusicSource::JsonArrayFn ok,
+                  MusicSource::ErrFn err = {}) override
+    {
+        QStringList ids;
+        ids.reserve(songs.size());
+        for (const Song &song : songs)
+            ids.append(song.effectiveRemoteId());
+        songUrls(ids, std::move(ok), std::move(err));
+    }
+
     void searchSongsPage(const QString &keywords, int limit, int offset,
                          MusicSource::JsonArrayFn ok,
                          MusicSource::ErrFn err = {}) override
@@ -64,9 +74,17 @@ public:
             ok(searchPayload);
     }
 
+    void userPlaylists(const QString &, MusicSource::JsonArrayFn ok,
+                       MusicSource::ErrFn = {}) override
+    {
+        if (ok)
+            ok(playlistPayload);
+    }
+
     QStringList requests;
     int emptyResponsesRemaining = 0;
     QJsonArray searchPayload;
+    QJsonArray playlistPayload;
     QString searchKeywords;
     int searchLimit = 0;
     int searchOffset = 0;
@@ -124,6 +142,7 @@ class PlayerServiceTest : public QObject
     Q_OBJECT
 private slots:
     void playlistNavigation();
+    void playbackQueueMutations();
     void playPauseAndPosition();
     void autoAdvanceInOrderMode();
     void repeatOneRestartsCurrentSong();
@@ -136,6 +155,7 @@ private slots:
     void downloadedOnlineSongPlayback();
     void unifiedSearchContract();
     void unifiedSearchRejectsUnsupportedCategory();
+    void unifiedCloudPlaylistContract();
 };
 
 void PlayerServiceTest::playlistNavigation()
@@ -176,6 +196,41 @@ void PlayerServiceTest::playlistNavigation()
     player.setMode(PlayerService::Shuffle);
     player.next();
     QVERIFY(player.currentIndex() >= 0 && player.currentIndex() <= 1);
+}
+
+void PlayerServiceTest::playbackQueueMutations()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QList<Song> songs;
+    for (int i = 0; i < 3; ++i) {
+        Song song;
+        song.id = i + 1;
+        song.filePath = dir.filePath(QStringLiteral("queue-%1.wav").arg(i));
+        song.title = QString(QChar(QLatin1Char('A').unicode() + i));
+        song.durationMs = 1000;
+        writeWav(song.filePath, 1);
+        songs.append(song);
+    }
+
+    PlayerService player;
+    player.setPlaylist(songs, 1);
+    QCOMPARE(player.currentSong().title, QStringLiteral("B"));
+    QVERIFY(player.removeAt(0));
+    QCOMPARE(player.playlist().size(), 2);
+    QCOMPARE(player.currentIndex(), 0);
+    QCOMPARE(player.currentSong().title, QStringLiteral("B"));
+
+    QVERIFY(player.removeAt(0));
+    QCOMPARE(player.playlist().size(), 1);
+    QCOMPARE(player.currentSong().title, QStringLiteral("C"));
+
+    QSignalSpy songSpy(&player, &PlayerService::songChanged);
+    player.clearPlaylist();
+    QVERIFY(player.playlist().isEmpty());
+    QCOMPARE(player.currentIndex(), -1);
+    QCOMPARE(songSpy.count(), 1);
+    QCOMPARE(qvariant_cast<Song>(songSpy.first().at(0)).id, qint64(-1));
 }
 
 void PlayerServiceTest::unifiedSearchContract()
@@ -236,6 +291,37 @@ void PlayerServiceTest::unifiedSearchContract()
     QCOMPARE(item.song.stableIdentity(),
              QStringLiteral("1:9223372036854775808124"));
     QCOMPARE(item.sourceRank, 24);
+}
+
+void PlayerServiceTest::unifiedCloudPlaylistContract()
+{
+    LocalUrlSource<NeteaseApiClient> source;
+    source.playlistPayload = {
+        QJsonObject{
+            { QStringLiteral("id"), QStringLiteral("9223372036854775808124") },
+            { QStringLiteral("name"), QStringLiteral("云歌单") },
+            { QStringLiteral("coverImgUrl"), QStringLiteral("https://example.test/cloud.jpg") },
+            { QStringLiteral("description"), QStringLiteral("只读") },
+        },
+        QJsonObject{
+            { QStringLiteral("id"), QStringLiteral("9223372036854775808124") },
+            { QStringLiteral("name"), QStringLiteral("重复项") },
+        },
+    };
+
+    bool completed = false;
+    source.userPlaylistItems(QStringLiteral("user"),
+        [&completed](const QList<OnlinePlaylist> &playlists) {
+            completed = true;
+            QCOMPARE(playlists.size(), 1);
+            QCOMPARE(playlists.first().source, SourceId::Netease);
+            QCOMPARE(playlists.first().remoteId,
+                     QStringLiteral("9223372036854775808124"));
+            QCOMPARE(playlists.first().name, QStringLiteral("云歌单"));
+            QCOMPARE(playlists.first().coverUrl,
+                     QStringLiteral("https://example.test/cloud.jpg"));
+        });
+    QVERIFY(completed);
 }
 
 void PlayerServiceTest::unifiedSearchRejectsUnsupportedCategory()

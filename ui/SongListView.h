@@ -40,6 +40,7 @@ public:
     QList<core::Song> songs() const;
     QList<core::Song> memberSongsAt(int row) const;
     void setPlayingId(qint64 playingId);
+    void setPlayingSong(const core::Song &song);
     void setPlaybackActive(bool active);
     bool playbackActive() const { return m_playbackActive; }
     void setRemovable(bool removable);

@@ -59,7 +59,7 @@ private:
     void openLocalArtist(const QString &artist);
     void openLocalAlbum(const QString &album, const QString &artist);
     void openOnlinePlaylist(core::SourceId sourceId, const QString &remoteId,
-                            const QString &name);
+                            const QString &name, bool cloudContext = false);
     void openOnlineArtist(core::SourceId sourceId, const QString &remoteId,
                           const QString &name);
     void openOnlineAlbum(core::SourceId sourceId, const QString &remoteId,
@@ -79,6 +79,14 @@ private:
     void refreshAllPages();
     void restoreOnlineSession();
     void restoreQqSession();
+    void loadCloudPlaylistCache();
+    void saveCloudPlaylistCache() const;
+    void refreshCloudPlaylists(core::SourceId sourceId, const QString &userId);
+    void removeCloudPlaylists(core::SourceId sourceId);
+    void replaceCloudPlaylists(core::SourceId sourceId,
+                               const QList<core::OnlinePlaylist> &playlists);
+    void queueCloudPlaylistCovers(const QList<core::OnlinePlaylist> &playlists);
+    void startCloudPlaylistCoverDownloads();
     void cacheQqAvatar(const QString &remoteUrl);
     void onCurrentSongChanged(const core::Song &song, int index);
     void enrichLocalSong(const core::Song &song);
@@ -130,6 +138,7 @@ private:
 
     qint64 m_currentSongId = -1;
     int m_playlistContext = -1;
+    QString m_cloudPlaylistContext;
     int m_lastPage = 0;
     QString m_searchQuery;
     bool m_restoredLastSong = false;
@@ -140,12 +149,17 @@ private:
     bool m_sidebarRefreshInProgress = false;
     quint64 m_onlineDetailGeneration = 0;
     quint64 m_onlineCoverGeneration = 0;
+    QHash<int, quint64> m_cloudPlaylistGenerations;
     QSet<QString> m_metadataAttempted;
     QHash<QString, qint64> m_activeDownloadSongIds;
     QSet<qint64> m_onlineCoverAttempted;
     QSet<qint64> m_onlineCoverDetailsAttempted;
     QList<core::Song> m_onlineCoverQueue;
+    QList<core::OnlinePlaylist> m_cloudPlaylists;
+    QList<core::OnlinePlaylist> m_cloudPlaylistCoverQueue;
+    QSet<QString> m_cloudPlaylistCoverQueued;
     int m_onlineCoverDownloadsActive = 0;
+    int m_cloudPlaylistCoverDownloadsActive = 0;
     bool m_onlineCoverDetailsInFlight = false;
     QTimer m_libraryRefreshTimer{ this };
     QTimer m_coverRefreshTimer{ this };

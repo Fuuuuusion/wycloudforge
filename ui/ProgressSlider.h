@@ -13,13 +13,16 @@ public:
     int minimum() const { return m_minimum; }
     int maximum() const { return m_maximum; }
     int value() const { return m_value; }
+    bool isDragging() const { return m_dragging; }
     void setValue(int value, bool emitSignal = true);
 
     void setShowHandle(bool show) { m_showHandle = show; update(); }
 
 signals:
     void valueChanged(int value);
+    void dragStarted();
     void seekFinished(int value);
+    void dragFinished();
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -39,4 +42,3 @@ private:
     bool m_dragging = false;
     bool m_showHandle = true;
 };
-

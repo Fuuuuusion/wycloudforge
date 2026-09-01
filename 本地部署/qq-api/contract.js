@@ -43,6 +43,12 @@ function normalizeSong(raw) {
     .some((key) => Object.prototype.hasOwnProperty.call(raw, key));
   const remoteId = explicitSongMid || (hasSongShape ? firstString(raw, ['mid']) : '');
   if (!remoteId) return null;
+  const fileObject = raw.file && typeof raw.file === 'object' ? raw.file : {};
+  const mediaRemoteId = firstString(raw, [
+    'mediaRemoteId', 'media_mid', 'mediaMid', 'strMediaMid', 'strMediaId',
+  ]) || firstString(fileObject, [
+    'media_mid', 'mediaMid', 'strMediaMid', 'strMediaId', 'mediaid',
+  ]);
   const albumObject = raw.album && typeof raw.album === 'object' ? raw.album : {};
   const singerValue = raw.singer || raw.singers || raw.artist || [];
   const singers = Array.isArray(singerValue) ? singerValue : [singerValue];
@@ -67,6 +73,7 @@ function normalizeSong(raw) {
       : '');
   return {
     remoteId,
+    mediaRemoteId,
     title,
     artist: artistNames.join('/'),
     artistRemoteId,
@@ -75,6 +82,16 @@ function normalizeSong(raw) {
     durationMs,
     coverUrl,
   };
+}
+
+function mediaAddress(value, remoteId) {
+  const id = String(remoteId || '');
+  const root = value && typeof value === 'object' ? value : {};
+  const playUrl = root.playUrl && typeof root.playUrl === 'object' ? root.playUrl : {};
+  const entry = playUrl[id] && typeof playUrl[id] === 'object' ? playUrl[id] : root;
+  const url = firstString(entry, ['url', 'playUrl', 'purl']) || collectUrls(entry)[0] || '';
+  const error = firstString(entry, ['error', 'message', 'msg']);
+  return { remoteId: id, url, error };
 }
 
 function collectSongs(value) {
@@ -446,6 +463,43 @@ function profilePayload(value, fallbackUserId = '') {
   return { userId, nickname: nickname || 'QQ音乐用户', avatarUrl };
 }
 
+function vipPayload(value) {
+  let recognized = false;
+  let active = false;
+  let level = 0;
+  let expiresAt = 0;
+  const seen = new Set();
+  function visit(node) {
+    if (!node || typeof node !== 'object' || seen.has(node)) return;
+    seen.add(node);
+    for (const [key, child] of Object.entries(node)) {
+      const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (child !== null && typeof child !== 'object') {
+        const numeric = Number(child);
+        if (/(isvip|vipflag|vipopen|greenvip|supervip|issvip)/.test(normalized)
+            && Number.isFinite(numeric)) {
+          recognized = true;
+          active = active || numeric > 0;
+        }
+        if (/(viplevel|level)/.test(normalized) && Number.isFinite(numeric)) {
+          recognized = true;
+          level = Math.max(level, numeric);
+        }
+        if (/(vipend|expire|endtime)/.test(normalized) && Number.isFinite(numeric)) {
+          recognized = true;
+          const timestamp = numeric > 100000000000 ? numeric : numeric * 1000;
+          expiresAt = Math.max(expiresAt, timestamp);
+        }
+      } else {
+        visit(child);
+      }
+    }
+  }
+  visit(value);
+  if (expiresAt > Date.now()) active = true;
+  return { recognized, active, level, expiresAt };
+}
+
 function authState(method, body) {
   if (body && body.isOk && body.session) return { state: 'AUTHORIZED', protocolCode: method === 'wechat' ? 405 : 0 };
   if (body && body.refused) return { state: 'REFUSED', protocolCode: method === 'wechat' ? 403 : 68 };
@@ -466,11 +520,13 @@ module.exports = {
   errorText,
   hotKeys,
   lyricPayload,
+  mediaAddress,
   normalizeAlbum,
   normalizeArtist,
   normalizeSong,
   normalizePlaylist,
   profilePayload,
+  vipPayload,
   searchItems,
   suggestions,
   unwrap,

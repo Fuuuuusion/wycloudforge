@@ -38,6 +38,7 @@
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
@@ -51,6 +52,7 @@
 #include <QStackedWidget>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QSaveFile>
 #include <QTextEdit>
 #include <QTimer>
 #include <QToolTip>
@@ -59,6 +61,7 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <functional>
 
 namespace {
@@ -126,6 +129,29 @@ NcHitTestResult computeHitTest(QWidget *window, const QPoint &cursorGlobal, cons
         return { true, HTCAPTION };
     }
     return { false, HTCLIENT };
+}
+
+QJsonObject cloudPlaylistToJson(const core::OnlinePlaylist &playlist)
+{
+    return {
+        { QStringLiteral("source"), int(playlist.source) },
+        { QStringLiteral("remoteId"), playlist.remoteId },
+        { QStringLiteral("name"), playlist.name },
+        { QStringLiteral("coverUrl"), playlist.coverUrl },
+        { QStringLiteral("description"), playlist.description },
+    };
+}
+
+core::OnlinePlaylist cloudPlaylistFromJson(const QJsonObject &object)
+{
+    core::OnlinePlaylist playlist;
+    playlist.source = static_cast<core::SourceId>(
+        object.value(QStringLiteral("source")).toInt());
+    playlist.remoteId = object.value(QStringLiteral("remoteId")).toString().trimmed();
+    playlist.name = object.value(QStringLiteral("name")).toString().trimmed();
+    playlist.coverUrl = object.value(QStringLiteral("coverUrl")).toString().trimmed();
+    playlist.description = object.value(QStringLiteral("description")).toString().trimmed();
+    return playlist;
 }
 }
 
@@ -321,6 +347,10 @@ MainWindow::MainWindow(QWidget *parent)
     // ---------- 侧边栏 ----------
     connect(m_sideBar, &ui::SideBar::pageRequested, this, &MainWindow::showPage);
     connect(m_sideBar, &ui::SideBar::playlistSelected, this, &MainWindow::openPlaylist);
+    connect(m_sideBar, &ui::SideBar::cloudPlaylistSelected, this,
+            [this](int sourceId, const QString &remoteId, const QString &name) {
+        openOnlinePlaylist(static_cast<core::SourceId>(sourceId), remoteId, name, true);
+    });
     connect(m_sideBar, &ui::SideBar::createPlaylistRequested, this, [this] {
         bool ok = false;
         const QString name = QInputDialog::getText(this, QStringLiteral("创建歌单"),
@@ -486,6 +516,10 @@ MainWindow::MainWindow(QWidget *parent)
 
     // ---------- 自建歌单页 ----------
     connect(m_selfPlaylists, &ui::SelfPlaylistsPage::openPlaylistRequested, this, &MainWindow::openPlaylist);
+    connect(m_selfPlaylists, &ui::SelfPlaylistsPage::openCloudPlaylistRequested, this,
+            [this](int sourceId, const QString &remoteId, const QString &name) {
+        openOnlinePlaylist(static_cast<core::SourceId>(sourceId), remoteId, name, true);
+    });
     connect(m_selfPlaylists, &ui::SelfPlaylistsPage::createPlaylistRequested, this, [this] {
         bool ok = false;
         const QString name = QInputDialog::getText(this, QStringLiteral("创建歌单"),
@@ -626,6 +660,7 @@ MainWindow::MainWindow(QWidget *parent)
     // ---------- 初始化 ----------
     if (m_library.openDatabase()) {
         m_playlists.setDatabase(m_library.database());
+        loadCloudPlaylistCache();
         refreshSidebar();
         refreshLibraryViews();
         refreshAllPages();
@@ -693,6 +728,10 @@ void MainWindow::showPage(int pageId)
         m_playlistContext = -1;
         refreshSidebar();
     }
+    if (pageId >= 0 && pageId != 4 && !m_cloudPlaylistContext.isEmpty()) {
+        m_cloudPlaylistContext.clear();
+        refreshSidebar();
+    }
     if (pageId == 5 || pageId == 7 || (pageId == 6 && m_stack->currentIndex() != 6))
         m_lastPage = m_stack->currentIndex();
     if (pageId >= 0 && pageId < m_stack->count())
@@ -721,10 +760,11 @@ void MainWindow::openPlaybackQueue()
         .arg(totalSec / 60)
         .arg(totalSec % 60, 2, 10, QLatin1Char('0'));
     m_playlistContext = -1;
+    m_cloudPlaylistContext.clear();
     refreshSidebar();
     m_songListPage->showContent(queue, QStringLiteral("播放列表"), meta,
-                                m_currentSongId, false);
-    m_songListPage->setPlaylistContext(-1);
+                                m_currentSongId, true);
+    m_songListPage->setPlaybackQueueContext();
     showPage(4);
 }
 
@@ -750,6 +790,7 @@ void MainWindow::openPlaylist(int playlistId)
         return;
     }
     m_playlistContext = playlistId;
+    m_cloudPlaylistContext.clear();
     refreshSidebar();
     const auto songs = m_playlists.songsOf(playlistId);
     const QList<core::SearchResultGroup> groups =
@@ -771,56 +812,68 @@ void MainWindow::openPlaylist(int playlistId)
 void MainWindow::openArtist(const QString &artist)
 {
     ++m_onlineDetailGeneration;
+    m_cloudPlaylistContext.clear();
+    refreshSidebar();
     QList<core::Song> songs;
     for (const auto &s : m_library.allSongs())
         if (s.artist == artist)
             songs.append(s);
     m_songListPage->showContent(songs, artist, QStringLiteral("歌手 · %1 首").arg(songs.size()), m_currentSongId, false);
-    m_songListPage->setPlaylistContext(-1);
+    m_songListPage->setReadOnlyContext();
     showPage(4);
 }
 
 void MainWindow::openLocalArtist(const QString &artist)
 {
     ++m_onlineDetailGeneration;
+    m_cloudPlaylistContext.clear();
+    refreshSidebar();
     QList<core::Song> songs;
     for (const auto &s : m_library.allSongs())
         if (s.artist == artist && s.isLocallyAvailable())
             songs.append(s);
     m_songListPage->showContent(songs, artist, QStringLiteral("歌手 · %1 首").arg(songs.size()), m_currentSongId, false);
-    m_songListPage->setPlaylistContext(-1);
+    m_songListPage->setReadOnlyContext();
     showPage(4);
 }
 
 void MainWindow::openAlbum(const QString &album, const QString &artist)
 {
     ++m_onlineDetailGeneration;
+    m_cloudPlaylistContext.clear();
+    refreshSidebar();
     QList<core::Song> songs;
     for (const auto &s : m_library.allSongs())
         if (s.album == album && (artist.isEmpty() || s.artist == artist)
             && (!s.isOnline() || s.isCached()))
             songs.append(s);
     m_songListPage->showContent(songs, album, QStringLiteral("专辑 · %1 首").arg(songs.size()), m_currentSongId, false);
-    m_songListPage->setPlaylistContext(-1);
+    m_songListPage->setReadOnlyContext();
     showPage(4);
 }
 
 void MainWindow::openLocalAlbum(const QString &album, const QString &artist)
 {
     ++m_onlineDetailGeneration;
+    m_cloudPlaylistContext.clear();
+    refreshSidebar();
     QList<core::Song> songs;
     for (const auto &s : m_library.allSongs())
         if (s.album == album && (artist.isEmpty() || s.artist == artist)
             && s.isLocallyAvailable())
             songs.append(s);
     m_songListPage->showContent(songs, album, QStringLiteral("专辑 · %1 首").arg(songs.size()), m_currentSongId, false);
-    m_songListPage->setPlaylistContext(-1);
+    m_songListPage->setReadOnlyContext();
     showPage(4);
 }
 
 void MainWindow::openOnlinePlaylist(core::SourceId sourceId, const QString &remoteId,
-                                    const QString &name)
+                                    const QString &name, bool cloudContext)
 {
+    m_playlistContext = -1;
+    m_cloudPlaylistContext = cloudContext
+        ? QStringLiteral("%1:%2").arg(int(sourceId)).arg(remoteId) : QString();
+    refreshSidebar();
     core::MusicSource *source = m_sourceRegistry.source(sourceId);
     if (!source || remoteId.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("在线歌单"),
@@ -855,7 +908,7 @@ void MainWindow::openOnlinePlaylist(core::SourceId sourceId, const QString &remo
             const QString meta = QStringLiteral("本地 %1 首 · 在线 %2 首").arg(local).arg(online);
             guard->m_songListPage->showContent(songs, name, meta, guard->m_currentSongId,
                                                false, coverPath);
-            guard->m_songListPage->setPlaylistContext(-1);
+            guard->m_songListPage->setReadOnlyContext();
             guard->showPage(4);
         }, [guard, generation](const QString &msg) {
             if (guard && generation == guard->m_onlineDetailGeneration) {
@@ -893,6 +946,9 @@ void MainWindow::openOnlinePlaylist(core::SourceId sourceId, const QString &remo
 void MainWindow::openOnlineArtist(core::SourceId sourceId, const QString &remoteId,
                                   const QString &name)
 {
+    m_playlistContext = -1;
+    m_cloudPlaylistContext.clear();
+    refreshSidebar();
     core::MusicSource *source = m_sourceRegistry.source(sourceId);
     if (!source || remoteId.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("在线歌手"),
@@ -918,7 +974,7 @@ void MainWindow::openOnlineArtist(core::SourceId sourceId, const QString &remote
                                                     : QStringLiteral("QQ音乐"))
                 .arg(songs.size()),
             guard->m_currentSongId, false);
-        guard->m_songListPage->setPlaylistContext(-1);
+        guard->m_songListPage->setReadOnlyContext();
         guard->showPage(4);
     }, [guard, generation](const QString &message) {
         if (guard && generation == guard->m_onlineDetailGeneration) {
@@ -931,6 +987,9 @@ void MainWindow::openOnlineArtist(core::SourceId sourceId, const QString &remote
 void MainWindow::openOnlineAlbum(core::SourceId sourceId, const QString &remoteId,
                                  const QString &name)
 {
+    m_playlistContext = -1;
+    m_cloudPlaylistContext.clear();
+    refreshSidebar();
     core::MusicSource *source = m_sourceRegistry.source(sourceId);
     if (!source || remoteId.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("在线专辑"),
@@ -957,7 +1016,7 @@ void MainWindow::openOnlineAlbum(core::SourceId sourceId, const QString &remoteI
                                                     : QStringLiteral("QQ音乐"))
                 .arg(songs.size()),
             guard->m_currentSongId, false);
-        guard->m_songListPage->setPlaylistContext(-1);
+        guard->m_songListPage->setReadOnlyContext();
         guard->showPage(4);
     }, [guard, generation](const QString &message) {
         if (guard && generation == guard->m_onlineDetailGeneration) {
@@ -1076,6 +1135,62 @@ void MainWindow::hydrateOnlineCovers(const QList<core::Song> &songs)
                 m_onlineCoverDetailsAttempted.remove(id);
         }
     });
+    connect(m_songListPage, &ui::SongListPage::savePlaybackQueueRequested, this, [this] {
+        const QList<core::Song> queue = m_player.playlist();
+        if (queue.isEmpty())
+            return;
+        bool ok = false;
+        const QString name = QInputDialog::getText(
+            this, QStringLiteral("保存播放列表"), QStringLiteral("新歌单名称:"),
+            QLineEdit::Normal, QStringLiteral("播放列表"), &ok).trimmed();
+        if (!ok || name.isEmpty())
+            return;
+        const int playlistId = m_playlists.createPlaylist(name);
+        if (playlistId <= 0)
+            return;
+        QList<qint64> songIds;
+        for (const core::Song &queueSong : queue) {
+            const core::Song song = materializeSongForAction(queueSong);
+            if (song.id > 0)
+                songIds.append(song.id);
+        }
+        const core::PlaylistController::BatchResult result =
+            m_playlists.addSongsBatch(playlistId, songIds);
+        if (!result.success) {
+            m_playlists.deletePlaylist(playlistId);
+            return;
+        }
+        refreshSidebar();
+        refreshAllPages();
+        openPlaylist(playlistId);
+    });
+    connect(m_songListPage, &ui::SongListPage::clearPlaybackQueueRequested, this, [this] {
+        if (m_player.playlist().isEmpty())
+            return;
+        if (QMessageBox::question(this, QStringLiteral("清空播放列表"),
+                                  QStringLiteral("确定清空当前播放列表？"))
+            != QMessageBox::Yes) {
+            return;
+        }
+        m_player.clearPlaylist();
+        m_currentSongId = -1;
+        const int destination = (m_lastPage >= 0 && m_lastPage < m_stack->count()
+                                 && m_lastPage != 4) ? m_lastPage : 0;
+        showPage(destination);
+    });
+    connect(m_songListPage, &ui::SongListPage::removeFromPlaybackQueueRequested,
+            this, [this](int row) {
+        if (!m_player.removeAt(row))
+            return;
+        if (m_player.playlist().isEmpty()) {
+            m_currentSongId = -1;
+            const int destination = (m_lastPage >= 0 && m_lastPage < m_stack->count()
+                                     && m_lastPage != 4) ? m_lastPage : 0;
+            showPage(destination);
+        } else {
+            openPlaybackQueue();
+        }
+    });
 }
 
 void MainWindow::openAccount()
@@ -1085,6 +1200,8 @@ void MainWindow::openAccount()
         cacheQqAvatar(QString());
         m_accountPanel->refresh();
         m_recommend->refresh();
+        restoreOnlineSession();
+        restoreQqSession();
     });
     dlg.exec();
 }
@@ -1094,6 +1211,7 @@ void MainWindow::restoreQqSession()
     const QString credential = core::SettingsService::qqCookie();
     if (credential.isEmpty()) {
         m_qqClient.setCookie(QString());
+        removeCloudPlaylists(core::SourceId::QqMusic);
         m_accountPanel->refresh();
         return;
     }
@@ -1108,6 +1226,18 @@ void MainWindow::restoreQqSession()
             const QString avatarUrl = profile.value(QStringLiteral("avatarUrl")).toString();
             core::SettingsService::setQqAvatarRemoteUrl(avatarUrl);
             cacheQqAvatar(avatarUrl);
+            refreshCloudPlaylists(core::SourceId::QqMusic, userId);
+            m_qqClient.vipStatus([this](const QJsonObject &status) {
+                if (status.value(QStringLiteral("recognized")).toBool())
+                    core::SettingsService::setQqVipStatus(
+                        status.value(QStringLiteral("active")).toBool() ? 1 : 0);
+                else
+                    core::SettingsService::setQqVipStatus(-1);
+                m_accountPanel->refresh();
+            }, [this](const QString &) {
+                core::SettingsService::setQqVipStatus(-1);
+                m_accountPanel->refresh();
+            });
             m_accountPanel->refresh();
         }, [this](const QString &) {
             // 网络或上游错误不视为凭据过期；保留本地账号，等待下次验证。
@@ -1189,6 +1319,8 @@ void MainWindow::playSongs(const QList<core::Song> &songs, int index)
 {
     if (songs.isEmpty())
         return;
+    // PlayerService 只在歌曲真正成为当前曲目时写入在线记录；队列里尚未
+    // 播放的搜索结果仍保持临时身份，避免一次点击把整页浏览结果写入曲库。
     m_player.setPlaylist(songs, index);
     m_player.play();
 }
@@ -1237,13 +1369,215 @@ QList<ui::SideBar::PlaylistItem> MainWindow::selfPlaylistInfos() const
         item.description = p.description;
         items.append(item);
     }
+    for (const core::OnlinePlaylist &playlist : m_cloudPlaylists) {
+        ui::SideBar::PlaylistItem item;
+        item.name = playlist.name;
+        item.coverPath = playlist.coverPath;
+        item.description = playlist.description;
+        item.cloud = true;
+        item.source = playlist.source;
+        item.remoteId = playlist.remoteId;
+        items.append(item);
+    }
     return items;
+}
+
+void MainWindow::loadCloudPlaylistCache()
+{
+    QFile file(core::SettingsService::cloudPlaylistCachePath());
+    if (!file.open(QIODevice::ReadOnly))
+        return;
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject())
+        return;
+
+    const bool neteaseAllowed = core::SettingsService::onlineUid() > 0
+        && !core::SettingsService::onlineCookie().isEmpty();
+    const bool qqAllowed = !core::SettingsService::qqUserId().isEmpty()
+        && !core::SettingsService::qqCookie().isEmpty();
+    QSet<QString> identities;
+    for (const QJsonValue &value : document.object()
+             .value(QStringLiteral("playlists")).toArray()) {
+        core::OnlinePlaylist playlist = cloudPlaylistFromJson(value.toObject());
+        if (!playlist.isValid() || identities.contains(playlist.stableIdentity()))
+            continue;
+        if ((playlist.source == core::SourceId::Netease && !neteaseAllowed)
+            || (playlist.source == core::SourceId::QqMusic && !qqAllowed)) {
+            continue;
+        }
+        playlist.coverPath = m_library.playlistCoverCachePath(
+            playlist.source, playlist.remoteId);
+        if (!QFileInfo::exists(playlist.coverPath)
+            || QFileInfo(playlist.coverPath).size() <= 0) {
+            playlist.coverPath.clear();
+        }
+        identities.insert(playlist.stableIdentity());
+        m_cloudPlaylists.append(playlist);
+    }
+}
+
+void MainWindow::saveCloudPlaylistCache() const
+{
+    const QString path = core::SettingsService::cloudPlaylistCachePath();
+    if (!QDir().mkpath(QFileInfo(path).absolutePath()))
+        return;
+    QJsonArray array;
+    for (const core::OnlinePlaylist &playlist : m_cloudPlaylists)
+        array.append(cloudPlaylistToJson(playlist));
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly))
+        return;
+    file.write(QJsonDocument(QJsonObject{
+        { QStringLiteral("version"), 1 },
+        { QStringLiteral("playlists"), array },
+    }).toJson(QJsonDocument::Compact));
+    file.commit();
+}
+
+void MainWindow::refreshCloudPlaylists(core::SourceId sourceId, const QString &userId)
+{
+    core::MusicSource *source = m_sourceRegistry.source(sourceId);
+    const QString normalizedUserId = userId.trimmed();
+    if (!source || normalizedUserId.isEmpty())
+        return;
+    const int sourceKey = int(sourceId);
+    const quint64 generation = m_cloudPlaylistGenerations.value(sourceKey) + 1;
+    m_cloudPlaylistGenerations.insert(sourceKey, generation);
+    const QPointer<MainWindow> guard(this);
+    source->userPlaylistItems(normalizedUserId,
+        [guard, sourceId, sourceKey, generation](const QList<core::OnlinePlaylist> &items) {
+            if (!guard || guard->m_cloudPlaylistGenerations.value(sourceKey) != generation)
+                return;
+            guard->replaceCloudPlaylists(sourceId, items);
+        }, [guard, sourceKey, generation](const QString &) {
+            // 网络失败时保留该来源的磁盘缓存；只忽略本次刷新结果。
+            if (!guard || guard->m_cloudPlaylistGenerations.value(sourceKey) != generation)
+                return;
+        });
+}
+
+void MainWindow::removeCloudPlaylists(core::SourceId sourceId)
+{
+    const int sourceKey = int(sourceId);
+    m_cloudPlaylistGenerations.insert(
+        sourceKey, m_cloudPlaylistGenerations.value(sourceKey) + 1);
+    bool changed = false;
+    for (int i = m_cloudPlaylists.size() - 1; i >= 0; --i) {
+        if (m_cloudPlaylists.at(i).source == sourceId) {
+            m_cloudPlaylists.removeAt(i);
+            changed = true;
+        }
+    }
+    for (int i = m_cloudPlaylistCoverQueue.size() - 1; i >= 0; --i) {
+        if (m_cloudPlaylistCoverQueue.at(i).source == sourceId) {
+            m_cloudPlaylistCoverQueued.remove(
+                m_cloudPlaylistCoverQueue.at(i).stableIdentity());
+            m_cloudPlaylistCoverQueue.removeAt(i);
+        }
+    }
+    const QString prefix = QStringLiteral("%1:").arg(sourceKey);
+    if (m_cloudPlaylistContext.startsWith(prefix)) {
+        m_cloudPlaylistContext.clear();
+        changed = true;
+    }
+    if (!changed)
+        return;
+    saveCloudPlaylistCache();
+    refreshSidebar();
+    refreshAllPages();
+}
+
+void MainWindow::replaceCloudPlaylists(core::SourceId sourceId,
+                                       const QList<core::OnlinePlaylist> &playlists)
+{
+    QList<core::OnlinePlaylist> normalized;
+    QSet<QString> identities;
+    for (core::OnlinePlaylist playlist : playlists) {
+        playlist.source = sourceId;
+        playlist.remoteId = playlist.remoteId.trimmed();
+        playlist.name = playlist.name.trimmed();
+        if (!playlist.isValid() || identities.contains(playlist.stableIdentity()))
+            continue;
+        if (playlist.name.isEmpty())
+            playlist.name = QStringLiteral("未命名歌单");
+        const QString coverPath = m_library.playlistCoverCachePath(
+            playlist.source, playlist.remoteId);
+        if (QFileInfo::exists(coverPath) && QFileInfo(coverPath).size() > 0)
+            playlist.coverPath = coverPath;
+        identities.insert(playlist.stableIdentity());
+        normalized.append(playlist);
+    }
+
+    for (int i = m_cloudPlaylists.size() - 1; i >= 0; --i) {
+        if (m_cloudPlaylists.at(i).source == sourceId)
+            m_cloudPlaylists.removeAt(i);
+    }
+    m_cloudPlaylists.append(normalized);
+    std::stable_sort(m_cloudPlaylists.begin(), m_cloudPlaylists.end(),
+                     [](const core::OnlinePlaylist &left,
+                        const core::OnlinePlaylist &right) {
+        return int(left.source) < int(right.source);
+    });
+    saveCloudPlaylistCache();
+    refreshSidebar();
+    refreshAllPages();
+    queueCloudPlaylistCovers(normalized);
+}
+
+void MainWindow::queueCloudPlaylistCovers(const QList<core::OnlinePlaylist> &playlists)
+{
+    for (const core::OnlinePlaylist &playlist : playlists) {
+        if (playlist.coverUrl.isEmpty() || !playlist.coverPath.isEmpty()
+            || m_cloudPlaylistCoverQueued.contains(playlist.stableIdentity())) {
+            continue;
+        }
+        m_cloudPlaylistCoverQueued.insert(playlist.stableIdentity());
+        m_cloudPlaylistCoverQueue.append(playlist);
+    }
+    startCloudPlaylistCoverDownloads();
+}
+
+void MainWindow::startCloudPlaylistCoverDownloads()
+{
+    constexpr int kMaxCloudCoverDownloads = 2;
+    while (m_cloudPlaylistCoverDownloadsActive < kMaxCloudCoverDownloads
+           && !m_cloudPlaylistCoverQueue.isEmpty()) {
+        const core::OnlinePlaylist playlist = m_cloudPlaylistCoverQueue.takeFirst();
+        core::MusicSource *source = m_sourceRegistry.source(playlist.source);
+        const QString path = m_library.playlistCoverCachePath(
+            playlist.source, playlist.remoteId);
+        if (!source || path.isEmpty()) {
+            m_cloudPlaylistCoverQueued.remove(playlist.stableIdentity());
+            continue;
+        }
+        ++m_cloudPlaylistCoverDownloadsActive;
+        const int sourceKey = int(playlist.source);
+        const quint64 generation = m_cloudPlaylistGenerations.value(sourceKey);
+        source->downloadToFile(QUrl(playlist.coverUrl), path,
+            [this, playlist, path, sourceKey, generation](bool ok) {
+                --m_cloudPlaylistCoverDownloadsActive;
+                m_cloudPlaylistCoverQueued.remove(playlist.stableIdentity());
+                if (ok && m_cloudPlaylistGenerations.value(sourceKey) == generation) {
+                    for (core::OnlinePlaylist &stored : m_cloudPlaylists) {
+                        if (stored.stableIdentity() == playlist.stableIdentity()) {
+                            stored.coverPath = path;
+                            break;
+                        }
+                    }
+                    saveCloudPlaylistCache();
+                    refreshSidebar();
+                    refreshAllPages();
+                }
+                startCloudPlaylistCoverDownloads();
+            });
+    }
 }
 
 void MainWindow::refreshSidebar()
 {
     QList<ui::SideBar::PlaylistItem> items = selfPlaylistInfos();
-    m_sideBar->setPlaylists(items, m_playlistContext);
+    m_sideBar->setPlaylists(items, m_playlistContext, m_cloudPlaylistContext);
     QList<QPair<int, QString>> menuItems;
     for (const auto &p : m_playlists.playlists())
         menuItems.append({ p.id, p.name });
@@ -1268,6 +1602,7 @@ void MainWindow::refreshAllPages()
 {
     m_favorites->setSongs(m_playlists.songsOf(m_playlists.favoritePlaylistId()), m_currentSongId);
     m_selfPlaylists->setPlaylists(m_playlists.playlists());
+    m_selfPlaylists->setCloudPlaylists(m_cloudPlaylists);
     m_songListPage->refreshCovers(&m_library);
     m_songListPage->setPlayingId(m_currentSongId);
     refreshSongListStates();
@@ -1388,6 +1723,7 @@ void MainWindow::restoreOnlineSession()
             core::SettingsService::setOnlineAvatarUrl(QString());
             m_apiClient.setCookie(QString());
         }
+        removeCloudPlaylists(core::SourceId::Netease);
         m_accountPanel->refresh();
         m_recommend->refresh();
         return;
@@ -1408,6 +1744,7 @@ void MainWindow::restoreOnlineSession()
             const QString nickname = profile.value(QStringLiteral("nickname")).toString();
             if (!nickname.isEmpty())
                 core::SettingsService::setOnlineNickname(nickname);
+            refreshCloudPlaylists(core::SourceId::Netease, QString::number(uid));
         } else {
             // cookie 已失效时同步清理展示状态，避免“显示已登录但请求均未授权”。
             core::SettingsService::setOnlineCookie(QString());
@@ -1415,6 +1752,7 @@ void MainWindow::restoreOnlineSession()
             core::SettingsService::setOnlineNickname(QString());
             core::SettingsService::setOnlineAvatarUrl(QString());
             m_apiClient.setCookie(QString());
+            removeCloudPlaylists(core::SourceId::Netease);
         }
         m_accountPanel->refresh();
         m_recommend->refresh();
@@ -1434,7 +1772,7 @@ void MainWindow::onCurrentSongChanged(const core::Song &song, int index)
     // 切歌只更新各列表的播放标记。旧实现会重建整个本地曲库页面，
     // 连带同步解压所有歌手/专辑封面，造成启动恢复歌曲时长时间卡顿。
     for (ui::SongListView *view : findChildren<ui::SongListView *>())
-        view->setPlayingId(m_currentSongId);
+        view->setPlayingSong(song);
     m_playing->setSong(song, QPixmap());
     m_playing->loadLyricsFor(song);
     m_playing->setLyricFontSize(core::SettingsService::lyricFontSize());

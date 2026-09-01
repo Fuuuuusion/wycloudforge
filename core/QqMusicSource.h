@@ -50,6 +50,7 @@ public:
     void cancelQrLogin(const QString &attemptId, OkFn ok = {}, ErrFn err = {});
     void validateCredential(const QString &credential, const QString &loginMethod,
                             OkFn ok, ErrFn err = {});
+    void vipStatus(OkFn ok, ErrFn err = {});
 
     void searchSongs(const QString &keywords, int limit, JsonArrayFn ok, ErrFn err = {}) override;
     void searchSongsPage(const QString &keywords, int limit, int offset,
@@ -60,6 +61,7 @@ public:
     void hotSearch(int limit, HotSearchFn ok, ErrFn err = {}) override;
     void cancelSearch(quint64 generation) override;
     void songUrls(const QStringList &ids, JsonArrayFn ok, ErrFn err = {}) override;
+    void songUrls(const QList<Song> &songs, JsonArrayFn ok, ErrFn err = {}) override;
     void lyric(const QString &id, String3Fn ok, ErrFn err = {}) override;
     void songDetail(const QString &id, OkFn ok, ErrFn err = {}) override;
     void albumDetail(const QString &id, OkFn ok, ErrFn err = {}) override;

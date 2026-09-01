@@ -89,6 +89,57 @@ void PlayerService::setPlaylist(const QList<Song> &songs, int startIndex)
     loadCurrent(false);
 }
 
+bool PlayerService::removeAt(int index)
+{
+    if (index < 0 || index >= m_playlist.size())
+        return false;
+    const bool removingCurrent = index == m_index;
+    const bool resumePlayback = isPlaying() || m_pendingAutoPlay;
+    m_playlist.removeAt(index);
+    if (m_playlist.isEmpty()) {
+        clearPlaylist();
+        return true;
+    }
+
+    if (!removingCurrent) {
+        if (index < m_index)
+            --m_index;
+        buildShuffleOrder();
+        alignShuffleToCurrent();
+        m_history.clear();
+        return true;
+    }
+
+    m_index = qMin(index, m_playlist.size() - 1);
+    buildShuffleOrder();
+    alignShuffleToCurrent();
+    m_history.clear();
+    loadCurrent(resumePlayback);
+    return true;
+}
+
+void PlayerService::clearPlaylist()
+{
+    ++m_loadToken;
+    m_pendingAutoPlay = false;
+    m_player.stop();
+    m_player.setSource(QUrl());
+    m_playlist.clear();
+    m_history.clear();
+    m_shuffleOrder.clear();
+    m_shufflePos = 0;
+    m_index = -1;
+    m_currentUrl.clear();
+    m_cacheSaved = false;
+    m_usingCachedSource = false;
+    m_usingDownloadedSource = false;
+    m_cacheRetryAttempted = false;
+    m_urlRetryAttempted = false;
+    emit songChanged(Song(), -1);
+    emit positionChanged(0);
+    emit durationChanged(0);
+}
+
 void PlayerService::playIndex(int index)
 {
     if (index < 0 || index >= m_playlist.size())
@@ -292,7 +343,7 @@ void PlayerService::loadCurrent(bool autoPlay, bool allowCached, bool resetCache
             return;
         }
         const int token = m_loadToken;
-        source->songUrls({ song.effectiveRemoteId() },
+        source->songUrls(QList<Song>{ song },
                            [this, token](const QJsonArray &arr) {
                                if (token != m_loadToken)
                                    return;

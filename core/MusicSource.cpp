@@ -1,5 +1,7 @@
 #include "MusicSource.h"
 
+#include <QSet>
+
 #include <utility>
 
 namespace core {
@@ -18,6 +20,55 @@ QStringList stringIds(const QList<qint64> &ids)
 void MusicSource::songUrls(const QList<qint64> &ids, JsonArrayFn ok, ErrFn err)
 {
     songUrls(stringIds(ids), std::move(ok), std::move(err));
+}
+
+void MusicSource::songUrls(const QList<Song> &songs, JsonArrayFn ok, ErrFn err)
+{
+    QStringList ids;
+    ids.reserve(songs.size());
+    for (const Song &song : songs) {
+        const QString id = song.effectiveRemoteId();
+        if (!id.isEmpty())
+            ids.append(id);
+    }
+    songUrls(ids, std::move(ok), std::move(err));
+}
+
+OnlinePlaylist MusicSource::playlistFromJson(const QJsonObject &obj) const
+{
+    OnlinePlaylist playlist;
+    playlist.source = sourceId();
+    playlist.remoteId = obj.value(QStringLiteral("remoteId")).toVariant().toString().trimmed();
+    if (playlist.remoteId.isEmpty())
+        playlist.remoteId = obj.value(QStringLiteral("id")).toVariant().toString().trimmed();
+    playlist.name = obj.value(QStringLiteral("name")).toString().trimmed();
+    if (playlist.name.isEmpty())
+        playlist.name = obj.value(QStringLiteral("title")).toString().trimmed();
+    playlist.coverUrl = obj.value(QStringLiteral("coverUrl")).toString().trimmed();
+    if (playlist.coverUrl.isEmpty())
+        playlist.coverUrl = obj.value(QStringLiteral("coverImgUrl")).toString().trimmed();
+    if (playlist.coverUrl.isEmpty())
+        playlist.coverUrl = obj.value(QStringLiteral("picUrl")).toString().trimmed();
+    playlist.description = obj.value(QStringLiteral("description")).toString().trimmed();
+    return playlist;
+}
+
+void MusicSource::userPlaylistItems(const QString &uid, OnlinePlaylistsFn ok, ErrFn err)
+{
+    userPlaylists(uid, [this, ok = std::move(ok)](const QJsonArray &array) {
+        QList<OnlinePlaylist> playlists;
+        playlists.reserve(array.size());
+        QSet<QString> identities;
+        for (const QJsonValue &value : array) {
+            const OnlinePlaylist playlist = playlistFromJson(value.toObject());
+            if (!playlist.isValid() || identities.contains(playlist.stableIdentity()))
+                continue;
+            identities.insert(playlist.stableIdentity());
+            playlists.append(playlist);
+        }
+        if (ok)
+            ok(playlists);
+    }, std::move(err));
 }
 
 void MusicSource::search(const SearchRequest &request, SearchResponseFn ok, ErrFn err)

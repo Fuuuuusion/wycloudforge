@@ -31,6 +31,8 @@ public:
     void refreshCovers(core::LibraryService *library);
     void setHeaderCoverPath(const QString &path);
     void setPlaylistContext(int playlistId);
+    void setPlaybackQueueContext();
+    void setReadOnlyContext();
     void setPlaylistMenuItems(const QList<QPair<int, QString>> &items);
 
 signals:
@@ -43,6 +45,9 @@ signals:
     void editPlaylistRequested(int playlistId);
     void renamePlaylistRequested(int playlistId);
     void deletePlaylistRequested(int playlistId);
+    void savePlaybackQueueRequested();
+    void clearPlaybackQueueRequested();
+    void removeFromPlaybackQueueRequested(int row);
 
 private:
     QLabel *m_cover = nullptr;
@@ -54,6 +59,7 @@ private:
     qint64 m_playingId = -1;
     QString m_headerCoverPath;
     int m_playlistContext = -1;
+    bool m_playbackQueueContext = false;
     bool m_mergeSources = false;
 };
 
