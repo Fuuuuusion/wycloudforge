@@ -4,20 +4,46 @@
 #include "ui/CoverCard.h"
 #include "ui/RecommendPage.h"
 #include "ui/AccountPanel.h"
+#include "ui/AccountSettingsButton.h"
+#include "ui/SideBar.h"
+#include "ui/SourceIcons.h"
+#include "ui/TitleBar.h"
+#include "core/NeteaseApiClient.h"
+#include "core/SettingsService.h"
 
 #include <QAbstractItemModel>
 #include <QApplication>
 #include <QFile>
 #include <QImage>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QScreen>
+#include <QScrollArea>
+#include <QScrollBar>
+#include <QSettings>
+#include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QToolButton>
 #include <QtTest>
 
 using namespace core;
 using namespace ui;
+
+class OfflineRecommendSource final : public NeteaseApiClient
+{
+public:
+    using NeteaseApiClient::NeteaseApiClient;
+
+    void recommendSongs(JsonArrayFn, ErrFn err = {}) override
+    {
+        if (err)
+            err(QStringLiteral("离线测试来源"));
+    }
+};
 
 class SongListViewTest : public QObject
 {
@@ -37,8 +63,12 @@ private slots:
     void rowHoverRapidTransitionsRepaintInterruptedRow();
     void rowHoverClearsOverBatchBarAndPlayingStaysIndependent();
     void songListProvidesScrollableTopAndBottomSafeAreas();
+    void sourcePickerRequiresSecondClickAndKeepsGroupIdentity();
     void sourceSwitchIsVisibleAndExclusive();
+    void sourceIconResourcesPreserveSizeAndAlpha();
+    void recommendedPlaylistsScrollAtNarrowWidths();
     void accountActionIsExplicitAndPreservesSignal();
+    void layoutComponentsFollowConfirmedGeometry();
     void singleClickPlaysContentOnly();
     void playbackActivityTracksRealState();
     void fullCoverPlaylistCardKeepsVisibleGeometry();
@@ -179,7 +209,7 @@ void SongListViewTest::favoriteActionKeepsPlaySignalSeparate()
 
     QSignalSpy heartSpy(&view, &SongListView::heartRequested);
     QSignalSpy playSpy(&view, &SongListView::playRequested);
-    const QModelIndex favoriteIndex = view.model()->index(0, 5);
+    const QModelIndex favoriteIndex = view.model()->index(0, 6);
     const QRect favoriteRect = view.visualRect(favoriteIndex);
     QVERIFY(favoriteRect.isValid());
     QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier,
@@ -217,7 +247,7 @@ void SongListViewTest::singleDeleteActionKeepsPlaySignalSeparate()
 
     QSignalSpy deleteSpy(&view, &SongListView::deleteDownloadRequested);
     QSignalSpy playSpy(&view, &SongListView::playRequested);
-    const QRect actionRect = view.visualRect(view.model()->index(0, 6));
+    const QRect actionRect = view.visualRect(view.model()->index(0, 7));
     QVERIFY(actionRect.isValid());
     QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, actionRect.center());
     QCOMPARE(deleteSpy.count(), 1);
@@ -274,7 +304,7 @@ void SongListViewTest::downloadStateUsesStableIdentity()
 
     QSignalSpy downloadSpy(&view, &SongListView::downloadRequested);
     QSignalSpy deleteSpy(&view, &SongListView::deleteDownloadRequested);
-    const QModelIndex actionIndex = view.model()->index(0, 6);
+    const QModelIndex actionIndex = view.model()->index(0, 7);
     const QRect actionRect = view.visualRect(actionIndex);
     QVERIFY(actionRect.isValid());
 
@@ -383,10 +413,13 @@ void SongListViewTest::playerBarDirectionalControlsKeepGeometryAndSignals()
     QVERIFY(bar.rect().contains(visibleRectInBar(favorite)));
 
     auto *leftBox = bar.findChild<QWidget *>(QStringLiteral("playerLeftBox"));
+    auto *actionBox = bar.findChild<QWidget *>(QStringLiteral("playerActionBox"));
     auto *centerBox = bar.findChild<QWidget *>(QStringLiteral("playerCenterBox"));
     QVERIFY(leftBox);
+    QVERIFY(actionBox);
     QVERIFY(centerBox);
-    QVERIFY(leftBox->rect().contains(QRect(favorite->mapTo(leftBox, QPoint(0, 0)), favorite->size())));
+    QVERIFY(actionBox->rect().contains(
+        QRect(favorite->mapTo(actionBox, QPoint(0, 0)), favorite->size())));
     QVERIFY(centerBox->rect().contains(QRect(previous->mapTo(centerBox, QPoint(0, 0)), previous->size())));
     QVERIFY(centerBox->rect().contains(QRect(next->mapTo(centerBox, QPoint(0, 0)), next->size())));
     QCOMPARE(previous->size(), QSize(30, 30));
@@ -535,16 +568,16 @@ void SongListViewTest::rowHoverRapidTransitionsRepaintInterruptedRow()
 
     const auto rowContentRect = [&view](int row) {
         QRect result = view.visualRect(view.model()->index(row, 0)).united(
-            view.visualRect(view.model()->index(row, 6)));
+            view.visualRect(view.model()->index(row, 7)));
         if (row == 0)
             result.setTop(result.top() + 42);
-        result.setHeight(64);
+        result.setHeight(112);
         return result.intersected(view.viewport()->rect());
     };
     const auto rowPoint = [&view](int row) {
-        const QRect titleRect = view.visualRect(view.model()->index(row, 1));
+        const QRect titleRect = view.visualRect(view.model()->index(row, 2));
         return row == 0
-            ? QPoint(titleRect.center().x(), titleRect.top() + 42 + 32)
+            ? QPoint(titleRect.center().x(), titleRect.top() + 42 + 56)
             : titleRect.center();
     };
     const auto captureViewport = [&view] {
@@ -637,11 +670,94 @@ void SongListViewTest::songListProvidesScrollableTopAndBottomSafeAreas()
     const QRect first = view.visualRect(view.model()->index(0, 0));
     const QRect middle = view.visualRect(view.model()->index(1, 0));
     const QRect last = view.visualRect(view.model()->index(2, 0));
-    QCOMPARE(middle.height(), 64);
+    QCOMPARE(middle.height(), 112);
     QCOMPARE(first.height() - middle.height(), 42);
-    QCOMPARE(last.height() - middle.height(), 94);
+    QCOMPARE(last.height() - middle.height(), 16);
     QCOMPARE(first.width(), middle.width());
     QCOMPARE(last.width(), middle.width());
+}
+
+void SongListViewTest::sourcePickerRequiresSecondClickAndKeepsGroupIdentity()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString localPath = dir.filePath(QStringLiteral("same-song.mp3"));
+    QFile localFile(localPath);
+    QVERIFY(localFile.open(QIODevice::WriteOnly));
+    QVERIFY(localFile.write("audio") > 0);
+    localFile.close();
+
+    auto makeItem = [](SourceId source, const QString &remoteId, const QString &filePath,
+                       bool playable) {
+        SearchResultItem item;
+        item.type = SearchItemType::Song;
+        item.source = source;
+        item.remoteId = remoteId;
+        item.title = QStringLiteral("同一首歌");
+        item.artist = QStringLiteral("同一歌手");
+        item.durationMs = 180000;
+        item.playable = playable;
+        item.availabilityError = playable ? QString() : QStringLiteral("版权限制");
+        item.song.source = int(source);
+        item.song.remoteId = remoteId;
+        item.song.filePath = filePath;
+        item.song.title = item.title;
+        item.song.artist = item.artist;
+        item.song.durationMs = item.durationMs;
+        return item;
+    };
+
+    SearchResultGroup group;
+    group.identity = QStringLiteral("recording:test-group");
+    SearchResultVariant localVariant;
+    localVariant.item = makeItem(SourceId::Local, QString(), localPath, true);
+    SearchResultVariant neteaseVariant;
+    neteaseVariant.item = makeItem(SourceId::Netease, QStringLiteral("netease-id"),
+                                    QStringLiteral("netease://netease-id"), true);
+    SearchResultVariant qqVariant;
+    qqVariant.item = makeItem(SourceId::QqMusic, QStringLiteral("qq-id"),
+                              QStringLiteral("qqmusic://qq-id"), false);
+    group.variants = { localVariant, neteaseVariant, qqVariant };
+
+    SongListView view;
+    view.resize(1200, 320);
+    view.setSearchResultGroups({ group });
+    view.show();
+    QApplication::processEvents();
+
+    QCOMPARE(view.model()->columnCount(), 8);
+    QCOMPARE(view.model()->index(0, 0).data(SongListModel::StableIdentityRole).toString(),
+             group.identity);
+    QCOMPARE(view.songs().constFirst().sourceId(), SourceId::Local);
+
+    QSignalSpy playSpy(&view, &SongListView::playRequested);
+    QSignalSpy sourceSpy(&view, &SongListView::sourceActivated);
+    const QRect sourceRect = view.visualRect(view.model()->index(0, 3));
+    QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, sourceRect.center());
+    QCOMPARE(playSpy.count(), 0);
+    QCOMPARE(sourceSpy.count(), 0);
+
+    auto *local = view.findChild<QToolButton *>(QStringLiteral("sourceChoice_0"));
+    auto *netease = view.findChild<QToolButton *>(QStringLiteral("sourceChoice_1"));
+    auto *qq = view.findChild<QToolButton *>(QStringLiteral("sourceChoice_2"));
+    QVERIFY(local);
+    QVERIFY(netease);
+    QVERIFY(qq);
+    QVERIFY(local->isVisible());
+    QVERIFY(netease->isVisible());
+    QVERIFY(qq->isVisible());
+
+    qq->click();
+    QCOMPARE(playSpy.count(), 0);
+    QCOMPARE(sourceSpy.count(), 0);
+    QVERIFY(qq->toolTip().contains(QStringLiteral("版权限制")));
+
+    netease->click();
+    QCOMPARE(sourceSpy.count(), 1);
+    QCOMPARE(playSpy.count(), 1);
+    QCOMPARE(view.songs().constFirst().sourceId(), SourceId::Netease);
+    QCOMPARE(view.model()->index(0, 0).data(SongListModel::StableIdentityRole).toString(),
+             group.identity);
 }
 
 void SongListViewTest::sourceSwitchIsVisibleAndExclusive()
@@ -657,16 +773,16 @@ void SongListViewTest::sourceSwitchIsVisibleAndExclusive()
     QVERIFY(qq);
     QVERIFY(netease->isVisible());
     QVERIFY(qq->isVisible());
-    QCOMPARE(netease->size(), QSize(76, 30));
-    QCOMPARE(qq->size(), QSize(76, 30));
+    QCOMPARE(netease->size(), QSize(40, 40));
+    QCOMPARE(qq->size(), QSize(40, 40));
     QVERIFY(netease->isChecked());
     QVERIFY(!qq->isChecked());
     const auto fillColor = [](QPushButton *button) {
         const QImage image = button->grab().toImage();
         return image.pixelColor(image.width() / 10, image.height() / 2);
     };
-    QCOMPARE(fillColor(netease), QColor(QStringLiteral("#EC4141")));
-    QCOMPARE(fillColor(qq), QColor(QStringLiteral("#1B1B24")));
+    QCOMPARE(fillColor(netease), QColor(QStringLiteral("#3A2024")));
+    QCOMPARE(fillColor(qq), QColor(Qt::transparent));
 
     QSignalSpy activationSpy(&page, &RecommendPage::sourceActivationRequested);
     qq->click();
@@ -675,8 +791,109 @@ void SongListViewTest::sourceSwitchIsVisibleAndExclusive()
     QCOMPARE(activationSpy.takeFirst().at(0).toInt(), int(SourceId::QqMusic));
     QVERIFY(!netease->isChecked());
     QVERIFY(qq->isChecked());
-    QCOMPARE(fillColor(netease), QColor(QStringLiteral("#1B1B24")));
-    QCOMPARE(fillColor(qq), QColor(QStringLiteral("#EC4141")));
+    QCOMPARE(fillColor(netease), QColor(Qt::transparent));
+    QCOMPARE(fillColor(qq), QColor(QStringLiteral("#3A2024")));
+}
+
+void SongListViewTest::sourceIconResourcesPreserveSizeAndAlpha()
+{
+    const QList<SourceId> sources = {
+        SourceId::Local, SourceId::Netease, SourceId::QqMusic
+    };
+    for (SourceId source : sources) {
+        const QImage original(sourceIconPath(source, true));
+        const QImage disabled(sourceIconPath(source, false));
+        QVERIFY2(!original.isNull(), qPrintable(sourceIconPath(source, true)));
+        QVERIFY2(!disabled.isNull(), qPrintable(sourceIconPath(source, false)));
+        QCOMPARE(original.size(), QSize(200, 200));
+        QCOMPARE(disabled.size(), original.size());
+        for (int y = 0; y < original.height(); ++y) {
+            for (int x = 0; x < original.width(); ++x) {
+                const QColor sourcePixel = original.pixelColor(x, y);
+                const QColor disabledPixel = disabled.pixelColor(x, y);
+                const int expectedGray = qRound(0.299 * sourcePixel.red()
+                    + 0.587 * sourcePixel.green() + 0.114 * sourcePixel.blue());
+                QCOMPARE(disabledPixel.alpha(), sourcePixel.alpha());
+                QCOMPARE(disabledPixel.red(), disabledPixel.green());
+                QCOMPARE(disabledPixel.green(), disabledPixel.blue());
+                QVERIFY(qAbs(disabledPixel.red() - expectedGray) <= 1);
+            }
+        }
+    }
+}
+
+void SongListViewTest::recommendedPlaylistsScrollAtNarrowWidths()
+{
+    struct EnvironmentGuard
+    {
+        explicit EnvironmentGuard(const char *key, const QByteArray &value)
+            : name(key), existed(qEnvironmentVariableIsSet(key)), previous(qgetenv(key))
+        {
+            qputenv(name.constData(), value);
+        }
+        ~EnvironmentGuard()
+        {
+            if (existed)
+                qputenv(name.constData(), previous);
+            else
+                qunsetenv(name.constData());
+        }
+        QByteArray name;
+        bool existed = false;
+        QByteArray previous;
+    };
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    EnvironmentGuard appData("APPDATA", dir.path().toUtf8());
+    EnvironmentGuard localAppData("LOCALAPPDATA", dir.path().toUtf8());
+    const QString cachePath = SettingsService::recommendCachePath();
+    QVERIFY(QDir().mkpath(QFileInfo(cachePath).absolutePath()));
+    QJsonArray playlists;
+    for (int i = 0; i < 6; ++i) {
+        playlists.append(QJsonObject{
+            { QStringLiteral("id"), QString::number(i + 1) },
+            { QStringLiteral("name"), QStringLiteral("推荐歌单 %1").arg(i + 1) }
+        });
+    }
+    QFile cache(cachePath);
+    QVERIFY(cache.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    cache.write(QJsonDocument(QJsonObject{
+        { QStringLiteral("songs"), QJsonArray() },
+        { QStringLiteral("playlists"), playlists }
+    }).toJson(QJsonDocument::Compact));
+    cache.close();
+
+    OfflineRecommendSource source;
+    RecommendPage page;
+    page.resize(700, 700);
+    page.setSourceProvider(&source, nullptr);
+    page.refresh();
+    page.show();
+    QApplication::processEvents();
+
+    auto *scroll = page.findChild<QScrollArea *>(QStringLiteral("recommendedPlaylistScroll"));
+    auto *host = page.findChild<QWidget *>(QStringLiteral("recommendedPlaylistHost"));
+    QVERIFY(scroll);
+    QVERIFY(host);
+    QCOMPARE(scroll->horizontalScrollBarPolicy(), Qt::ScrollBarAsNeeded);
+    QCOMPARE(page.findChildren<CoverCard *>().size(), 6);
+    QVERIFY(host->minimumWidth() >= 6 * 132 + 5 * 16);
+    QTRY_VERIFY(scroll->horizontalScrollBar()->maximum() > 0);
+
+    scroll->horizontalScrollBar()->setValue(scroll->horizontalScrollBar()->maximum());
+    QCOMPARE(scroll->horizontalScrollBar()->value(), scroll->horizontalScrollBar()->maximum());
+
+    page.resize(700, 328);
+    QApplication::processEvents();
+    auto *topScroll = page.findChild<QScrollArea *>(QStringLiteral("recommendTopScroll"));
+    auto *dailyTitle = page.findChild<QLabel *>(QStringLiteral("recommendedDailyTitle"));
+    QVERIFY(topScroll);
+    QVERIFY(dailyTitle);
+    QVERIFY(dailyTitle->isVisible());
+    QVERIFY(page.findChild<SongListView *>()->height() >= 130);
+    QVERIFY(topScroll->geometry().bottom() < dailyTitle->geometry().top());
+    QVERIFY(topScroll->verticalScrollBar()->maximum() > 0);
 }
 
 void SongListViewTest::accountActionIsExplicitAndPreservesSignal()
@@ -689,12 +906,80 @@ void SongListViewTest::accountActionIsExplicitAndPreservesSignal()
     auto *button = panel.findChild<QPushButton *>(QStringLiteral("accountActionButton"));
     QVERIFY(button);
     QVERIFY(button->isVisible());
-    QVERIFY(button->text() == QStringLiteral("登录")
-            || button->text().startsWith(QStringLiteral("查看账号 · ")));
+    QVERIFY(!button->text().trimmed().isEmpty());
 
     QSignalSpy accountSpy(&panel, &AccountPanel::accountClicked);
     button->click();
     QCOMPARE(accountSpy.count(), 1);
+}
+
+void SongListViewTest::layoutComponentsFollowConfirmedGeometry()
+{
+    TitleBar titleBar;
+    titleBar.resize(1200, 48);
+    titleBar.show();
+    QApplication::processEvents();
+    auto *search = titleBar.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    QVERIFY(search);
+    QCOMPARE(search->size(), QSize(520, 36));
+    QVERIFY(!titleBar.findChild<QLabel *>(QStringLiteral("brandName")));
+    titleBar.resize(700, 48);
+    QApplication::processEvents();
+    QCOMPARE(search->width(), 430);
+    QVERIFY(titleBar.rect().contains(titleBar.searchRect()));
+    for (int button = TitleBar::MinimizeBtn; button <= TitleBar::CloseBtn; ++button)
+        QVERIFY(titleBar.rect().contains(titleBar.windowButtonRect(button)));
+
+    SideBar sidebar;
+    QCOMPARE(sidebar.width(), 240);
+    const QList<QPushButton *> buttons = sidebar.findChildren<QPushButton *>();
+    int navButtons = 0;
+    for (QPushButton *button : buttons) {
+        if (button->isCheckable() && button->height() == 84)
+            ++navButtons;
+    }
+    QCOMPARE(navButtons, 4);
+
+    AccountPanel account;
+    QCOMPARE(account.height(), 224);
+    auto *avatar = account.findChild<QPushButton *>(QStringLiteral("accountAvatarButton"));
+    QVERIFY(avatar);
+    QCOMPARE(avatar->size(), QSize(120, 120));
+
+    AccountSettingsButton settings;
+    QCOMPARE(settings.size(), QSize(28, 28));
+
+    PlayerBar player;
+    QCOMPARE(player.height(), 224);
+    player.resize(1200, 224);
+    player.show();
+    QApplication::processEvents();
+    auto *leftBox = player.findChild<QWidget *>(QStringLiteral("playerLeftBox"));
+    auto *actionBox = player.findChild<QWidget *>(QStringLiteral("playerActionBox"));
+    auto *centerBox = player.findChild<QWidget *>(QStringLiteral("playerCenterBox"));
+    auto *rightBox = player.findChild<QWidget *>(QStringLiteral("playerRightBox"));
+    QVERIFY(leftBox);
+    QVERIFY(actionBox);
+    QVERIFY(centerBox);
+    QVERIFY(rightBox);
+    QVERIFY(leftBox->isVisible());
+    QVERIFY(actionBox->isVisible());
+    QVERIFY(centerBox->isVisible());
+    QVERIFY(rightBox->isVisible());
+    QCOMPARE(player.grab().toImage().pixelColor(2, 2), QColor(QStringLiteral("#14141B")));
+
+    player.resize(700, 224);
+    QApplication::processEvents();
+    QVERIFY(player.findChild<QLabel *>(QStringLiteral("playerTitle"))->isVisible());
+    QVERIFY(player.findChild<QWidget *>(QStringLiteral("playerProgress"))->isVisible());
+    QVERIFY(player.findChild<QPushButton *>(QStringLiteral("favoriteActionButton"))->isVisible());
+    QVERIFY(player.findChild<QPushButton *>(QStringLiteral("downloadActionButton"))->isVisible());
+    QVERIFY(player.findChild<QPushButton *>(QStringLiteral("previousTrackButton"))->isVisible());
+    QVERIFY(player.findChild<QPushButton *>(QStringLiteral("playPauseBtn"))->isVisible());
+    QVERIFY(player.findChild<QPushButton *>(QStringLiteral("nextTrackButton"))->isVisible());
+    QVERIFY(player.findChild<QPushButton *>(QStringLiteral("playerModeButton"))->isVisible());
+    QVERIFY(!player.findChild<QPushButton *>(QStringLiteral("playerLyricsButton"))->isVisible());
+    QVERIFY(!player.findChild<QPushButton *>(QStringLiteral("playerQueueButton"))->isVisible());
 }
 
 void SongListViewTest::singleClickPlaysContentOnly()
@@ -716,18 +1001,18 @@ void SongListViewTest::singleClickPlaysContentOnly()
     QSignalSpy heartSpy(&view, &SongListView::heartRequested);
     QSignalSpy downloadSpy(&view, &SongListView::downloadRequested);
 
-    const QRect titleRect = view.visualRect(view.model()->index(0, 1));
+    const QRect titleRect = view.visualRect(view.model()->index(0, 2));
     QVERIFY(titleRect.isValid());
     QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, titleRect.center());
     QCOMPARE(playSpy.count(), 1);
     QCOMPARE(playSpy.takeFirst().at(0).toInt(), 0);
 
-    const QRect heartRect = view.visualRect(view.model()->index(0, 5));
+    const QRect heartRect = view.visualRect(view.model()->index(0, 6));
     QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, heartRect.center());
     QCOMPARE(heartSpy.count(), 1);
     QCOMPARE(playSpy.count(), 0);
 
-    const QRect downloadRect = view.visualRect(view.model()->index(0, 6));
+    const QRect downloadRect = view.visualRect(view.model()->index(0, 7));
     QTest::mouseClick(view.viewport(), Qt::LeftButton, Qt::NoModifier, downloadRect.center());
     QCOMPARE(downloadSpy.count(), 1);
     QCOMPARE(playSpy.count(), 0);

@@ -2,108 +2,15 @@
 
 #include "core/SettingsService.h"
 
-#include <QEasingCurve>
-#include <QEnterEvent>
-#include <QHBoxLayout>
 #include <QLabel>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPixmap>
 #include <QPushButton>
-#include <QVariantAnimation>
+#include <QVBoxLayout>
 
 namespace ui {
 namespace {
-QColor blendColor(const QColor &from, const QColor &to, qreal progress)
-{
-    const qreal t = qBound(0.0, progress, 1.0);
-    return QColor(qRound(from.red() + (to.red() - from.red()) * t),
-                  qRound(from.green() + (to.green() - from.green()) * t),
-                  qRound(from.blue() + (to.blue() - from.blue()) * t),
-                  qRound(from.alpha() + (to.alpha() - from.alpha()) * t));
-}
-
-class SettingsButton final : public QPushButton
-{
-public:
-    explicit SettingsButton(QWidget *parent = nullptr)
-        : QPushButton(parent)
-    {
-        setObjectName("accountSettings");
-        setFixedSize(28, 28);
-        setFlat(true);
-        setCursor(Qt::PointingHandCursor);
-        setToolTip(QStringLiteral("设置"));
-        setAccessibleName(QStringLiteral("设置"));
-        setAttribute(Qt::WA_Hover, true);
-        setFocusPolicy(Qt::StrongFocus);
-
-        m_animation.setEasingCurve(QEasingCurve::InOutCubic);
-        connect(&m_animation, &QVariantAnimation::valueChanged, this, [this](const QVariant &value) {
-            m_progress = value.toReal();
-            update();
-        });
-    }
-
-protected:
-    void enterEvent(QEnterEvent *event) override
-    {
-        animateTo(1.0);
-        QPushButton::enterEvent(event);
-    }
-
-    void leaveEvent(QEvent *event) override
-    {
-        animateTo(0.0);
-        QPushButton::leaveEvent(event);
-    }
-
-    void paintEvent(QPaintEvent *) override
-    {
-        QPainter painter(this);
-        painter.setRenderHint(QPainter::Antialiasing);
-
-        QColor track = blendColor(QColor(0xB8, 0xB8, 0xC4), QColor(0xE8, 0xE8, 0xE8), m_progress);
-        if (!isEnabled())
-            track = QColor(0x6E, 0x6E, 0x7A);
-
-        constexpr qreal left = 6.0;
-        constexpr qreal right = 22.0;
-        constexpr qreal ys[] = { 8.0, 14.0, 20.0 };
-        constexpr qreal idlePositions[] = { 0.28, 0.72, 0.28 };
-        constexpr qreal hoverPositions[] = { 0.72, 0.28, 0.72 };
-
-        painter.setPen(QPen(track, 2.0, Qt::SolidLine, Qt::RoundCap));
-        for (qreal y : ys)
-            painter.drawLine(QPointF(left, y), QPointF(right, y));
-
-        painter.setPen(Qt::NoPen);
-        for (int i = 0; i < 3; ++i) {
-            const qreal position = idlePositions[i]
-                + (hoverPositions[i] - idlePositions[i]) * m_progress;
-            const QPointF center(left + (right - left) * position, ys[i]);
-            painter.setBrush(track);
-            painter.drawEllipse(center, 3.0, 3.0);
-        }
-    }
-
-private:
-    void animateTo(qreal target)
-    {
-        const qreal distance = qAbs(target - m_progress);
-        if (distance < 0.001)
-            return;
-        m_animation.stop();
-        m_animation.setStartValue(m_progress);
-        m_animation.setEndValue(target);
-        m_animation.setDuration(qMax(1, qRound(140.0 * distance)));
-        m_animation.start();
-    }
-
-    QVariantAnimation m_animation;
-    qreal m_progress = 0.0;
-};
-
 QPixmap roundAvatar(const QPixmap &src, int size)
 {
     QPixmap out(size, size);
@@ -138,10 +45,17 @@ AccountPanel::AccountPanel(QWidget *parent)
     : QWidget(parent)
 {
     setObjectName("accountPanel");
+    setFixedHeight(224);
 
-    m_avatar = new QLabel(this);
-    m_avatar->setFixedSize(36, 36);
-    m_avatar->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_avatar = new QPushButton(this);
+    m_avatar->setObjectName(QStringLiteral("accountAvatarButton"));
+    m_avatar->setFixedSize(120, 120);
+    m_avatar->setIconSize(QSize(120, 120));
+    m_avatar->setFlat(true);
+    m_avatar->setCursor(Qt::PointingHandCursor);
+    m_avatar->setStyleSheet(QStringLiteral(
+        "QPushButton{background:transparent;border:none;padding:0;}"));
+    m_avatar->setAccessibleName(QStringLiteral("打开账号中心"));
 
     m_accountButton = new QPushButton(QStringLiteral("登录"), this);
     m_accountButton->setObjectName(QStringLiteral("accountActionButton"));
@@ -150,18 +64,21 @@ AccountPanel::AccountPanel(QWidget *parent)
     m_accountButton->setAccessibleName(QStringLiteral("登录"));
     m_accountButton->setToolTip(QStringLiteral("登录网易云或 QQ音乐"));
     m_accountButton->setMinimumWidth(0);
+    m_accountButton->setFixedHeight(38);
+    m_accountButton->setStyleSheet(QStringLiteral(
+        "QPushButton{background:transparent;border:none;color:#E8E8E8;font-size:14px;"
+        "padding:4px;text-align:center;}"
+        "QPushButton:hover{color:#EC4141;}"));
 
-    auto *settingsBtn = new SettingsButton(this);
-
-    auto *layout = new QHBoxLayout(this);
-    layout->setContentsMargins(12, 8, 10, 8);
+    auto *layout = new QVBoxLayout(this);
+    layout->setContentsMargins(12, 12, 12, 12);
     layout->setSpacing(8);
-    layout->addWidget(m_avatar);
-    layout->addWidget(m_accountButton, 1);
-    layout->addWidget(settingsBtn);
+    layout->addWidget(m_avatar, 0, Qt::AlignHCenter);
+    layout->addWidget(m_accountButton);
+    layout->addStretch(1);
 
+    connect(m_avatar, &QPushButton::clicked, this, &AccountPanel::accountClicked);
     connect(m_accountButton, &QPushButton::clicked, this, &AccountPanel::accountClicked);
-    connect(settingsBtn, &QPushButton::clicked, this, &AccountPanel::settingsClicked);
     refresh();
 }
 
@@ -184,8 +101,7 @@ void AccountPanel::refresh()
         nickname = QStringLiteral("未登录");
     const bool loggedIn = core::SettingsService::onlineUid() > 0
         || !core::SettingsService::qqUserId().isEmpty();
-    const QString accountText = loggedIn ? QStringLiteral("查看账号 · %1").arg(nickname)
-                                         : QStringLiteral("登录");
+    const QString accountText = loggedIn ? nickname : QStringLiteral("登录");
     m_accountButton->setText(accountText);
     m_accountButton->setAccessibleName(loggedIn ? QStringLiteral("查看账号")
                                                 : QStringLiteral("登录"));
@@ -194,8 +110,8 @@ void AccountPanel::refresh()
 
     QPixmap pm = !avatarPath.isEmpty() ? QPixmap(avatarPath) : QPixmap();
     if (pm.isNull())
-        pm = letterAvatar(nickname.left(1), 36);
-    m_avatar->setPixmap(roundAvatar(pm, 36));
+        pm = letterAvatar(nickname.left(1), 120);
+    m_avatar->setIcon(QIcon(roundAvatar(pm, 120)));
 }
 
 } // namespace ui

@@ -29,14 +29,14 @@ QString formatTime(qint64 ms)
         .arg(total % 60, 2, 10, QLatin1Char('0'));
 }
 
-QPixmap placeholderCover(const QString &text)
+QPixmap placeholderCover(const QString &text, int size = 148)
 {
-    QPixmap pm(60, 60);
+    QPixmap pm(size, size);
     pm.fill(QColor(0xEC, 0x41, 0x41));
     QPainter p(&pm);
     p.setRenderHint(QPainter::Antialiasing);
     p.setPen(Qt::white);
-    QFont f(QStringLiteral("Microsoft YaHei UI"), 14, QFont::Bold);
+    QFont f(QStringLiteral("Microsoft YaHei UI"), qMax(14, size / 4), QFont::Bold);
     p.setFont(f);
     p.drawText(pm.rect(), Qt::AlignCenter, text.left(1));
     return pm;
@@ -692,14 +692,17 @@ PlayerBar::PlayerBar(QWidget *parent)
     : QWidget(parent)
 {
     setObjectName("playerBar");
-    setFixedSize(860, 80);
-    setAttribute(Qt::WA_TranslucentBackground);
+    setFixedHeight(224);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    setAttribute(Qt::WA_StyledBackground, false);
 
     m_cover = new QLabel(this);
-    m_cover->setFixedSize(60, 60);
+    m_cover->setObjectName(QStringLiteral("playerCover"));
+    m_cover->setFixedSize(148, 148);
     m_cover->setPixmap(placeholderCover(QStringLiteral("乐")));
 
     m_title = new QLabel(QStringLiteral("未在播放"), this);
+    m_title->setObjectName(QStringLiteral("playerTitle"));
     m_title->setProperty("class", "nowTitle");
     m_title->setMinimumWidth(0);
     m_title->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
@@ -750,18 +753,26 @@ PlayerBar::PlayerBar(QWidget *parent)
 
     m_leftBox = new QWidget(this);
     m_leftBox->setObjectName(QStringLiteral("playerLeftBox"));
-    m_leftBox->setMinimumWidth(210);
-    m_leftBox->setMaximumWidth(270);
-    m_leftBox->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+    m_leftBox->setMinimumWidth(220);
+    m_leftBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     auto *leftLayout = new QHBoxLayout(m_leftBox);
     leftLayout->setContentsMargins(0, 0, 0, 0);
     leftLayout->setSpacing(10);
     leftLayout->addWidget(m_cover);
     leftLayout->addWidget(m_infoBox, 1);
-    leftLayout->addWidget(m_heartBtn);
-    leftLayout->addWidget(m_downloadBtn);
+
+    m_actionBox = new QWidget(this);
+    m_actionBox->setObjectName(QStringLiteral("playerActionBox"));
+    auto *actionLayout = new QVBoxLayout(m_actionBox);
+    actionLayout->setContentsMargins(0, 0, 0, 0);
+    actionLayout->setSpacing(14);
+    actionLayout->addStretch(1);
+    actionLayout->addWidget(m_heartBtn, 0, Qt::AlignCenter);
+    actionLayout->addWidget(m_downloadBtn, 0, Qt::AlignCenter);
+    actionLayout->addStretch(1);
 
     m_progress = new ProgressSlider(this);
+    m_progress->setObjectName(QStringLiteral("playerProgress"));
     m_progress->setRange(0, 1000);
     m_progress->setValue(0, false);
 
@@ -793,6 +804,7 @@ PlayerBar::PlayerBar(QWidget *parent)
     };
 
     m_modeBtn = makeCtrlButton(QStringLiteral(":/icons/icon-loop.svg"), QStringLiteral("列表循环"));
+    m_modeBtn->setObjectName(QStringLiteral("playerModeButton"));
     m_prevBtn = new DirectionalButton(QStringLiteral(":/icons/icon-prev.svg"), -1,
                                       QStringLiteral("上一首"), this);
     m_prevBtn->setObjectName(QStringLiteral("previousTrackButton"));
@@ -802,8 +814,11 @@ PlayerBar::PlayerBar(QWidget *parent)
     m_nextBtn->setObjectName(QStringLiteral("nextTrackButton"));
 
     m_muteBtn = makeCtrlButton(QStringLiteral(":/icons/icon-volume.svg"), QStringLiteral("静音"));
+    m_muteBtn->setObjectName(QStringLiteral("playerMuteButton"));
     m_volume = new ProgressSlider(this);
-    m_volume->setFixedWidth(90);
+    m_volume->setMinimumWidth(80);
+    m_volume->setMaximumWidth(180);
+    m_volume->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_volume->setRange(0, 100);
     m_volume->setValue(70, false);
 
@@ -816,39 +831,53 @@ PlayerBar::PlayerBar(QWidget *parent)
 
     m_centerBox = new QWidget(this);
     m_centerBox->setObjectName(QStringLiteral("playerCenterBox"));
-    m_centerBox->setMinimumWidth(150);
+    m_centerBox->setMinimumWidth(250);
     m_centerBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     auto *centerLayout = new QVBoxLayout(m_centerBox);
     centerLayout->setContentsMargins(0, 0, 0, 0);
-    centerLayout->setSpacing(5);
+    centerLayout->setSpacing(12);
+    centerLayout->addStretch(1);
     centerLayout->addLayout(timeRow);
     centerLayout->addLayout(controls, 0);
     centerLayout->setAlignment(controls, Qt::AlignCenter);
+    centerLayout->addStretch(1);
 
     m_lyricsBtn = makeCtrlButton(QStringLiteral(":/icons/icon-lyrics.svg"), QStringLiteral("歌词"));
     m_queueBtn = makeCtrlButton(QStringLiteral(":/icons/icon-queue.svg"), QStringLiteral("播放列表"));
+    m_lyricsBtn->setObjectName(QStringLiteral("playerLyricsButton"));
+    m_queueBtn->setObjectName(QStringLiteral("playerQueueButton"));
 
     m_rightBox = new QWidget(this);
     m_rightBox->setObjectName(QStringLiteral("playerRightBox"));
-    m_rightBox->setMinimumWidth(222);
-    m_rightBox->setMaximumWidth(240);
-    m_rightBox->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-    auto *rightLayout = new QHBoxLayout(m_rightBox);
+    m_rightBox->setMinimumWidth(240);
+    m_rightBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    auto *rightLayout = new QVBoxLayout(m_rightBox);
     rightLayout->setContentsMargins(0, 0, 0, 0);
-    rightLayout->setSpacing(6);
+    rightLayout->setSpacing(20);
+    auto *volumeRow = new QHBoxLayout;
+    volumeRow->setContentsMargins(0, 0, 0, 0);
+    volumeRow->setSpacing(8);
+    volumeRow->addWidget(m_muteBtn);
+    volumeRow->addWidget(m_volume, 1);
+    auto *toolRow = new QHBoxLayout;
+    toolRow->setContentsMargins(0, 0, 0, 0);
+    toolRow->setSpacing(12);
+    toolRow->addWidget(m_modeBtn);
+    toolRow->addWidget(m_lyricsBtn);
+    toolRow->addWidget(m_queueBtn);
+    toolRow->addStretch(1);
     rightLayout->addStretch(1);
-    rightLayout->addWidget(m_modeBtn);
-    rightLayout->addWidget(m_muteBtn);
-    rightLayout->addWidget(m_volume);
-    rightLayout->addWidget(m_lyricsBtn);
-    rightLayout->addWidget(m_queueBtn);
+    rightLayout->addLayout(volumeRow);
+    rightLayout->addLayout(toolRow);
+    rightLayout->addStretch(1);
 
     m_rootLayout = new QHBoxLayout(this);
-    m_rootLayout->setContentsMargins(44, 0, 44, 0);
-    m_rootLayout->setSpacing(16);
-    m_rootLayout->addWidget(m_leftBox);
-    m_rootLayout->addWidget(m_centerBox, 1);
-    m_rootLayout->addWidget(m_rightBox);
+    m_rootLayout->setContentsMargins(28, 20, 28, 20);
+    m_rootLayout->setSpacing(18);
+    m_rootLayout->addWidget(m_leftBox, 28);
+    m_rootLayout->addWidget(m_actionBox, 13);
+    m_rootLayout->addWidget(m_centerBox, 28);
+    m_rootLayout->addWidget(m_rightBox, 31);
 
     connect(m_modeBtn, &QPushButton::clicked, this, &PlayerBar::modeClicked);
     connect(m_prevBtn, &QPushButton::clicked, this, &PlayerBar::prevClicked);
@@ -880,10 +909,9 @@ PlayerBar::PlayerBar(QWidget *parent)
 void PlayerBar::paintEvent(QPaintEvent *)
 {
     QPainter p(this);
-    p.setRenderHint(QPainter::Antialiasing);
     p.setPen(Qt::NoPen);
-    p.setBrush(QColor(0x1B, 0x1B, 0x24));
-    p.drawRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), 16, 16);
+    p.setBrush(QColor(0x14, 0x14, 0x1B));
+    p.drawRect(rect());
 }
 
 void PlayerBar::resizeEvent(QResizeEvent *event)
@@ -897,30 +925,50 @@ void PlayerBar::resizeEvent(QResizeEvent *event)
 
 void PlayerBar::updateResponsiveLayout()
 {
-    if (!m_rootLayout || !m_leftBox || !m_centerBox || !m_rightBox)
+    if (!m_rootLayout || !m_leftBox || !m_actionBox || !m_centerBox || !m_rightBox)
         return;
 
     const bool compact = width() < 780;
-    const bool narrow = width() < 620;
+    const bool medium = width() < 1100;
 
-    // Secondary right-side controls yield first. Core favorite, previous,
-    // play and next controls always retain their complete hit rectangles.
     m_volume->setVisible(!compact);
     m_lyricsBtn->setVisible(!compact);
     m_queueBtn->setVisible(!compact);
-    m_downloadBtn->setVisible(!narrow);
-    m_cover->setVisible(!narrow);
-    m_infoBox->setVisible(width() >= 520);
+    m_downloadBtn->show();
+    m_heartBtn->show();
+    m_cover->setVisible(!compact);
+    m_infoBox->show();
+    m_modeBtn->show();
+    m_muteBtn->show();
 
-    m_leftBox->setMinimumWidth(narrow ? 52 : compact ? 190 : 210);
-    m_leftBox->setMaximumWidth(narrow ? 150 : compact ? 220 : 270);
-    m_rightBox->setMinimumWidth(compact ? 66 : 222);
-    m_rightBox->setMaximumWidth(compact ? 66 : 240);
-    m_centerBox->setMinimumWidth(150);
+    const int coverSize = medium ? 112 : 148;
+    if (!compact && m_cover->size() != QSize(coverSize, coverSize)) {
+        m_cover->setFixedSize(coverSize, coverSize);
+        if (!m_song.coverPath.isEmpty()) {
+            const QPixmap pixmap(m_song.coverPath);
+            if (!pixmap.isNull()) {
+                m_cover->setPixmap(pixmap.scaled(coverSize, coverSize,
+                                                  Qt::KeepAspectRatioByExpanding,
+                                                  Qt::SmoothTransformation));
+            }
+        } else {
+            m_cover->setPixmap(placeholderCover(
+                m_song.title.isEmpty() ? QStringLiteral("乐") : m_song.title.left(1), coverSize));
+        }
+    }
 
-    const int margin = compact ? 12 : qBound(12, (width() - 612) / 2, 44);
-    m_rootLayout->setContentsMargins(margin, 0, margin, 0);
-    m_rootLayout->setSpacing(compact ? 12 : 16);
+    // 最小宽度必须始终保持为可收缩下限。若在宽屏状态把这里抬高到
+    // 280/240，布局会反向阻止父控件缩到 780px 以下，紧凑模式永远无法触发。
+    // 宽屏的 28/13/28/31 比例继续由根布局 stretch 分配。
+    m_leftBox->setMinimumWidth(158);
+    m_actionBox->setMinimumWidth(56);
+    m_centerBox->setMinimumWidth(250);
+    m_rightBox->setMinimumWidth(76);
+
+    const int horizontalMargin = compact ? 12 : medium ? 20 : 28;
+    m_rootLayout->setContentsMargins(horizontalMargin, compact ? 16 : 20,
+                                     horizontalMargin, compact ? 16 : 20);
+    m_rootLayout->setSpacing(compact ? 10 : medium ? 14 : 18);
     m_rootLayout->invalidate();
 }
 
@@ -944,9 +992,11 @@ void PlayerBar::setSong(const core::Song &song, bool favorite, bool animateDownl
     if (!song.coverPath.isEmpty()) {
         QPixmap pm(song.coverPath);
         if (!pm.isNull())
-            m_cover->setPixmap(pm.scaled(60, 60, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation));
+            m_cover->setPixmap(pm.scaled(m_cover->size(), Qt::KeepAspectRatioByExpanding,
+                                         Qt::SmoothTransformation));
     } else {
-        m_cover->setPixmap(placeholderCover(song.title.isEmpty() ? QStringLiteral("乐") : song.title.left(1)));
+        m_cover->setPixmap(placeholderCover(
+            song.title.isEmpty() ? QStringLiteral("乐") : song.title.left(1), m_cover->width()));
     }
     setDuration(song.durationMs);
     setPosition(0);

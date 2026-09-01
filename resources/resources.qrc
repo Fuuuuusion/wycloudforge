@@ -30,5 +30,11 @@
     <file alias="icons/icon-download.svg">../design/prototype/assets/icon-download.svg</file>
     <file alias="icons/icon-cloud.svg">icons/icon-cloud.svg</file>
     <file alias="icons/icon-check.svg">icons/icon-check.svg</file>
+    <file alias="source-icons/local.png">source-icons/local.png</file>
+    <file alias="source-icons/local-disabled.png">source-icons/local-disabled.png</file>
+    <file alias="source-icons/netease.png">source-icons/netease.png</file>
+    <file alias="source-icons/netease-disabled.png">source-icons/netease-disabled.png</file>
+    <file alias="source-icons/qq.png">source-icons/qq.png</file>
+    <file alias="source-icons/qq-disabled.png">source-icons/qq-disabled.png</file>
   </qresource>
 </RCC>

@@ -5,9 +5,9 @@
 #include <QHBoxLayout>
 #include <QEvent>
 #include <QKeyEvent>
-#include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QResizeEvent>
 #include <QSignalBlocker>
 
 namespace ui {
@@ -18,17 +18,11 @@ TitleBar::TitleBar(QWidget *parent)
     setObjectName("titleBar");
     setFixedHeight(48);
 
-    auto *brand = new QLabel(this);
-    brand->setFixedSize(30, 30);
-    brand->setPixmap(makeSvgIcon(QStringLiteral(":/icons/logo.svg")).pixmap(30, 30));
-
-    auto *brandName = new QLabel(QStringLiteral("仿网易云播放器"), this);
-    brandName->setObjectName("brandName");
-
     m_searchEdit = new QLineEdit(this);
     m_searchEdit->setObjectName("searchEdit");
     m_searchEdit->setPlaceholderText(QStringLiteral("搜索音乐、歌手、专辑"));
-    m_searchEdit->setFixedSize(340, 30);
+    m_searchEdit->setFixedHeight(36);
+    m_searchEdit->resize(520, 36);
     m_searchEdit->setClearButtonEnabled(true);
     m_searchEdit->installEventFilter(this);
     m_searchEdit->addAction(makeSvgIcon(QStringLiteral(":/icons/icon-search.svg")), QLineEdit::LeadingPosition);
@@ -58,22 +52,25 @@ TitleBar::TitleBar(QWidget *parent)
     connect(m_maxBtn, &QPushButton::clicked, this, &TitleBar::maximizeClicked);
     connect(m_closeBtn, &QPushButton::clicked, this, &TitleBar::closeClicked);
 
-    auto *searchBox = new QWidget(this);
-    auto *searchLayout = new QHBoxLayout(searchBox);
-    searchLayout->setContentsMargins(0, 0, 0, 0);
-    searchLayout->addWidget(m_searchEdit);
-
     auto *layout = new QHBoxLayout(this);
-    layout->setContentsMargins(14, 0, 8, 0);
-    layout->setSpacing(9);
-    layout->addWidget(brand);
-    layout->addWidget(brandName);
-    layout->addStretch(1);
-    layout->addWidget(searchBox, 0, Qt::AlignCenter);
+    layout->setContentsMargins(8, 0, 8, 0);
+    layout->setSpacing(0);
     layout->addStretch(1);
     layout->addWidget(m_minBtn);
     layout->addWidget(m_maxBtn);
     layout->addWidget(m_closeBtn);
+}
+
+void TitleBar::resizeEvent(QResizeEvent *event)
+{
+    QWidget::resizeEvent(event);
+    const int planned = qBound(280, width() - 190, 520);
+    const int overlapSafe = qMax(280, width() - 270);
+    const int searchWidth = qMin(planned, overlapSafe);
+    m_searchEdit->setGeometry((width() - searchWidth) / 2,
+                              (height() - m_searchEdit->height()) / 2,
+                              searchWidth, m_searchEdit->height());
+    m_searchEdit->raise();
 }
 
 void TitleBar::setMaximizedState(bool maximized)

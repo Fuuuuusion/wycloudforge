@@ -9,6 +9,7 @@ namespace core {
 
 QStringList SettingsService::s_foldersOverride;
 QString SettingsService::s_lastSongPathOverride;
+QString SettingsService::s_recommendCachePathOverride;
 qint64 SettingsService::s_lastSongPositionOverride = 0;
 bool SettingsService::s_hasOverrides = false;
 
@@ -398,8 +399,15 @@ void SettingsService::setAvatarUploadPath(const QString &path)
 
 QString SettingsService::recommendCachePath()
 {
+    if (!s_recommendCachePathOverride.isEmpty())
+        return s_recommendCachePathOverride;
     return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
         + QStringLiteral("/recommend.json");
+}
+
+void SettingsService::setRecommendCachePathOverride(const QString &path)
+{
+    s_recommendCachePathOverride = path;
 }
 
 } // namespace core

@@ -54,6 +54,7 @@ private:
     void updateResponsiveLayout();
 
     QWidget *m_leftBox = nullptr;
+    QWidget *m_actionBox = nullptr;
     QWidget *m_infoBox = nullptr;
     QWidget *m_centerBox = nullptr;
     QWidget *m_rightBox = nullptr;

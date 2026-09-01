@@ -13,6 +13,7 @@ add_library(neteclone_ui STATIC
     CoverProvider.cpp
     SongListModel.h
     SongListModel.cpp
+    SourceIcons.h
     SongListView.h
     SongListView.cpp
     CoverCard.h
@@ -51,6 +52,8 @@ add_library(neteclone_ui STATIC
     SelfPlaylistsPage.cpp
     AccountPanel.h
     AccountPanel.cpp
+    AccountSettingsButton.h
+    AccountSettingsButton.cpp
     AccountDialog.h
     AccountDialog.cpp
     PlaylistEditDialog.h

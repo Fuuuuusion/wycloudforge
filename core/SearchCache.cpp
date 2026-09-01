@@ -147,12 +147,21 @@ HotSearchTerm hotTermFromJson(const QJsonObject &object)
 
 } // namespace
 
+QString SearchCache::s_defaultRootPathOverride;
+
 SearchCache::SearchCache(const QString &rootPath)
     : m_rootPath(rootPath.isEmpty()
-                     ? QStandardPaths::writableLocation(QStandardPaths::CacheLocation)
-                           + QStringLiteral("/search-v1")
+                     ? (s_defaultRootPathOverride.isEmpty()
+                            ? QStandardPaths::writableLocation(QStandardPaths::CacheLocation)
+                                  + QStringLiteral("/search-v1")
+                            : s_defaultRootPathOverride)
                      : rootPath)
 {
+}
+
+void SearchCache::setDefaultRootPathOverride(const QString &rootPath)
+{
+    s_defaultRootPathOverride = rootPath;
 }
 
 QString SearchCache::normalizedQuery(const QString &query)

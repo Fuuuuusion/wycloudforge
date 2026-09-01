@@ -11,6 +11,7 @@ class SearchCache
 {
 public:
     explicit SearchCache(const QString &rootPath = {});
+    static void setDefaultRootPathOverride(const QString &rootPath);
 
     QString rootPath() const { return m_rootPath; }
 
@@ -42,6 +43,7 @@ private:
     bool writePayload(const QString &path, const QByteArray &payload) const;
 
     QString m_rootPath;
+    static QString s_defaultRootPathOverride;
 };
 
 } // namespace core

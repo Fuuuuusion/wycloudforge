@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/SearchAggregator.h"
 #include "core/Song.h"
 
 #include <QTableView>
@@ -33,6 +34,8 @@ public:
     explicit SongListView(QWidget *parent = nullptr);
 
     void setSongs(const QList<core::Song> &songs, qint64 playingId = -1);
+    void setSearchResultGroups(const QList<core::SearchResultGroup> &groups,
+                               qint64 playingId = -1);
     bool updateSong(const core::Song &song);
     QList<core::Song> songs() const;
     void setPlayingId(qint64 playingId);
@@ -62,6 +65,7 @@ signals:
     void batchFavoriteRequested(const QList<core::Song> &songs, bool favorite);
     void batchDownloadRequested(const QList<core::Song> &songs);
     void batchDeleteRequested(const QList<core::Song> &songs);
+    void sourceActivated(int row, const core::Song &song);
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
@@ -86,6 +90,8 @@ private:
     void updateSafeAreaRows();
     bool pointHitsSongContent(const QModelIndex &index, const QPoint &point) const;
     void verifyPointerStillOverViewport();
+    void showSourcePicker(int row, const QRect &cellRect);
+    void closeSourcePicker();
     SongListModel *m_model = nullptr;
     QMenu *m_menu = nullptr;
     QWidget *m_batchBar = nullptr;
@@ -114,6 +120,8 @@ private:
     int m_contextRow = -1;
     int m_pendingPlayRow = -1;
     QTimer *m_pointerGuardTimer = nullptr;
+    QWidget *m_sourcePopup = nullptr;
+    int m_sourcePopupRow = -1;
     bool m_removable = false;
     bool m_batchMode = false;
     bool m_favoriteStateInitialized = false;

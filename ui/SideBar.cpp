@@ -9,6 +9,7 @@
 #include <QLabel>
 #include <QPainter>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QVBoxLayout>
 
 namespace ui {
@@ -34,13 +35,13 @@ public:
         setAttribute(Qt::WA_Hover, true);
         setFocusPolicy(Qt::NoFocus);
         setCursor(Qt::PointingHandCursor);
-        setMinimumHeight(44);
+        setFixedHeight(84);
         setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     }
 
     QSize sizeHint() const override
     {
-        return { 200, 44 };
+        return { 240, 84 };
     }
 
 protected:
@@ -69,8 +70,8 @@ protected:
         font.setWeight(active ? QFont::DemiBold : QFont::Normal);
         painter.setFont(font);
         const QFontMetrics metrics(font);
-        const int iconSize = 20;
-        const int gap = 8;
+        const int iconSize = 24;
+        const int gap = 10;
         const int totalWidth = iconSize + gap + metrics.horizontalAdvance(m_label);
         const int left = qMax(8, (width() - totalWidth) / 2);
         const int top = (height() - iconSize) / 2;
@@ -109,7 +110,7 @@ SideBar::SideBar(QWidget *parent)
     : QWidget(parent)
 {
     setObjectName("sidebar");
-    setFixedWidth(200);
+    setFixedWidth(240);
     setAttribute(Qt::WA_StyledBackground, true);
     setStyleSheet(QStringLiteral("QWidget#sidebar{background:#0E0E14;border:none;}"));
 
@@ -118,9 +119,23 @@ SideBar::SideBar(QWidget *parent)
     m_playlistGroup = new QButtonGroup(this);
     m_playlistGroup->setExclusive(true);
 
-    auto *layout = new QVBoxLayout(this);
-    layout->setContentsMargins(0, 12, 0, 10);
-    layout->setSpacing(1);
+    auto *rootLayout = new QVBoxLayout(this);
+    rootLayout->setContentsMargins(0, 0, 0, 0);
+    rootLayout->setSpacing(0);
+    auto *navigationScroll = new QScrollArea(this);
+    navigationScroll->setObjectName(QStringLiteral("sidebarNavigationScroll"));
+    navigationScroll->setWidgetResizable(true);
+    navigationScroll->setFrameShape(QFrame::NoFrame);
+    navigationScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    navigationScroll->setStyleSheet(QStringLiteral(
+        "QScrollArea{background:#0E0E14;border:none;}"
+        "QScrollArea>QWidget>QWidget{background:#0E0E14;}"));
+    auto *content = new QWidget(navigationScroll);
+    m_contentLayout = new QVBoxLayout(content);
+    m_contentLayout->setContentsMargins(0, 0, 0, 10);
+    m_contentLayout->setSpacing(1);
+    navigationScroll->setWidget(content);
+    rootLayout->addWidget(navigationScroll);
 
     addNavButton(QStringLiteral("推荐"), QStringLiteral(":/icons/icon-music.svg"), RecommendPage);
     addNavButton(QStringLiteral("收藏"), QStringLiteral(":/icons/icon-heart.svg"), FavoritesPage);
@@ -132,6 +147,10 @@ SideBar::SideBar(QWidget *parent)
     auto *headLayout = new QHBoxLayout(sectionHead);
     headLayout->setContentsMargins(12, 10, 12, 4);
     headLayout->setSpacing(4);
+    auto *sectionTitle = new QLabel(QStringLiteral("自建歌单"), sectionHead);
+    sectionTitle->setStyleSheet(QStringLiteral(
+        "color:#9A9AA5;font-size:13px;background:transparent;"));
+    headLayout->addWidget(sectionTitle);
     headLayout->addStretch(1);
     auto *plusBtn = new QPushButton(sectionHead);
     plusBtn->setObjectName("createPlaylistPlus");
@@ -145,21 +164,31 @@ SideBar::SideBar(QWidget *parent)
         "QPushButton:hover{background:#1B1B24;}"));
     connect(plusBtn, &QPushButton::clicked, this, &SideBar::createPlaylistRequested);
     headLayout->addWidget(plusBtn);
-    layout->addWidget(sectionHead);
+    m_contentLayout->addWidget(sectionHead);
 
     m_playlistSection = new QWidget(this);
     m_playlistLayout = new QVBoxLayout(m_playlistSection);
     m_playlistLayout->setContentsMargins(0, 0, 0, 0);
     m_playlistLayout->setSpacing(1);
-    layout->addWidget(m_playlistSection);
-    layout->addStretch(1);
+    m_playlistLayout->setSizeConstraint(QLayout::SetMinAndMaxSize);
+    auto *playlistScroll = new QScrollArea(this);
+    playlistScroll->setObjectName(QStringLiteral("sidebarPlaylistScroll"));
+    playlistScroll->setWidgetResizable(true);
+    playlistScroll->setFrameShape(QFrame::NoFrame);
+    playlistScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    playlistScroll->setStyleSheet(QStringLiteral(
+        "QScrollArea{background:#0E0E14;border:none;}"
+        "QScrollArea>QWidget>QWidget{background:#0E0E14;}"));
+    playlistScroll->setWidget(m_playlistSection);
+    playlistScroll->setMinimumHeight(144);
+    m_contentLayout->addWidget(playlistScroll, 1);
 }
 
 void SideBar::addNavButton(const QString &text, const QString &icon, int pageId)
 {
     auto *btn = new NavButton(text, icon, this);
     m_navGroup->addButton(btn, pageId);
-    static_cast<QVBoxLayout *>(layout())->addWidget(btn);
+    m_contentLayout->addWidget(btn);
     connect(btn, &QPushButton::clicked, this, [this, pageId] { emit pageRequested(pageId); });
 }
 
@@ -187,9 +216,11 @@ void SideBar::rebuildPlaylistButtons(const QList<PlaylistItem> &items, int activ
         if (!item.coverPath.isEmpty() && QFileInfo::exists(item.coverPath))
             cover = QPixmap(item.coverPath);
         if (cover.isNull())
-            cover = CoverProvider::placeholder(item.name, 28, 6);
-        btn->setIcon(QIcon(cover.scaled(28, 28, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation)));
-        btn->setIconSize(QSize(28, 28));
+            cover = CoverProvider::placeholder(item.name, 48, 6);
+        btn->setIcon(QIcon(cover.scaled(48, 48, Qt::KeepAspectRatioByExpanding,
+                                        Qt::SmoothTransformation)));
+        btn->setIconSize(QSize(48, 48));
+        btn->setFixedHeight(64);
         btn->setText(item.name);
         btn->setCheckable(true);
         btn->setCursor(Qt::PointingHandCursor);
@@ -202,7 +233,6 @@ void SideBar::rebuildPlaylistButtons(const QList<PlaylistItem> &items, int activ
 
     if (auto *btn = m_playlistGroup->button(activeId))
         btn->setChecked(true);
-    m_playlistLayout->addStretch(1);
 }
 
 void SideBar::setActivePage(int pageId)

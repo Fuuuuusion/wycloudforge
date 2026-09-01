@@ -1,0 +1,40 @@
+{
+  "songs": [
+    {
+      "id": "ui-song-1",
+      "name": "风衣",
+      "ar": [{"id": "artist-1", "name": "孙燕姿"}],
+      "al": {"id": "album-1", "name": "跳舞的梵谷"},
+      "dt": 245000
+    },
+    {
+      "id": "ui-song-2",
+      "name": "我不难过",
+      "ar": [{"id": "artist-1", "name": "孙燕姿"}],
+      "al": {"id": "album-2", "name": "未完成"},
+      "dt": 320000
+    },
+    {
+      "id": "ui-song-3",
+      "name": "晴天",
+      "ar": [{"id": "artist-2", "name": "周杰伦"}],
+      "al": {"id": "album-3", "name": "叶惠美"},
+      "dt": 269000
+    },
+    {
+      "id": "ui-song-4",
+      "name": "遇见",
+      "ar": [{"id": "artist-1", "name": "孙燕姿"}],
+      "al": {"id": "album-4", "name": "The Moment"},
+      "dt": 210000
+    }
+  ],
+  "playlists": [
+    {"id": "ui-playlist-1", "name": "今日私人推荐"},
+    {"id": "ui-playlist-2", "name": "华语流行精选"},
+    {"id": "ui-playlist-3", "name": "夜晚安静聆听"},
+    {"id": "ui-playlist-4", "name": "经典女声收藏"},
+    {"id": "ui-playlist-5", "name": "通勤节奏"},
+    {"id": "ui-playlist-6", "name": "周末放松歌单"}
+  ]
+}

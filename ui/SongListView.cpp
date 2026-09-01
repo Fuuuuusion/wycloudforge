@@ -3,6 +3,7 @@
 #include "core/LibraryService.h"
 #include "core/SearchService.h"
 #include "ui/CoverProvider.h"
+#include "ui/SourceIcons.h"
 #include "ui/SongListModel.h"
 #include "ui/SvgIcon.h"
 
@@ -11,6 +12,8 @@
 #include <QContextMenuEvent>
 #include <QCursor>
 #include <QFocusEvent>
+#include <QFrame>
+#include <QGuiApplication>
 #include <QHeaderView>
 #include <QHideEvent>
 #include <QIcon>
@@ -22,10 +25,13 @@
 #include <QPainterPath>
 #include <QPushButton>
 #include <QResizeEvent>
+#include <QScreen>
 #include <QShowEvent>
+#include <QScrollBar>
 #include <QStyledItemDelegate>
 #include <QTimer>
 #include <QToolButton>
+#include <QToolTip>
 #include <QVariantAnimation>
 #include <QVBoxLayout>
 #include <QtMath>
@@ -39,9 +45,24 @@ const QColor kText3(0x6E, 0x6E, 0x7A);
 const QColor kPrimary(0xEC, 0x41, 0x41);
 const QColor kPrimaryHover(0xF0, 0x4A, 0x4A);
 const QColor kPrimaryActive(0xD6, 0x38, 0x38);
-constexpr int kSongRowHeight = 64;
+constexpr int kSongRowHeight = 112;
 constexpr int kTopSafeAreaHeight = 42;
-constexpr int kBottomSafeAreaHeight = 94;
+constexpr int kBottomSafeAreaHeight = 16;
+
+QString combinedSongTitle(const core::Song &song)
+{
+    const QString title = song.title.trimmed();
+    const QString artist = song.artist.trimmed();
+    QString result = title;
+    if (!title.isEmpty() && !artist.isEmpty())
+        result += QStringLiteral(" - ");
+    result += artist;
+    if (result.isEmpty())
+        result = QStringLiteral("未知歌曲");
+    if (song.missing)
+        result += QStringLiteral(" · 失效");
+    return result;
+}
 
 QColor blendedColor(const QColor &from, const QColor &to, qreal progress)
 {
@@ -372,9 +393,6 @@ public:
                     }
                     painter->restore();
                 }
-            } else {
-                painter->setPen(active ? QPen(activeTextBrush(rect), 1) : QPen(kText3, 1));
-                painter->drawText(rect, Qt::AlignCenter, QString::number(index.row() + 1));
             }
             painter->restore();
             return;
@@ -383,52 +401,51 @@ public:
         const core::Song song = index.data(SongListModel::SongRole).value<core::Song>();
         const QString query = m_query;
         if (col == 1) {
-            const QRectF coverRect(rect.left() + 6, rect.center().y() - 18, 36, 36);
-            const QPixmap cover = CoverProvider::coverFor(song, 36, 4);
+            const int coverSize = rect.width() < 100 ? 68 : 80;
+            const QRectF coverRect(rect.center().x() - coverSize / 2.0,
+                                   rect.center().y() - coverSize / 2.0,
+                                   coverSize, coverSize);
+            const QPixmap cover = CoverProvider::coverFor(song, coverSize, 8);
             painter->drawPixmap(coverRect.toRect(), cover);
-            qreal textX = rect.left() + 50;
-            if (song.isOnline()) {
-                const QRectF iconRect(rect.left() + 48, rect.center().y() - 7, 14, 14);
-                const QPixmap cloud = tintedIcon(QStringLiteral(":/icons/icon-cloud.svg"), 14,
-                                                 active ? kPrimary : QColor(0xB8, 0xB8, 0xC4));
-                painter->drawPixmap(iconRect.toRect(), cloud);
-                if (song.isCached()) {
-                    const QPixmap check = tintedIcon(QStringLiteral(":/icons/icon-check.svg"), 9,
-                                                     active ? kPrimary : QColor(0xB8, 0xB8, 0xC4));
-                    painter->drawPixmap(QRect(rect.left() + 57, rect.center().y() - 11, 9, 9), check);
-                }
-                textX = rect.left() + 68;
-            }
-            QRectF textRect(textX, rect.top(), rect.width() - (textX - rect.left()) - 6, rect.height());
+        } else if (col == 2) {
+            const QRectF textRect = rect.adjusted(12, 0, -8, 0);
             painter->save();
             painter->setFont(m_titleFont);
-            const QString titleText = song.missing ? song.title + QStringLiteral(" · 失效") : song.title;
+            const QString titleText = combinedSongTitle(song);
             const QBrush titleBrush = active ? activeTextBrush(textRect)
                                              : QBrush(song.missing ? kText3 : kText);
             drawHighlightedText(*painter, textRect, titleText, query, titleBrush, Qt::AlignLeft);
             painter->restore();
-        } else if (col == 2) {
-            painter->save();
-            painter->setFont(m_baseFont);
-            const QRectF textRect = rect.adjusted(10, 0, 0, 0);
-            drawHighlightedText(*painter, textRect, song.artist, query,
-                                active ? activeTextBrush(textRect) : QBrush(kText2), Qt::AlignLeft);
-            painter->restore();
         } else if (col == 3) {
+            bool available = false;
+            const core::SourceId activeSource = static_cast<core::SourceId>(
+                index.data(SongListModel::ActiveSourceRole).toInt());
+            if (const auto *model = qobject_cast<const SongListModel *>(index.model())) {
+                for (const SongSourceChoice &choice : model->sourceChoicesAt(index.row())) {
+                    if (choice.source == activeSource) {
+                        available = choice.available;
+                        break;
+                    }
+                }
+            }
+            const QPixmap icon = sourceIcon(activeSource, available).pixmap(QSize(34, 34));
+            painter->drawPixmap(QRectF(rect.center().x() - 17, rect.center().y() - 17,
+                                       34, 34).toRect(), icon);
+        } else if (col == 4) {
             painter->save();
             painter->setFont(m_baseFont);
             const QRectF textRect = rect.adjusted(10, 0, 0, 0);
             drawHighlightedText(*painter, textRect, song.album, query,
                                 active ? activeTextBrush(textRect) : QBrush(kText3), Qt::AlignLeft);
             painter->restore();
-        } else if (col == 4) {
+        } else if (col == 5) {
             painter->save();
             painter->setFont(m_baseFont);
             painter->setPen(active ? QPen(activeTextBrush(rect), 1) : QPen(kText3, 1));
             painter->drawText(rect.adjusted(0, 0, -12, 0), Qt::AlignRight | Qt::AlignVCenter,
                               formatDuration(song.durationMs));
             painter->restore();
-        } else if (col == 5) {
+        } else if (col == 6) {
             const bool favorite = index.data(SongListModel::FavoriteRole).toBool();
             const qreal hoverAmount = heartHoverAmount(index.row());
             const bool pressed = index.row() == m_pressedHeartRow;
@@ -449,7 +466,7 @@ public:
             const qreal size = 18.0 * scale;
             painter->drawPixmap(QRectF(rect.center().x() - size / 2.0,
                                        rect.center().y() - size / 2.0, size, size).toRect(), heart);
-        } else if (col == 6) {
+        } else if (col == 7) {
             painter->save();
             const bool downloading = index.data(SongListModel::DownloadingRole).toBool();
             const bool deleteAction = song.isDownloaded()
@@ -561,7 +578,7 @@ public:
     void setPointerIndex(int row, int column)
     {
         setHoverRow(row);
-        const int heartTargetRow = column == 5 ? row : -1;
+        const int heartTargetRow = column == 6 ? row : -1;
         if (heartTargetRow != m_heartToRow) {
             const int previousRow = m_heartToRow;
             m_heartFromRow = previousRow;
@@ -571,7 +588,7 @@ public:
             updateHeartRows({ previousRow, heartTargetRow });
         }
 
-        const int actionTargetRow = column == 6 && rowShowsAction(row) ? row : -1;
+        const int actionTargetRow = column == 7 && rowShowsAction(row) ? row : -1;
         if (actionTargetRow != m_actionToRow) {
             const int previousRow = m_actionToRow;
             m_actionFromRow = previousRow;
@@ -762,7 +779,7 @@ private:
     {
         if (!m_view || !m_view->model() || row < 0 || row >= m_view->model()->rowCount())
             return false;
-        const QModelIndex index = m_view->model()->index(row, 6);
+        const QModelIndex index = m_view->model()->index(row, 7);
         const core::Song song = index.data(SongListModel::SongRole).value<core::Song>();
         if (index.data(SongListModel::DownloadingRole).toBool())
             return false;
@@ -778,7 +795,7 @@ private:
         for (int row : rows) {
             if (row < 0 || row >= m_view->model()->rowCount())
                 continue;
-            m_view->viewport()->update(m_view->visualRect(m_view->model()->index(row, 5)));
+            m_view->viewport()->update(m_view->visualRect(m_view->model()->index(row, 6)));
         }
     }
 
@@ -790,7 +807,7 @@ private:
             if (row < 0 || row >= m_view->model()->rowCount())
                 continue;
             const QRect first = m_view->visualRect(m_view->model()->index(row, 0));
-            const QRect last = m_view->visualRect(m_view->model()->index(row, 6));
+            const QRect last = m_view->visualRect(m_view->model()->index(row, 7));
             m_view->viewport()->update(first.united(last));
         }
     }
@@ -802,7 +819,7 @@ private:
         for (int row : rows) {
             if (row < 0 || row >= m_view->model()->rowCount())
                 continue;
-            m_view->viewport()->update(m_view->visualRect(m_view->model()->index(row, 6)));
+            m_view->viewport()->update(m_view->visualRect(m_view->model()->index(row, 7)));
         }
     }
 
@@ -863,18 +880,20 @@ SongListView::SongListView(QWidget *parent)
     verticalHeader()->setSectionResizeMode(QHeaderView::Fixed);
     horizontalHeader()->setVisible(false);
     horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
-    horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-    horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
+    horizontalHeader()->setSectionResizeMode(1, QHeaderView::Fixed);
+    horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
     horizontalHeader()->setSectionResizeMode(3, QHeaderView::Fixed);
     horizontalHeader()->setSectionResizeMode(4, QHeaderView::Fixed);
     horizontalHeader()->setSectionResizeMode(5, QHeaderView::Fixed);
     horizontalHeader()->setSectionResizeMode(6, QHeaderView::Fixed);
+    horizontalHeader()->setSectionResizeMode(7, QHeaderView::Fixed);
     setColumnWidth(0, 56);
-    setColumnWidth(2, 200);
-    setColumnWidth(3, 180);
-    setColumnWidth(4, 70);
-    setColumnWidth(5, 44);
-    setColumnWidth(6, 86);
+    setColumnWidth(1, 104);
+    setColumnWidth(3, 72);
+    setColumnWidth(4, 220);
+    setColumnWidth(5, 90);
+    setColumnWidth(6, 64);
+    setColumnWidth(7, 86);
     viewport()->setAutoFillBackground(false);
     setStyleSheet(QStringLiteral("QTableView{background:#0E0E14;border:none;}"));
 
@@ -882,6 +901,8 @@ SongListView::SongListView(QWidget *parent)
     m_pointerGuardTimer->setInterval(80);
     connect(m_pointerGuardTimer, &QTimer::timeout, this,
             &SongListView::verifyPointerStillOverViewport);
+    connect(verticalScrollBar(), &QScrollBar::valueChanged,
+            this, &SongListView::closeSourcePicker);
 
     setViewportMargins(0, 0, 0, 0);
     m_batchBar = new QWidget(this);
@@ -995,6 +1016,7 @@ SongListView::SongListView(QWidget *parent)
 
 void SongListView::setSongs(const QList<core::Song> &songs, qint64 playingId)
 {
+    closeSourcePicker();
     if (m_batchMode) {
         QSet<QString> available;
         for (const core::Song &song : songs)
@@ -1004,6 +1026,25 @@ void SongListView::setSongs(const QList<core::Song> &songs, qint64 playingId)
         m_selectedIdentities.clear();
     }
     m_model->setSongs(songs, playingId);
+    m_model->setSelectedIdentities(m_selectedIdentities);
+    setDownloadingIdentities(m_downloadingIdentities);
+    updateSafeAreaRows();
+    updateBatchButtons();
+}
+
+void SongListView::setSearchResultGroups(const QList<core::SearchResultGroup> &groups,
+                                         qint64 playingId)
+{
+    closeSourcePicker();
+    if (m_batchMode) {
+        QSet<QString> available;
+        for (const core::SearchResultGroup &group : groups)
+            available.insert(group.identity);
+        m_selectedIdentities.intersect(available);
+    } else {
+        m_selectedIdentities.clear();
+    }
+    m_model->setSearchResultGroups(groups, playingId);
     m_model->setSelectedIdentities(m_selectedIdentities);
     setDownloadingIdentities(m_downloadingIdentities);
     updateSafeAreaRows();
@@ -1032,6 +1073,109 @@ bool SongListView::pointHitsSongContent(const QModelIndex &index, const QPoint &
         content.setTop(content.top() + kTopSafeAreaHeight);
     content.setHeight(kSongRowHeight);
     return content.contains(point);
+}
+
+void SongListView::showSourcePicker(int row, const QRect &cellRect)
+{
+    closeSourcePicker();
+    if (row < 0 || row >= m_model->rowCount())
+        return;
+
+    auto *popup = new QFrame(this, Qt::Popup | Qt::FramelessWindowHint);
+    popup->setObjectName(QStringLiteral("sourcePickerPopup"));
+    popup->setAttribute(Qt::WA_DeleteOnClose);
+    popup->setStyleSheet(QStringLiteral(
+        "QFrame#sourcePickerPopup{background:#14141B;border:none;border-radius:10px;}"
+        "QToolButton{background:transparent;border:none;border-radius:8px;padding:0;}"
+        "QToolButton:hover{background:#1B1B24;}"
+        "QToolButton:pressed{background:#24242E;}"));
+    auto *layout = new QVBoxLayout(popup);
+    layout->setContentsMargins(8, 8, 8, 8);
+    layout->setSpacing(8);
+
+    const QList<SongSourceChoice> choices = m_model->sourceChoicesAt(row);
+    const core::SourceId activeSource = m_model->activeSourceAt(row);
+    constexpr core::SourceId sources[] = {
+        core::SourceId::Local, core::SourceId::Netease, core::SourceId::QqMusic
+    };
+    int activeIndex = 0;
+    for (int sourceIndex = 0; sourceIndex < 3; ++sourceIndex) {
+        const core::SourceId source = sources[sourceIndex];
+        bool available = false;
+        QString unavailableReason = QStringLiteral("无此来源版本");
+        for (const SongSourceChoice &choice : choices) {
+            if (choice.source != source)
+                continue;
+            available = choice.available;
+            unavailableReason = choice.unavailableReason;
+            break;
+        }
+        if (source == activeSource)
+            activeIndex = sourceIndex;
+
+        auto *button = new QToolButton(popup);
+        button->setObjectName(QStringLiteral("sourceChoice_%1").arg(int(source)));
+        button->setFixedSize(48, 48);
+        button->setIcon(sourceIcon(source, available));
+        button->setIconSize(QSize(34, 34));
+        button->setCursor(available ? Qt::PointingHandCursor : Qt::ForbiddenCursor);
+        button->setAccessibleName(sourceDisplayName(source));
+        button->setToolTip(available ? sourceDisplayName(source)
+                                     : QStringLiteral("%1 · %2")
+                                           .arg(sourceDisplayName(source), unavailableReason));
+        layout->addWidget(button);
+        connect(button, &QToolButton::clicked, this,
+                [this, row, source, available, unavailableReason, button] {
+            if (!available) {
+                QToolTip::showText(button->mapToGlobal(QPoint(button->width(), 0)),
+                                   unavailableReason, button);
+                return;
+            }
+            QString error;
+            if (!m_model->activateSource(row, source, &error)) {
+                QToolTip::showText(button->mapToGlobal(QPoint(button->width(), 0)),
+                                   error, button);
+                return;
+            }
+            const core::Song song = m_model->songAt(row);
+            closeSourcePicker();
+            emit sourceActivated(row, song);
+            emit playRequested(row);
+        });
+    }
+
+    popup->adjustSize();
+    const QPoint cellCenter = viewport()->mapToGlobal(cellRect.center());
+    const int buttonStride = 56;
+    QPoint topLeft(cellCenter.x() - popup->width() / 2,
+                   cellCenter.y() - 8 - activeIndex * buttonStride - 24);
+    if (QScreen *screen = QGuiApplication::screenAt(cellCenter)) {
+        const QRect available = screen->availableGeometry();
+        topLeft.setX(qBound(available.left(), topLeft.x(),
+                            available.right() - popup->width() + 1));
+        topLeft.setY(qBound(available.top(), topLeft.y(),
+                            available.bottom() - popup->height() + 1));
+    }
+    m_sourcePopup = popup;
+    m_sourcePopupRow = row;
+    connect(popup, &QObject::destroyed, this, [this, popup] {
+        if (m_sourcePopup == popup) {
+            m_sourcePopup = nullptr;
+            m_sourcePopupRow = -1;
+        }
+    });
+    popup->move(topLeft);
+    popup->show();
+}
+
+void SongListView::closeSourcePicker()
+{
+    if (!m_sourcePopup)
+        return;
+    QWidget *popup = m_sourcePopup;
+    m_sourcePopup = nullptr;
+    m_sourcePopupRow = -1;
+    popup->close();
 }
 
 bool SongListView::updateSong(const core::Song &song)
@@ -1163,7 +1307,7 @@ QList<core::Song> SongListView::selectedSongs() const
 {
     QList<core::Song> result;
     for (int row = 0; row < m_model->rowCount(); ++row)
-        if (m_selectedIdentities.contains(m_model->songAt(row).selectionIdentity()))
+        if (m_selectedIdentities.contains(m_model->rowIdentityAt(row)))
             result.append(m_model->songAt(row));
     return result;
 }
@@ -1261,7 +1405,7 @@ void SongListView::toggleRowSelection(int row)
 {
     if (row < 0 || row >= m_model->rowCount())
         return;
-    const QString identity = m_model->songAt(row).selectionIdentity();
+    const QString identity = m_model->rowIdentityAt(row);
     if (m_selectedIdentities.contains(identity))
         m_selectedIdentities.remove(identity);
     else
@@ -1351,13 +1495,18 @@ void SongListView::mousePressEvent(QMouseEvent *event)
                 toggleRowSelection(idx.row());
                 return;
             }
-            if (idx.column() == 5) {
+            if (idx.column() == 3 && !m_batchMode) {
+                showSourcePicker(idx.row(), visualRect(idx));
+                event->accept();
+                return;
+            }
+            if (idx.column() == 6) {
                 if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate()))
                     delegate->setPressedHeartRow(idx.row());
                 emit heartRequested(idx.row());
                 return;
             }
-            if (idx.column() == 6) {
+            if (idx.column() == 7) {
                 const core::Song song = m_model->songAt(idx.row());
                 if (idx.data(SongListModel::DownloadingRole).toBool())
                     return;
@@ -1374,7 +1523,9 @@ void SongListView::mousePressEvent(QMouseEvent *event)
                 }
                 return;
             }
-            if (!m_batchMode && idx.column() >= 1 && idx.column() <= 4) {
+            const bool playColumn = idx.column() == 1 || idx.column() == 2
+                || idx.column() == 4 || idx.column() == 5;
+            if (!m_batchMode && playColumn) {
                 m_pendingPlayRow = idx.row();
                 if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate()))
                     delegate->setPressedPlayRow(idx.row());
@@ -1397,8 +1548,10 @@ void SongListView::mouseReleaseEvent(QMouseEvent *event)
     }
     if (event->button() == Qt::LeftButton && pendingRow >= 0 && !m_batchMode) {
         const QModelIndex released = indexAt(event->pos());
+        const bool playColumn = released.column() == 1 || released.column() == 2
+            || released.column() == 4 || released.column() == 5;
         if (pointHitsSongContent(released, event->pos()) && released.row() == pendingRow
-            && released.column() >= 1 && released.column() <= 4) {
+            && playColumn) {
             emit playRequested(pendingRow);
             event->accept();
             return;
@@ -1417,7 +1570,13 @@ void SongListView::mouseDoubleClickEvent(QMouseEvent *event)
 
 void SongListView::resizeEvent(QResizeEvent *event)
 {
+    closeSourcePicker();
     QTableView::resizeEvent(event);
+    const int availableWidth = viewport()->width();
+    setColumnHidden(4, availableWidth < 760);
+    setColumnWidth(1, availableWidth < 900 ? 88 : 104);
+    setColumnWidth(4, availableWidth < 1050 ? 140 : 220);
+    setColumnWidth(5, availableWidth < 900 ? 70 : 90);
     if (m_batchBar) {
         m_batchBar->setGeometry(0, 0, width(), 38);
         updateBatchLayout();
@@ -1433,6 +1592,7 @@ void SongListView::showEvent(QShowEvent *event)
 
 void SongListView::hideEvent(QHideEvent *event)
 {
+    closeSourcePicker();
     resetPointerState();
     if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate()))
         delegate->setViewVisible(false);

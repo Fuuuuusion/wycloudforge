@@ -23,16 +23,10 @@ QDialog QLabel {
 QWidget#titleBar {
     background: #0E0E14;
 }
-QLabel#brandName {
-    font-size: 14px;
-    font-weight: 700;
-    letter-spacing: 1px;
-    color: #E8E8E8;
-}
 QLineEdit#searchEdit {
     background: #1B1B24;
     border: none;
-    border-radius: 15px;
+    border-radius: 18px;
     padding: 0 12px;
     color: #E8E8E8;
     selection-background-color: #EC4141;
@@ -165,7 +159,7 @@ QPushButton#neteaseSourceSwitch:pressed, QPushButton#qqSourceSwitch:pressed {
 
 /* ---------- 底部播放器 ---------- */
 QWidget#playerBar {
-    background: #1B1B24;
+    background: #14141B;
 }
 QLabel[class="nowTitle"] {
     font-size: 14px;

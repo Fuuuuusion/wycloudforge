@@ -7,6 +7,7 @@
 #include "ui/CoverCard.h"
 #include "ui/CoverProvider.h"
 #include "ui/SongListView.h"
+#include "ui/SourceIcons.h"
 
 #include <QButtonGroup>
 #include <QFile>
@@ -18,6 +19,8 @@
 #include <QLabel>
 #include <QPointer>
 #include <QPushButton>
+#include <QScrollArea>
+#include <QSizePolicy>
 #include <QTextStream>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -31,40 +34,61 @@ RecommendPage::RecommendPage(QWidget *parent)
     layout->setContentsMargins(28, 24, 28, 24);
     layout->setSpacing(12);
 
+    auto *topScroll = new QScrollArea(this);
+    topScroll->setObjectName(QStringLiteral("recommendTopScroll"));
+    topScroll->setWidgetResizable(true);
+    topScroll->setFrameShape(QFrame::NoFrame);
+    topScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    topScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    topScroll->setMinimumHeight(92);
+    topScroll->setMaximumHeight(280);
+    topScroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    topScroll->setStyleSheet(QStringLiteral(
+        "QScrollArea#recommendTopScroll{background:transparent;border:none;}"
+        "QScrollArea#recommendTopScroll>QWidget>QWidget{background:transparent;}"));
+    auto *topHost = new QWidget(topScroll);
+    auto *topLayout = new QVBoxLayout(topHost);
+    topLayout->setContentsMargins(0, 0, 0, 0);
+    topLayout->setSpacing(12);
+
     auto *titleRow = new QHBoxLayout;
     auto *title = new QLabel(QStringLiteral("推荐"), this);
     title->setProperty("class", "pageTitle");
     titleRow->addWidget(title);
     titleRow->addStretch(1);
-    m_neteaseButton = new QPushButton(QStringLiteral("网易云"), this);
-    m_qqButton = new QPushButton(QStringLiteral("QQ音乐"), this);
-    const auto configureSourceButton = [](QPushButton *button, const QString &objectName) {
+    m_neteaseButton = new QPushButton(this);
+    m_qqButton = new QPushButton(this);
+    const auto configureSourceButton = [](QPushButton *button, const QString &objectName,
+                                          const QString &accessibleName) {
         button->setObjectName(objectName);
         button->setProperty("class", "sourceSwitch");
         button->setStyleSheet(QString::fromLatin1(
-            "QPushButton { border: none; border-radius: 8px; padding: 0 12px; "
-            "background-color: #1B1B24; color: #9A9AA5; font-weight: 500; }"
-            "QPushButton:hover { background-color: #24242E; color: #F04A4A; }"
-            "QPushButton:checked { background-color: #EC4141; color: #FFFFFF; "
-            "font-weight: 600; }"
-            "QPushButton:pressed { background-color: #D63838; color: #FFFFFF; }"));
+            "QPushButton { border: none; border-radius: 8px; padding: 0; "
+            "background-color: transparent; }"
+            "QPushButton:hover { background-color: #1B1B24; }"
+            "QPushButton:checked { background-color: #3A2024; border: 1px solid #EC4141; }"
+            "QPushButton:pressed { background-color: #24242E; }"));
         button->setCheckable(true);
-        button->setFixedSize(76, 30);
+        button->setFixedSize(40, 40);
+        button->setIconSize(QSize(26, 26));
         button->setCursor(Qt::PointingHandCursor);
-        button->setAccessibleName(button->text());
-        button->setToolTip(QStringLiteral("切换到%1推荐").arg(button->text()));
+        button->setAccessibleName(accessibleName);
+        button->setToolTip(QStringLiteral("切换到%1推荐").arg(accessibleName));
     };
-    configureSourceButton(m_neteaseButton, QStringLiteral("neteaseSourceSwitch"));
-    configureSourceButton(m_qqButton, QStringLiteral("qqSourceSwitch"));
+    configureSourceButton(m_neteaseButton, QStringLiteral("neteaseSourceSwitch"),
+                          QStringLiteral("网易云音乐"));
+    configureSourceButton(m_qqButton, QStringLiteral("qqSourceSwitch"),
+                          QStringLiteral("QQ 音乐"));
     m_neteaseButton->setChecked(true);
     auto *sourceGroup = new QButtonGroup(this);
     sourceGroup->setExclusive(true);
     sourceGroup->addButton(m_neteaseButton, int(core::SourceId::Netease));
     sourceGroup->addButton(m_qqButton, int(core::SourceId::QqMusic));
+    updateSourceButtons();
     titleRow->setSpacing(6);
     titleRow->addWidget(m_neteaseButton);
     titleRow->addWidget(m_qqButton);
-    layout->addLayout(titleRow);
+    topLayout->addLayout(titleRow);
     connect(sourceGroup, &QButtonGroup::idClicked, this, [this](int sourceId) {
         // QQ 服务是按需启动的；由主窗口确认独立服务可用后再切换，避免
         // 点击时先向未监听的 3200 端口发请求。网易云可直接切换。
@@ -76,24 +100,42 @@ RecommendPage::RecommendPage(QWidget *parent)
     m_emptyLabel = new QLabel(this);
     m_emptyLabel->setProperty("class", "pageSub");
     m_emptyLabel->setVisible(false);
-    layout->addWidget(m_emptyLabel);
+    topLayout->addWidget(m_emptyLabel);
 
     auto *plTitle = new QLabel(QStringLiteral("推荐歌单"), this);
     plTitle->setProperty("class", "sectionTitle");
-    layout->addWidget(plTitle);
+    topLayout->addWidget(plTitle);
 
-    auto *plHost = new QWidget(this);
-    m_playlistRow = new QHBoxLayout(plHost);
+    m_playlistScroll = new QScrollArea(this);
+    m_playlistScroll->setObjectName(QStringLiteral("recommendedPlaylistScroll"));
+    m_playlistScroll->setProperty("allowHorizontalScroll", true);
+    m_playlistScroll->setWidgetResizable(true);
+    m_playlistScroll->setFrameShape(QFrame::NoFrame);
+    m_playlistScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_playlistScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_playlistScroll->setFixedHeight(184);
+    m_playlistScroll->setStyleSheet(QStringLiteral(
+        "QScrollArea#recommendedPlaylistScroll{background:transparent;border:none;}"
+        "QScrollArea#recommendedPlaylistScroll>QWidget>QWidget{background:transparent;}"));
+    m_playlistHost = new QWidget(m_playlistScroll);
+    m_playlistHost->setObjectName(QStringLiteral("recommendedPlaylistHost"));
+    m_playlistHost->setMinimumHeight(168);
+    m_playlistHost->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
+    m_playlistRow = new QHBoxLayout(m_playlistHost);
     m_playlistRow->setContentsMargins(0, 0, 0, 0);
     m_playlistRow->setSpacing(16);
-    m_playlistRow->addStretch(1);
-    layout->addWidget(plHost);
+    m_playlistScroll->setWidget(m_playlistHost);
+    topLayout->addWidget(m_playlistScroll);
+    topScroll->setWidget(topHost);
+    layout->addWidget(topScroll);
 
     auto *dailyTitle = new QLabel(QStringLiteral("每日推荐歌曲"), this);
+    dailyTitle->setObjectName(QStringLiteral("recommendedDailyTitle"));
     dailyTitle->setProperty("class", "sectionTitle");
     layout->addWidget(dailyTitle);
 
     m_list = new SongListView(this);
+    m_list->setMinimumHeight(130);
     layout->addWidget(m_list, 1);
     connect(m_list, &SongListView::playRequested, this, [this](int row) {
         emit playRequested(m_list->songs(), row);
@@ -125,6 +167,31 @@ void RecommendPage::setActiveSource(core::SourceId sourceId)
         m_qqButton->setChecked(sourceId == core::SourceId::QqMusic);
     }
     refresh();
+}
+
+void RecommendPage::setSourceAvailable(core::SourceId sourceId, bool available)
+{
+    if (sourceId == core::SourceId::Netease)
+        m_neteaseAvailable = available;
+    else if (sourceId == core::SourceId::QqMusic)
+        m_qqAvailable = available;
+    updateSourceButtons();
+}
+
+void RecommendPage::updateSourceButtons()
+{
+    if (m_neteaseButton) {
+        m_neteaseButton->setIcon(sourceIcon(core::SourceId::Netease, m_neteaseAvailable));
+        m_neteaseButton->setToolTip(m_neteaseAvailable
+            ? QStringLiteral("切换到网易云音乐推荐")
+            : QStringLiteral("网易云音乐暂不可用，点击重试"));
+    }
+    if (m_qqButton) {
+        m_qqButton->setIcon(sourceIcon(core::SourceId::QqMusic, m_qqAvailable));
+        m_qqButton->setToolTip(m_qqAvailable
+            ? QStringLiteral("切换到 QQ 音乐推荐")
+            : QStringLiteral("QQ 音乐暂不可用，点击启动或重试"));
+    }
 }
 
 void RecommendPage::refresh()
@@ -233,16 +300,22 @@ void RecommendPage::buildPlaylists(const QJsonArray &arr, core::MusicSource *sou
         if (remoteId.isEmpty())
             continue;
         const QString name = o.value(QStringLiteral("name")).toString();
-        auto *card = new CoverCard(this);
+        auto *slot = new QWidget(m_playlistHost);
+        slot->setMinimumWidth(132);
+        slot->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+        auto *slotLayout = new QHBoxLayout(slot);
+        slotLayout->setContentsMargins(0, 0, 0, 0);
+        auto *card = new CoverCard(slot);
         card->setFixedCardSize(132, 116);
         card->setFullCoverCard(true);
         card->setCover(CoverProvider::placeholder(name.left(1), 116, 6));
         card->setText(name, QStringLiteral("歌单"));
+        slotLayout->addWidget(card, 0, Qt::AlignHCenter | Qt::AlignTop);
         const int sourceId = int(source->sourceId());
         connect(card, &CoverCard::clicked, this, [this, sourceId, remoteId, name] {
             emit openPlaylistRequested(sourceId, remoteId, name);
         });
-        m_playlistRow->insertWidget(m_playlistRow->count() - 1, card);
+        m_playlistRow->addWidget(slot, 1);
         ++shown;
         // 异步下载封面
         QString pic = o.value(QStringLiteral("picUrl")).toString();
@@ -267,6 +340,12 @@ void RecommendPage::buildPlaylists(const QJsonArray &arr, core::MusicSource *sou
                 });
             }
         }
+    }
+    if (m_playlistHost) {
+        const int minimumContentWidth = shown > 0
+            ? shown * 132 + qMax(0, shown - 1) * m_playlistRow->spacing() : 0;
+        m_playlistHost->setMinimumWidth(minimumContentWidth);
+        m_playlistHost->updateGeometry();
     }
 }
 
@@ -313,6 +392,8 @@ void RecommendPage::showEmpty()
         delete item->widget();
         delete item;
     }
+    if (m_playlistHost)
+        m_playlistHost->setMinimumWidth(0);
 }
 
 } // namespace ui

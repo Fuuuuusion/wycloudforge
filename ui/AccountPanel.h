@@ -20,7 +20,7 @@ signals:
     void settingsClicked();
 
 private:
-    QLabel *m_avatar = nullptr;
+    QPushButton *m_avatar = nullptr;
     QPushButton *m_accountButton = nullptr;
 };
 

@@ -7,6 +7,8 @@
 
 #include <QDir>
 #include <QListWidget>
+#include <QPushButton>
+#include <QSet>
 #include <QSettings>
 #include <QStackedWidget>
 #include <QTemporaryDir>
@@ -60,7 +62,7 @@ public:
                 MusicSource::ErrFn err = {}) override
     {
         requests.append(request);
-        if (failSearch) {
+        if (failSearch || failOffsets.contains(request.offset)) {
             if (err)
                 err(searchError);
             return;
@@ -71,6 +73,7 @@ public:
         response.generation = request.generation;
         response.offset = request.offset;
         response.items = { m_item };
+        response.hasMore = hasSecondPage && request.offset == 0;
         if (ok)
             ok(response);
     }
@@ -84,9 +87,14 @@ public:
     }
 
     void hotSearch(int, MusicSource::HotSearchFn ok,
-                   MusicSource::ErrFn = {}) override
+                   MusicSource::ErrFn err = {}) override
     {
         ++hotSearchRequestCount;
+        if (failHotSearch) {
+            if (err)
+                err(hotSearchError);
+            return;
+        }
         if (ok)
             ok(hotSearchResults);
     }
@@ -95,9 +103,13 @@ public:
     QList<SearchSuggestion> suggestionResults;
     QList<HotSearchTerm> hotSearchResults;
     QString searchError = QStringLiteral("来源离线");
+    QString hotSearchError = QStringLiteral("热搜来源离线");
     int suggestionRequestCount = 0;
     int hotSearchRequestCount = 0;
     bool failSearch = false;
+    bool failHotSearch = false;
+    bool hasSecondPage = false;
+    QSet<int> failOffsets;
 
 private:
     SearchResultItem m_item;
@@ -155,6 +167,7 @@ private slots:
     void providesHistoryDiscoverySuggestionsAndKeyboardSelection();
     void fallsBackToCacheWithoutClearingHealthySource();
     void keepsNeteaseResultsWhenQqFails();
+    void autoPaginatesSourcesIndependently();
     void ignoresLateResponsesAndDestroyedPageCallbacks();
 };
 
@@ -274,6 +287,7 @@ void SearchPageTest::providesHistoryDiscoverySuggestionsAndKeyboardSelection()
         { SourceId::QqMusic, SearchItemType::Artist, token + QStringLiteral("QQ"),
           QStringLiteral("在线联想"), QStringLiteral("qq-suggestion") }
     };
+    qq.failHotSearch = true;
     MusicSourceRegistry registry;
     registry.registerSource(&netease);
     registry.registerSource(&qq);
@@ -291,11 +305,51 @@ void SearchPageTest::providesHistoryDiscoverySuggestionsAndKeyboardSelection()
     page.setLocalSongs({ local });
     page.performSearch(token + QStringLiteral("历史"));
     page.showSearchAssistant();
+    page.resize(1000, 700);
+    page.show();
+    QApplication::processEvents();
 
     QStringList queries = page.assistantQueries();
     QVERIFY(queries.contains(token + QStringLiteral("历史")));
     QVERIFY(queries.contains(token + QStringLiteral("热搜")));
     QVERIFY(netease.hotSearchRequestCount > 0);
+
+    auto *history = page.findChild<QListWidget *>(QStringLiteral("searchHistoryList"));
+    auto *neteaseHot = page.findChild<QListWidget *>(QStringLiteral("neteaseHotSearchList"));
+    auto *qqHot = page.findChild<QListWidget *>(QStringLiteral("qqHotSearchList"));
+    QVERIFY(history);
+    QVERIFY(neteaseHot);
+    QVERIFY(qqHot);
+    QVERIFY(qAbs(neteaseHot->width() - qqHot->width()) <= 2);
+    QVERIFY(neteaseHot->mapTo(&page, QPoint(0, 0)).x()
+            < qqHot->mapTo(&page, QPoint(0, 0)).x());
+    QVERIFY(!neteaseHot->styleSheet().contains(QStringLiteral("#16161E"),
+                                               Qt::CaseInsensitive));
+    QVERIFY(!qqHot->styleSheet().contains(QStringLiteral("#16161E"),
+                                          Qt::CaseInsensitive));
+    for (QPushButton *button : page.findChildren<QPushButton *>())
+        QVERIFY(button->text() != QStringLiteral("加载更多"));
+
+    auto *neteaseRetry = page.findChild<QPushButton *>(
+        QStringLiteral("neteaseHotSearchRetry"));
+    auto *qqRetry = page.findChild<QPushButton *>(QStringLiteral("qqHotSearchRetry"));
+    QVERIFY(neteaseRetry);
+    QVERIFY(qqRetry);
+    QVERIFY(!neteaseRetry->isVisible());
+    QVERIFY(qqRetry->isVisible());
+    QVERIFY(neteaseHot->count() > 0);
+    const int qqRequestsBeforeRetry = qq.hotSearchRequestCount;
+    qq.failHotSearch = false;
+    qq.hotSearchResults = {
+        { SourceId::QqMusic, token + QStringLiteral("QQ热搜"), QString(), 90.0, 0 }
+    };
+    qqRetry->click();
+    QCOMPARE(qq.hotSearchRequestCount, qqRequestsBeforeRetry + 1);
+    QVERIFY(!qqRetry->isVisible());
+    QVERIFY(qqHot->count() > 0);
+    QCOMPARE(qqHot->item(0)->data(Qt::UserRole).toString(),
+             token + QStringLiteral("QQ热搜"));
+    QVERIFY(neteaseHot->count() > 0);
 
     page.previewSearchText(token);
     QTRY_VERIFY_WITH_TIMEOUT(netease.suggestionRequestCount > 0, 1000);
@@ -316,8 +370,6 @@ void SearchPageTest::providesHistoryDiscoverySuggestionsAndKeyboardSelection()
     QVERIFY(assistant->selectedItems().isEmpty());
     QVERIFY(!assistant->currentItem()->toolTip().isEmpty());
 
-    page.show();
-    QApplication::processEvents();
     QToolTip::showText(page.mapToGlobal(QPoint(20, 20)), QStringLiteral("搜索提示"), &page);
     QTRY_VERIFY(QToolTip::isVisible());
     page.hide();
@@ -414,6 +466,50 @@ void SearchPageTest::keepsNeteaseResultsWhenQqFails()
     QCOMPARE(page.currentSongs().size(), 1);
     QCOMPARE(page.currentSongs().constFirst().stableIdentity(),
              QStringLiteral("1:netease-live"));
+}
+
+void SearchPageTest::autoPaginatesSourcesIndependently()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QCoreApplication::setOrganizationName(QStringLiteral("WyCloudForgeTests"));
+    QCoreApplication::setApplicationName(QStringLiteral("SearchPageAutoPaging"));
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, dir.path());
+    QSettings().clear();
+    SettingsService::setOnlineDownloadDir(dir.filePath(QStringLiteral("downloads")));
+    LibraryService::setDatabasePathOverride(dir.filePath(QStringLiteral("library.db")));
+    LibraryService library;
+    QVERIFY2(library.openDatabase(), qPrintable(library.lastError()));
+
+    FixedSearchSource<NeteaseApiClient> netease(
+        resultItem(SourceId::Netease, QStringLiteral("netease-page"), true));
+    FixedSearchSource<QqMusicSource> qq(
+        resultItem(SourceId::QqMusic, QStringLiteral("qq-page"), true));
+    netease.hasSecondPage = true;
+    qq.hasSecondPage = true;
+    netease.failOffsets.insert(30);
+    MusicSourceRegistry registry;
+    registry.registerSource(&netease);
+    registry.registerSource(&qq);
+
+    SearchPage page;
+    page.resize(1000, 700);
+    page.setSourceProvider(&netease, &library);
+    page.setSourceRegistry(&registry);
+    page.setOnlineSourceEnabled(SourceId::QqMusic, true);
+    page.performSearch(QStringLiteral("自动分页来源隔离"));
+    page.show();
+
+    QTRY_COMPARE_WITH_TIMEOUT(netease.requests.size(), 2, 1200);
+    QTRY_COMPARE_WITH_TIMEOUT(qq.requests.size(), 2, 1200);
+    QCOMPARE(netease.requests.at(0).offset, 0);
+    QCOMPARE(netease.requests.at(1).offset, 30);
+    QCOMPARE(qq.requests.at(0).offset, 0);
+    QCOMPARE(qq.requests.at(1).offset, 30);
+    QCOMPARE(page.sourceState(SourceId::Netease).state, SearchLoadState::Failed);
+    QCOMPARE(page.sourceState(SourceId::QqMusic).state, SearchLoadState::Ready);
+    QCOMPARE(page.onlineResultItems().size(), 2);
 }
 
 void SearchPageTest::ignoresLateResponsesAndDestroyedPageCallbacks()

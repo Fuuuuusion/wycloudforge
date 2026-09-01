@@ -8,6 +8,7 @@
 #include "core/MusicSourceRegistry.h"
 
 #include <QButtonGroup>
+#include <QColor>
 #include <QComboBox>
 #include <QFileInfo>
 #include <QFrame>
@@ -18,12 +19,11 @@
 #include <QPointer>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QSignalBlocker>
 #include <QStackedWidget>
 #include <QTimer>
 #include <QToolTip>
-#include <QTreeWidget>
-#include <QTreeWidgetItem>
 #include <QUrl>
 #include <QVBoxLayout>
 
@@ -186,22 +186,8 @@ SearchPage::SearchPage(QWidget *parent)
     retryLayout->addWidget(m_retryQq);
     retryLayout->addStretch(1);
     m_onlineList = new SongListView;
-    m_variantTree = new QTreeWidget(onlinePage);
-    m_variantTree->setHeaderHidden(true);
-    m_variantTree->setRootIsDecorated(true);
-    m_variantTree->setMaximumHeight(180);
-    m_variantTree->hide();
-    m_onlineMore = new QPushButton(QStringLiteral("加载更多"), onlinePage);
-    m_onlineMore->setCursor(Qt::PointingHandCursor);
-    m_onlineMore->setStyleSheet(QStringLiteral(
-        "QPushButton{border:none;background:#1B1B24;color:#C8C8D0;"
-        "padding:7px 16px;border-radius:14px;}"
-        "QPushButton:hover{background:#3A2024;color:#EC4141;}"));
-    m_onlineMore->hide();
     onlineLayout->addWidget(m_onlineHeader);
     onlineLayout->addWidget(retryRow);
-    onlineLayout->addWidget(m_onlineMore, 0, Qt::AlignLeft);
-    onlineLayout->addWidget(m_variantTree);
     onlineLayout->addWidget(m_onlineList, 1);
     m_stack->addWidget(onlinePage);
 
@@ -261,26 +247,88 @@ SearchPage::SearchPage(QWidget *parent)
     auto *assistantPage = new QWidget;
     auto *assistantLayout = new QVBoxLayout(assistantPage);
     assistantLayout->setContentsMargins(0, 0, 0, 0);
+    assistantLayout->setSpacing(14);
     auto *assistantTop = new QWidget(assistantPage);
     auto *assistantTopLayout = new QHBoxLayout(assistantTop);
     assistantTopLayout->setContentsMargins(0, 0, 0, 0);
-    m_assistantHeader = new QLabel(QStringLiteral("搜索历史与热搜"), assistantTop);
+    m_assistantHeader = new QLabel(QStringLiteral("搜索历史"), assistantTop);
     m_clearHistory = new QPushButton(QStringLiteral("清空历史"), assistantTop);
     assistantTopLayout->addWidget(m_assistantHeader);
     assistantTopLayout->addStretch(1);
     assistantTopLayout->addWidget(m_clearHistory);
+    m_discoveryPanel = new QWidget(assistantPage);
+    auto *discoveryLayout = new QVBoxLayout(m_discoveryPanel);
+    discoveryLayout->setContentsMargins(0, 0, 0, 0);
+    discoveryLayout->setSpacing(18);
+    m_historyList = new QListWidget(m_discoveryPanel);
+    m_historyList->setObjectName(QStringLiteral("searchHistoryList"));
+    m_historyList->setMaximumHeight(150);
+    discoveryLayout->addWidget(m_historyList);
+
+    auto *hotColumns = new QWidget(m_discoveryPanel);
+    auto *hotColumnsLayout = new QHBoxLayout(hotColumns);
+    hotColumnsLayout->setContentsMargins(0, 0, 0, 0);
+    hotColumnsLayout->setSpacing(24);
+    auto makeHotColumn = [hotColumns](const QString &title, const QString &objectName,
+                                      const QString &retryObjectName,
+                                      QListWidget **list, QPushButton **retryButton) {
+        auto *column = new QWidget(hotColumns);
+        auto *columnLayout = new QVBoxLayout(column);
+        columnLayout->setContentsMargins(0, 0, 0, 0);
+        columnLayout->setSpacing(12);
+        auto *header = new QWidget(column);
+        auto *headerLayout = new QHBoxLayout(header);
+        headerLayout->setContentsMargins(0, 0, 0, 0);
+        headerLayout->setSpacing(8);
+        auto *label = new QLabel(title, header);
+        label->setStyleSheet(QStringLiteral(
+            "color:#E8E8E8;font-size:15px;font-weight:600;background:transparent;"));
+        *retryButton = new QPushButton(QStringLiteral("重试"), header);
+        (*retryButton)->setObjectName(retryObjectName);
+        (*retryButton)->setCursor(Qt::PointingHandCursor);
+        (*retryButton)->setStyleSheet(QStringLiteral(
+            "QPushButton{border:none;background:transparent;color:#EC4141;padding:2px 4px;}"
+            "QPushButton:hover{background:transparent;color:#FF6B6B;text-decoration:underline;}"
+            "QPushButton:pressed{background:transparent;color:#C93636;}"));
+        (*retryButton)->hide();
+        *list = new QListWidget(column);
+        (*list)->setObjectName(objectName);
+        headerLayout->addWidget(label);
+        headerLayout->addStretch(1);
+        headerLayout->addWidget(*retryButton);
+        columnLayout->addWidget(header);
+        columnLayout->addWidget(*list, 1);
+        return column;
+    };
+    hotColumnsLayout->addWidget(makeHotColumn(QStringLiteral("网易云音乐热搜"),
+                                               QStringLiteral("neteaseHotSearchList"),
+                                               QStringLiteral("neteaseHotSearchRetry"),
+                                               &m_neteaseHotList, &m_hotRetryNetease), 1);
+    hotColumnsLayout->addWidget(makeHotColumn(QStringLiteral("QQ 音乐热搜"),
+                                               QStringLiteral("qqHotSearchList"),
+                                               QStringLiteral("qqHotSearchRetry"),
+                                               &m_qqHotList, &m_hotRetryQq), 1);
+    discoveryLayout->addWidget(hotColumns, 1);
+
     m_assistantList = new QListWidget(assistantPage);
     m_assistantList->setObjectName(QStringLiteral("searchAssistantList"));
-    m_assistantList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    m_assistantList->setSelectionMode(QAbstractItemView::NoSelection);
-    m_assistantList->setFocusPolicy(Qt::NoFocus);
-    m_assistantList->setMouseTracking(true);
-    m_assistantList->setStyleSheet(QStringLiteral(
-        "QListWidget#searchAssistantList{background:#16161E;border:none;border-radius:6px;}"
-        "QListWidget#searchAssistantList::item{padding:8px;border-radius:4px;color:#E8E8E8;}"
-        "QListWidget#searchAssistantList::item:hover{background:#24242E;color:#F04A4A;}"
-        "QListWidget#searchAssistantList::item:selected{background:transparent;color:#E8E8E8;}"));
+    const QList<QListWidget *> assistantLists = {
+        m_historyList, m_neteaseHotList, m_qqHotList, m_assistantList
+    };
+    for (QListWidget *list : assistantLists) {
+        list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        list->setFrameShape(QFrame::NoFrame);
+        list->setSelectionMode(QAbstractItemView::NoSelection);
+        list->setFocusPolicy(Qt::NoFocus);
+        list->setMouseTracking(true);
+        list->setStyleSheet(QStringLiteral(
+            "QListWidget{background:transparent;border:none;}"
+            "QListWidget::item{padding:7px 2px;color:#E8E8E8;background:transparent;}"
+            "QListWidget::item:hover{background:transparent;color:#F04A4A;}"
+            "QListWidget::item:selected{background:transparent;color:#EC4141;}"));
+    }
     assistantLayout->addWidget(assistantTop);
+    assistantLayout->addWidget(m_discoveryPanel, 1);
     assistantLayout->addWidget(m_assistantList, 1);
     m_stack->addWidget(assistantPage);
 
@@ -307,11 +355,21 @@ SearchPage::SearchPage(QWidget *parent)
     connect(m_onlineList, &SongListView::playRequested, this, [this](int row) {
         emit playRequested(m_onlineSongs, row);
     });
+    connect(m_onlineList, &SongListView::sourceActivated,
+            this, [this](int row, const core::Song &song) {
+        if (row >= 0 && row < m_onlineSongs.size())
+            m_onlineSongs[row] = song;
+    });
     connect(m_onlineList, &SongListView::heartRequested, this, &SearchPage::heartRequested);
     connect(m_onlineList, &SongListView::addToPlaylistRequested, this, &SearchPage::addToPlaylistRequested);
     connect(m_onlineList, &SongListView::deleteFromLibraryRequested, this, &SearchPage::deleteFromLibraryRequested);
     connect(m_genericSongList, &SongListView::playRequested, this, [this](int row) {
         emit playRequested(m_genericSongs, row);
+    });
+    connect(m_genericSongList, &SongListView::sourceActivated,
+            this, [this](int row, const core::Song &song) {
+        if (row >= 0 && row < m_genericSongs.size())
+            m_genericSongs[row] = song;
     });
     connect(m_genericSongList, &SongListView::heartRequested,
             this, &SearchPage::heartRequested);
@@ -319,9 +377,22 @@ SearchPage::SearchPage(QWidget *parent)
             this, &SearchPage::addToPlaylistRequested);
     connect(m_genericSongList, &SongListView::deleteFromLibraryRequested,
             this, &SearchPage::deleteFromLibraryRequested);
-    connect(m_onlineMore, &QPushButton::clicked, this, [this] {
-        if (!m_onlineLoading && !m_query.isEmpty())
-            loadOnlinePage(m_onlineOffset + m_onlinePageSize);
+    connect(m_onlineList->verticalScrollBar(), &QScrollBar::valueChanged,
+            this, [this](int value) {
+        QScrollBar *bar = m_onlineList->verticalScrollBar();
+        if (bar && bar->maximum() - value <= qMax(bar->pageStep(), 160))
+            requestNextOnlinePages();
+    });
+    connect(m_onlineList->verticalScrollBar(), &QScrollBar::rangeChanged,
+            this, [this](int minimum, int maximum) {
+        if (minimum == maximum && maximum == 0)
+            QTimer::singleShot(0, this, &SearchPage::requestNextOnlinePages);
+    });
+    connect(m_genericSongList->verticalScrollBar(), &QScrollBar::valueChanged,
+            this, [this](int value) {
+        QScrollBar *bar = m_genericSongList->verticalScrollBar();
+        if (bar && bar->maximum() - value <= qMax(bar->pageStep(), 160))
+            requestNextOnlinePages();
     });
     connect(m_retryNetease, &QPushButton::clicked, this, [this] {
         const auto state = sourceState(core::SourceId::Netease);
@@ -331,19 +402,11 @@ SearchPage::SearchPage(QWidget *parent)
         const auto state = sourceState(core::SourceId::QqMusic);
         loadOnlinePage(qMax(0, state.offset), core::SourceId::QqMusic);
     });
-    connect(m_variantTree, &QTreeWidget::itemDoubleClicked, this,
-            [this](QTreeWidgetItem *item, int) {
-        if (!item || item->childCount() > 0)
-            return;
-        const QString identity = item->data(0, Qt::UserRole).toString();
-        for (const core::SearchResultGroup &group : std::as_const(m_onlineGroups)) {
-            for (const core::SearchResultVariant &variant : group.variants) {
-                if (variant.item.stableIdentity() == identity) {
-                    emit playRequested({ variant.item.song }, 0);
-                    return;
-                }
-            }
-        }
+    connect(m_hotRetryNetease, &QPushButton::clicked, this, [this] {
+        retryHotSearch(core::SourceId::Netease);
+    });
+    connect(m_hotRetryQq, &QPushButton::clicked, this, [this] {
+        retryHotSearch(core::SourceId::QqMusic);
     });
     connect(m_clearHistory, &QPushButton::clicked, this, [this] {
         m_searchCache->clearHistory();
@@ -357,6 +420,19 @@ SearchPage::SearchPage(QWidget *parent)
         if (item)
             emit searchTextChosen(item->data(Qt::UserRole).toString());
     });
+    const QList<QListWidget *> discoveryLists = {
+        m_historyList, m_neteaseHotList, m_qqHotList
+    };
+    for (QListWidget *list : discoveryLists) {
+        connect(list, &QListWidget::itemClicked, this, [this](QListWidgetItem *item) {
+            if (item && item->flags().testFlag(Qt::ItemIsEnabled))
+                emit searchTextChosen(item->data(Qt::UserRole).toString());
+        });
+        connect(list, &QListWidget::itemActivated, this, [this](QListWidgetItem *item) {
+            if (item && item->flags().testFlag(Qt::ItemIsEnabled))
+                emit searchTextChosen(item->data(Qt::UserRole).toString());
+        });
+    }
     connect(m_suggestionTimer, &QTimer::timeout, this, &SearchPage::requestSuggestions);
     connect(m_localSearch, &core::SearchService::searchFinished, this,
             [this](quint64 generation, const QString &query,
@@ -456,9 +532,8 @@ void SearchPage::beginSearch(const QString &query, bool recordHistory)
     m_onlineItems.clear();
     m_onlineGroups.clear();
     m_onlineSongs.clear();
-    m_onlineList->setSongs({});
+    m_onlineList->setSearchResultGroups({});
     m_onlineHeader->hide();
-    m_onlineMore->hide();
     startLocalSearch();
 
     if (m_scope != core::SearchScope::Local
@@ -562,6 +637,7 @@ QString SearchPage::resolvedSearchText(const QString &fallback) const
 void SearchPage::requestDiscovery()
 {
     m_hotTerms.clear();
+    m_hotErrors.clear();
     const quint64 generation = m_assistantGeneration;
     const QPointer<SearchPage> guard(this);
     for (core::MusicSource *source : activeOnlineSources()) {
@@ -570,17 +646,7 @@ void SearchPage::requestDiscovery()
             m_hotTerms.insert(int(source->sourceId()), cached);
         if (!source->capabilities().hotSearch)
             continue;
-        const core::SourceId sourceId = source->sourceId();
-        source->hotSearch(10, [guard, generation, sourceId](const QList<core::HotSearchTerm> &terms) {
-            if (!guard || generation != guard->m_assistantGeneration)
-                return;
-            guard->m_hotTerms.insert(int(sourceId), terms);
-            guard->m_searchCache->storeHotTerms(sourceId, terms);
-            guard->renderAssistant();
-        }, [guard, generation](const QString &) {
-            if (guard && generation == guard->m_assistantGeneration)
-                guard->renderAssistant();
-        });
+        requestHotSearch(source, generation);
         if (source->capabilities().defaultSearch) {
             source->defaultSearchText([guard, generation](const QString &text) {
                 if (guard && generation == guard->m_assistantGeneration && !text.trimmed().isEmpty())
@@ -588,6 +654,41 @@ void SearchPage::requestDiscovery()
             });
         }
     }
+}
+
+void SearchPage::requestHotSearch(core::MusicSource *source, quint64 generation)
+{
+    if (!source || !source->capabilities().hotSearch)
+        return;
+    const core::SourceId sourceId = source->sourceId();
+    m_hotErrors.insert(int(sourceId), QString());
+    renderAssistant();
+    const QPointer<SearchPage> guard(this);
+    source->hotSearch(10, [guard, generation, sourceId](const QList<core::HotSearchTerm> &terms) {
+        if (!guard || generation != guard->m_assistantGeneration)
+            return;
+        guard->m_hotTerms.insert(int(sourceId), terms);
+        guard->m_hotErrors.remove(int(sourceId));
+        guard->m_searchCache->storeHotTerms(sourceId, terms);
+        guard->renderAssistant();
+    }, [guard, generation, sourceId](const QString &message) {
+        if (!guard || generation != guard->m_assistantGeneration)
+            return;
+        guard->m_hotErrors.insert(int(sourceId), message.trimmed().isEmpty()
+            ? QStringLiteral("来源暂不可用") : message.trimmed());
+        guard->renderAssistant();
+    });
+}
+
+void SearchPage::retryHotSearch(core::SourceId sourceId)
+{
+    const QList<core::MusicSource *> sources = activeOnlineSources(sourceId);
+    if (sources.isEmpty()) {
+        m_hotErrors.insert(int(sourceId), QStringLiteral("来源未启用"));
+        renderAssistant();
+        return;
+    }
+    requestHotSearch(sources.constFirst(), m_assistantGeneration);
 }
 
 void SearchPage::requestSuggestions()
@@ -619,40 +720,85 @@ void SearchPage::requestSuggestions()
 
 void SearchPage::renderAssistant()
 {
-    if (!m_assistantList)
+    if (!m_assistantList || !m_discoveryPanel)
         return;
     const QString selected = m_assistantList->currentItem()
         ? m_assistantList->currentItem()->data(Qt::UserRole).toString() : QString();
     m_assistantList->clear();
-    QSet<QString> seen;
-    auto append = [this, &seen](const QString &query, const QString &label) {
+    m_historyList->clear();
+    m_neteaseHotList->clear();
+    m_qqHotList->clear();
+    if (m_hotRetryNetease) {
+        m_hotRetryNetease->setVisible(
+            !m_hotErrors.value(int(core::SourceId::Netease)).isEmpty()
+            && m_enabledSourceIds.contains(int(core::SourceId::Netease)));
+    }
+    if (m_hotRetryQq) {
+        m_hotRetryQq->setVisible(
+            !m_hotErrors.value(int(core::SourceId::QqMusic)).isEmpty()
+            && m_enabledSourceIds.contains(int(core::SourceId::QqMusic)));
+    }
+
+    auto append = [](QListWidget *list, QSet<QString> *seen,
+                     const QString &query, const QString &label) {
         const QString text = query.trimmed();
         const QString key = core::SearchCache::normalizedQuery(text);
-        if (text.isEmpty() || seen.contains(key))
+        if (!list || text.isEmpty() || (seen && seen->contains(key)))
             return;
-        auto *item = new QListWidgetItem(label, m_assistantList);
+        auto *item = new QListWidgetItem(label, list);
         item->setData(Qt::UserRole, text);
         item->setToolTip(label);
-        seen.insert(key);
+        if (seen)
+            seen->insert(key);
     };
 
     if (m_assistantInput.isEmpty()) {
+        m_discoveryPanel->show();
+        m_assistantList->hide();
         const QStringList history = m_searchCache->history();
-        for (const QString &text : history)
-            append(text, QStringLiteral("历史 · %1").arg(text));
+        QSet<QString> historySeen;
+        for (const QString &text : history) {
+            append(m_historyList, &historySeen, text, text);
+            append(m_assistantList, nullptr, text, QStringLiteral("历史 · %1").arg(text));
+        }
         const QList<core::SourceId> order = { core::SourceId::Netease,
                                                core::SourceId::QqMusic };
         for (core::SourceId source : order) {
+            QListWidget *target = source == core::SourceId::Netease
+                ? m_neteaseHotList : m_qqHotList;
+            QSet<QString> sourceSeen;
             for (const core::HotSearchTerm &term : m_hotTerms.value(int(source))) {
-                append(term.text, QStringLiteral("%1热搜 %2 · %3")
-                                      .arg(sourceLabel(source))
-                                      .arg(term.rank >= 0 ? term.rank + 1 : 0)
-                                      .arg(term.text));
+                const QString label = term.rank >= 0
+                    ? QStringLiteral("%1  %2").arg(term.rank + 1, 2).arg(term.text)
+                    : term.text;
+                append(target, &sourceSeen, term.text, label);
+                append(m_assistantList, nullptr, term.text,
+                       QStringLiteral("%1热搜 · %2").arg(sourceLabel(source), term.text));
+            }
+            if (target->count() == 0) {
+                QString status = m_hotErrors.value(int(source));
+                if (status.isEmpty()) {
+                    status = m_enabledSourceIds.contains(int(source))
+                        ? QStringLiteral("正在加载…") : QStringLiteral("来源未启用");
+                }
+                auto *item = new QListWidgetItem(status, target);
+                item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
+                item->setForeground(QColor(QStringLiteral("#6E6E7A")));
+            } else if (!m_hotErrors.value(int(source)).isEmpty()) {
+                auto *item = new QListWidgetItem(
+                    QStringLiteral("刷新失败 · %1").arg(m_hotErrors.value(int(source))), target);
+                item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
+                item->setForeground(QColor(QStringLiteral("#6E6E7A")));
             }
         }
-        m_assistantHeader->setText(QStringLiteral("搜索历史与平台热搜"));
+        m_historyList->setVisible(!history.isEmpty());
+        m_assistantHeader->setText(QStringLiteral("搜索历史"));
+        m_assistantHeader->setVisible(!history.isEmpty());
         m_clearHistory->setVisible(!history.isEmpty());
     } else {
+        m_discoveryPanel->hide();
+        m_assistantList->show();
+        QSet<QString> seen;
         const QList<core::SourceId> order = { core::SourceId::Local,
                                                core::SourceId::Netease,
                                                core::SourceId::QqMusic };
@@ -660,12 +806,13 @@ void SearchPage::renderAssistant()
             for (const core::SearchSuggestion &suggestion : m_suggestions.value(int(source))) {
                 const QString suffix = suggestion.subtitle.trimmed().isEmpty()
                     ? QString() : QStringLiteral(" · %1").arg(suggestion.subtitle.trimmed());
-                append(suggestion.text,
+                append(m_assistantList, &seen, suggestion.text,
                        QStringLiteral("%1 · %2 · %3%4")
                            .arg(sourceLabel(source), itemTypeLabel(suggestion.type),
                                 suggestion.text, suffix));
             }
         }
+        m_assistantHeader->show();
         m_assistantHeader->setText(QStringLiteral("搜索联想 · ↑↓选择，Enter搜索"));
         m_clearHistory->hide();
     }
@@ -820,8 +967,24 @@ void SearchPage::updateOnlineHeader()
             || state.state == core::SearchLoadState::TimedOut
             || (state.fromCache && !state.error.isEmpty());
     };
-    m_retryNetease->setVisible(!m_onlineLoading && needsRetry(core::SourceId::Netease));
-    m_retryQq->setVisible(!m_onlineLoading && needsRetry(core::SourceId::QqMusic));
+    const auto retryVisible = [this, &needsRetry](core::SourceId source) {
+        const auto state = m_sourceStates.value(int(source));
+        return state.state != core::SearchLoadState::Loading && needsRetry(source);
+    };
+    m_retryNetease->setVisible(retryVisible(core::SourceId::Netease));
+    m_retryQq->setVisible(retryVisible(core::SourceId::QqMusic));
+}
+
+void SearchPage::updateOnlineLoadingState()
+{
+    m_onlineLoading = false;
+    for (auto it = m_sourceStates.constBegin(); it != m_sourceStates.constEnd(); ++it) {
+        if (it->generation == m_searchGeneration
+            && it->state == core::SearchLoadState::Loading) {
+            m_onlineLoading = true;
+            return;
+        }
+    }
 }
 
 QList<core::MusicSource *> SearchPage::activeOnlineSources(core::SourceId onlySource) const
@@ -909,29 +1072,15 @@ void SearchPage::removeOnlineItems(const QSet<QString> &identities)
 
 void SearchPage::loadOnlinePage(int offset, core::SourceId onlySource)
 {
-    if ((!m_source && !m_registry) || !m_lib || m_query.isEmpty() || m_onlineLoading)
+    if ((!m_source && !m_registry) || !m_lib || m_query.isEmpty())
         return;
     QList<core::MusicSource *> sources = activeOnlineSources(onlySource);
-    if (offset > 0 && onlySource == core::SourceId::Local) {
-        for (auto it = sources.begin(); it != sources.end();) {
-            const auto state = m_sourceStates.value(int((*it)->sourceId()));
-            if (!state.hasMore)
-                it = sources.erase(it);
-            else
-                ++it;
-        }
-    }
     if (sources.isEmpty()) {
-        m_onlineLoading = false;
         m_onlineHeader->setText(QStringLiteral("暂无可用在线来源"));
         m_onlineHeader->show();
         return;
     }
     const quint64 generation = m_searchGeneration;
-    m_onlineLoading = true;
-    m_onlineMore->setEnabled(false);
-    m_onlineMore->setText(QStringLiteral("加载中…"));
-    auto pending = std::make_shared<int>(sources.size());
     const QPointer<SearchPage> guard(this);
     if (offset == 0 && onlySource == core::SourceId::Local) {
         m_onlineItems.clear();
@@ -945,50 +1094,38 @@ void SearchPage::loadOnlinePage(int offset, core::SourceId onlySource)
                 ++it;
         }
     }
-    for (core::MusicSource *source : std::as_const(sources)) {
-        core::SearchSourceState state;
-        state.source = source->sourceId();
-        state.state = core::SearchLoadState::Loading;
-        state.generation = generation;
-        state.offset = offset;
-        m_sourceStates.insert(int(source->sourceId()), state);
-    }
-
-    const auto renderResults = [guard, generation, offset](bool finished) {
+    const auto renderResults = [guard, generation] {
         if (!guard || generation != guard->m_searchGeneration)
             return;
-        if (finished) {
-            guard->m_onlineOffset = qMax(guard->m_onlineOffset, offset);
-            guard->m_onlineLoading = false;
-            bool hasMore = false;
-            for (auto it = guard->m_sourceStates.constBegin();
-                 it != guard->m_sourceStates.constEnd(); ++it) {
-                hasMore = hasMore || it->hasMore;
-            }
-            // 分页能力按来源独立：一个来源失败时，仍允许继续加载另一个
-            // 已明确返回 hasMore 的来源。
-            guard->m_onlineMore->setVisible(hasMore);
-            guard->m_onlineMore->setEnabled(true);
-            guard->m_onlineMore->setText(QStringLiteral("加载更多"));
-        }
         guard->rebuildAggregatedOnlineResults();
         guard->renderGenericResults();
-        // finished 时必须先清除全局 loading，来源级重试按钮才能出现。
+        guard->updateOnlineLoadingState();
         guard->updateOnlineHeader();
         guard->showCurrentResultPage();
         for (const core::Song &song : std::as_const(guard->m_onlineSongs))
             guard->ensureCover(song);
+        QTimer::singleShot(0, guard, &SearchPage::requestNextOnlinePages);
     };
-    const auto finishSource = [guard, generation, pending, renderResults] {
-        if (!guard || generation != guard->m_searchGeneration)
-            return;
-        const bool finished = --(*pending) == 0;
-        // 每个来源独立完成时立即展示其结果；离线或响应慢的来源不能让
-        // 已返回的网易云/QQ 结果一直停留在“加载中”的空页面。
-        renderResults(finished);
-    };
-    updateOnlineHeader();
-    for (core::MusicSource *source : sources) {
+    bool launched = false;
+    for (core::MusicSource *source : std::as_const(sources)) {
+        const int sourceKey = int(source->sourceId());
+        const core::SearchSourceState previous = m_sourceStates.value(sourceKey);
+        if (previous.generation == generation
+            && previous.state == core::SearchLoadState::Loading) {
+            continue;
+        }
+        if (offset > 0 && onlySource == core::SourceId::Local && !previous.hasMore)
+            continue;
+
+        core::SearchSourceState state = previous;
+        state.source = source->sourceId();
+        state.state = core::SearchLoadState::Loading;
+        state.generation = generation;
+        state.offset = offset;
+        state.error.clear();
+        m_sourceStates.insert(sourceKey, state);
+        launched = true;
+
         core::SearchRequest request;
         request.keywords = m_query;
         request.category = m_category;
@@ -1011,12 +1148,11 @@ void SearchPage::loadOnlinePage(int offset, core::SourceId onlySource)
             cachedState.stale = !cacheFresh;
             cachedState.hasMore = cached.hasMore;
             m_sourceStates.insert(int(source->sourceId()), cachedState);
-            renderResults(false);
+            renderResults();
         }
-        const int sourceKey = int(source->sourceId());
         QTimer::singleShot(m_sourceTimeoutMs, this,
                            [guard, source, sourceKey, generation, settled,
-                            cachedIdentities, finishSource] {
+                            cachedIdentities, renderResults] {
             if (!guard || generation != guard->m_searchGeneration || *settled)
                 return;
             *settled = true;
@@ -1031,11 +1167,11 @@ void SearchPage::loadOnlinePage(int offset, core::SourceId onlySource)
                 state.error = QStringLiteral("网络超时，显示缓存");
             }
             guard->m_sourceStates.insert(sourceKey, state);
-            finishSource();
+            renderResults();
         });
         source->search(request,
                        [guard, sourceKey, generation, request, settled,
-                        cachedIdentities, finishSource]
+                        cachedIdentities, renderResults]
                        (const core::SearchResponse &response) {
         if (!guard || generation != guard->m_searchGeneration || *settled
             || response.generation != generation)
@@ -1052,9 +1188,10 @@ void SearchPage::loadOnlinePage(int offset, core::SourceId onlySource)
         state.stale = false;
         state.error.clear();
         guard->m_sourceStates.insert(sourceKey, state);
-        finishSource();
+        guard->m_onlineOffset = qMax(guard->m_onlineOffset, response.offset);
+        renderResults();
     }, [guard, sourceKey, generation, settled, cachedIdentities,
-        finishSource](const QString &message) {
+        renderResults](const QString &message) {
         if (!guard || generation != guard->m_searchGeneration || *settled)
             return;
         *settled = true;
@@ -1068,8 +1205,37 @@ void SearchPage::loadOnlinePage(int offset, core::SourceId onlySource)
             state.error = QStringLiteral("刷新失败，显示缓存：%1").arg(message);
         }
         guard->m_sourceStates.insert(sourceKey, state);
-        finishSource();
+        renderResults();
     });
+    }
+    updateOnlineLoadingState();
+    updateOnlineHeader();
+    if (!launched)
+        return;
+}
+
+void SearchPage::requestNextOnlinePages()
+{
+    if (m_query.isEmpty() || !m_stack
+        || (m_stack->currentIndex() != kOnlineSongsPage
+            && m_stack->currentIndex() != kGenericResultsPage)) {
+        return;
+    }
+    SongListView *activeList = m_stack->currentIndex() == kGenericResultsPage
+        ? m_genericSongList : m_onlineList;
+    QScrollBar *bar = activeList ? activeList->verticalScrollBar() : nullptr;
+    if (bar && bar->maximum() > 0
+        && bar->maximum() - bar->value() > qMax(bar->pageStep(), 160)) {
+        return;
+    }
+    const QList<core::MusicSource *> sources = activeOnlineSources();
+    for (core::MusicSource *source : sources) {
+        const core::SearchSourceState state = m_sourceStates.value(int(source->sourceId()));
+        if (state.generation != m_searchGeneration || !state.hasMore
+            || state.state == core::SearchLoadState::Loading || !state.error.isEmpty()) {
+            continue;
+        }
+        loadOnlinePage(state.offset + m_onlinePageSize, source->sourceId());
     }
 }
 
@@ -1101,36 +1267,9 @@ void SearchPage::rebuildAggregatedOnlineResults()
             m_onlineSongs.append(song);
         }
     }
-    m_onlineList->setSongs(m_onlineSongs);
+    m_onlineList->setSearchResultGroups(m_onlineGroups);
+    m_onlineSongs = m_onlineList->songs();
     m_onlineList->setHighlightQuery(m_query);
-    rebuildVariantTree();
-}
-
-void SearchPage::rebuildVariantTree()
-{
-    m_variantTree->clear();
-    for (const core::SearchResultGroup &group : std::as_const(m_onlineGroups)) {
-        if (group.variants.size() < 2)
-            continue;
-        const core::SearchResultItem preferred = group.preferredItem();
-        auto *top = new QTreeWidgetItem(m_variantTree);
-        top->setText(0, QStringLiteral("%1 · %2 · %3 个来源版本")
-                            .arg(preferred.title, preferred.artist)
-                            .arg(group.variants.size()));
-        for (const core::SearchResultVariant &variant : group.variants) {
-            auto *child = new QTreeWidgetItem(top);
-            QString availability = variant.item.playable
-                ? QStringLiteral("可播放")
-                : (variant.item.availabilityError.isEmpty()
-                       ? QStringLiteral("不可播放") : variant.item.availabilityError);
-            child->setText(0, QStringLiteral("%1 · %2%3")
-                                  .arg(sourceLabel(variant.item.source), availability,
-                                       variant.item.stableIdentity() == preferred.stableIdentity()
-                                           ? QStringLiteral(" · 当前首选") : QString()));
-            child->setData(0, Qt::UserRole, variant.item.stableIdentity());
-        }
-    }
-    m_variantTree->setVisible(m_variantTree->topLevelItemCount() > 0);
 }
 
 void SearchPage::renderGenericResults()
@@ -1189,7 +1328,12 @@ void SearchPage::renderGenericResults()
                 m_genericSongs.append(song);
         }
     }
-    m_genericSongList->setSongs(m_genericSongs);
+    if (m_category == core::SearchCategory::All) {
+        m_genericSongList->setSearchResultGroups(m_onlineGroups);
+        m_genericSongs = m_genericSongList->songs();
+    } else {
+        m_genericSongList->setSongs(m_genericSongs);
+    }
     m_genericSongList->setHighlightQuery(m_query);
     m_genericSongsHeader->setVisible(!m_genericSongs.isEmpty());
     m_genericSongList->setVisible(!m_genericSongs.isEmpty());

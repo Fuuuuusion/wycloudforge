@@ -82,10 +82,12 @@ public:
 
     // 推荐缓存文件
     static QString recommendCachePath();
+    static void setRecommendCachePathOverride(const QString &path);
 
 private:
     static QStringList s_foldersOverride;
     static QString s_lastSongPathOverride;
+    static QString s_recommendCachePathOverride;
     static qint64 s_lastSongPositionOverride;
     static bool s_hasOverrides;
 };

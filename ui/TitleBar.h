@@ -6,6 +6,7 @@ class QHBoxLayout;
 class QLineEdit;
 class QPushButton;
 class QLabel;
+class QResizeEvent;
 
 namespace ui {
 
@@ -37,6 +38,7 @@ signals:
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
 
 private:
     QLineEdit *m_searchEdit = nullptr;

@@ -48,10 +48,8 @@ protected:
     bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
     void closeEvent(QCloseEvent *event) override;
     void changeEvent(QEvent *event) override;
-    void resizeEvent(QResizeEvent *event) override;
 
 private:
-    void positionPlayerBar();
     void showPage(int pageId);
     void openPlaybackQueue();
     void openPlaylist(int playlistId);

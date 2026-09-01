@@ -39,6 +39,7 @@ private:
 
     QButtonGroup *m_navGroup = nullptr;
     QButtonGroup *m_playlistGroup = nullptr;
+    QVBoxLayout *m_contentLayout = nullptr;
     QVBoxLayout *m_playlistLayout = nullptr;
     QWidget *m_playlistSection = nullptr;
     QList<int> m_playlistIds;

@@ -4,6 +4,7 @@
 #include "core/SettingsService.h"
 #include "ui/AccountDialog.h"
 #include "ui/AccountPanel.h"
+#include "ui/AccountSettingsButton.h"
 #include "ui/AuroraBackground.h"
 #include "ui/DownloadPage.h"
 #include "ui/FavoritesPage.h"
@@ -65,8 +66,11 @@ constexpr int kOnlineCoverDownloadsBatch = 3;
 void disableHorizontalScrollbars(QWidget *root)
 {
     const QList<QAbstractScrollArea *> areas = root->findChildren<QAbstractScrollArea *>();
-    for (QAbstractScrollArea *a : areas)
+    for (QAbstractScrollArea *a : areas) {
+        if (a->property("allowHorizontalScroll").toBool())
+            continue;
         a->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    }
 }
 
 struct NcHitTestResult
@@ -97,10 +101,12 @@ NcHitTestResult computeHitTest(QWidget *window, const QPoint &cursorGlobal, cons
         if (bottom) return { true, HTBOTTOM };
     }
 
-    if (titleBar && pos.y() <= titleBar->height()) {
+    const QRect titleGeometry = titleBar
+        ? QRect(titleBar->mapTo(window, QPoint(0, 0)), titleBar->size()) : QRect();
+    if (titleBar && titleGeometry.contains(pos)) {
         for (int i = 0; i <= ui::TitleBar::CloseBtn; ++i) {
             const QRect r = titleBar->windowButtonRect(i);
-            if (r.translated(titleBar->pos()).contains(pos)) {
+            if (r.translated(titleGeometry.topLeft()).contains(pos)) {
                 switch (i) {
                 case ui::TitleBar::CloseBtn:
                 case ui::TitleBar::MaximizeBtn:
@@ -112,7 +118,7 @@ NcHitTestResult computeHitTest(QWidget *window, const QPoint &cursorGlobal, cons
             }
         }
         const QRect sR = titleBar->searchRect();
-        if (sR.isValid() && sR.translated(titleBar->pos()).contains(pos))
+        if (sR.isValid() && sR.translated(titleGeometry.topLeft()).contains(pos))
             return { true, HTCLIENT };
         return { true, HTCAPTION };
     }
@@ -223,31 +229,46 @@ MainWindow::MainWindow(QWidget *parent)
 
     connectSongListActions();
 
-    auto *body = new QWidget(this);
-    auto *bodyLayout = new QHBoxLayout(body);
-    bodyLayout->setContentsMargins(0, 0, 0, 0);
-    bodyLayout->setSpacing(0);
-    auto *sideCol = new QVBoxLayout;
-    sideCol->setContentsMargins(0, 0, 0, 0);
-    sideCol->setSpacing(0);
-    sideCol->addWidget(m_sideBar, 1);
-    sideCol->addWidget(m_accountPanel);
-    bodyLayout->addLayout(sideCol);
-    bodyLayout->addWidget(m_stack, 1);
-
     auto *central = new ui::AuroraBackground(this);
-    auto *layout = new QVBoxLayout(central);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(0);
-    layout->addWidget(m_titleBar);
-    layout->addWidget(body, 1);
-    setCentralWidget(central);
+    auto *rootLayout = new QHBoxLayout(central);
+    rootLayout->setContentsMargins(0, 0, 0, 0);
+    rootLayout->setSpacing(0);
 
-    m_playerBar->setParent(central);
-    positionPlayerBar();
-    m_playerBar->raise();
-    body->setStyleSheet(QStringLiteral("background: #0E0E14;"));
-    QTimer::singleShot(0, this, [this] { positionPlayerBar(); });
+    auto *sidebarShell = new QWidget(central);
+    sidebarShell->setObjectName(QStringLiteral("sidebarShell"));
+    sidebarShell->setFixedWidth(240);
+    sidebarShell->setStyleSheet(QStringLiteral(
+        "QWidget#sidebarShell{background:#0E0E14;border:none;}"));
+    auto *sideLayout = new QVBoxLayout(sidebarShell);
+    sideLayout->setContentsMargins(0, 0, 0, 0);
+    sideLayout->setSpacing(0);
+    sideLayout->addWidget(m_accountPanel);
+    sideLayout->addWidget(m_sideBar, 1);
+
+    auto *settingsFooter = new QWidget(sidebarShell);
+    settingsFooter->setObjectName(QStringLiteral("settingsFooter"));
+    settingsFooter->setFixedHeight(128);
+    auto *settingsLayout = new QHBoxLayout(settingsFooter);
+    settingsLayout->setContentsMargins(18, 18, 18, 18);
+    auto *settingsButton = new ui::AccountSettingsButton(settingsFooter);
+    settingsLayout->addWidget(settingsButton, 0, Qt::AlignLeft | Qt::AlignBottom);
+    settingsLayout->addStretch(1);
+    sideLayout->addWidget(settingsFooter);
+
+    auto *rightColumn = new QWidget(central);
+    rightColumn->setObjectName(QStringLiteral("rightColumn"));
+    auto *rightLayout = new QVBoxLayout(rightColumn);
+    rightLayout->setContentsMargins(0, 0, 0, 0);
+    rightLayout->setSpacing(0);
+    rightLayout->addWidget(m_titleBar);
+    rightLayout->addWidget(m_stack, 1);
+    rightLayout->addWidget(m_playerBar);
+
+    rootLayout->addWidget(sidebarShell);
+    rootLayout->addWidget(rightColumn, 1);
+    setCentralWidget(central);
+    rightColumn->setStyleSheet(QStringLiteral(
+        "QWidget#rightColumn{background:#0E0E14;border:none;}"));
 
     // ---------- 标题栏 ----------
     connect(m_titleBar, &ui::TitleBar::minimizeClicked, this, &QWidget::showMinimized);
@@ -318,7 +339,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     // ---------- 账号区 / 设置 ----------
     connect(m_accountPanel, &ui::AccountPanel::accountClicked, this, &MainWindow::openAccount);
-    connect(m_accountPanel, &ui::AccountPanel::settingsClicked, this, &MainWindow::openSettings);
+    connect(settingsButton, &QPushButton::clicked, this, &MainWindow::openSettings);
 
     // ---------- 播放栏 ----------
     connect(m_playerBar, &ui::PlayerBar::playPauseClicked, this, [this] {
@@ -398,12 +419,14 @@ MainWindow::MainWindow(QWidget *parent)
             return;
         m_qqApiService.ensureRunning([this] {
             m_qqApiReady = true;
+            m_recommend->setSourceAvailable(core::SourceId::QqMusic, true);
             m_search->setOnlineSourceEnabled(core::SourceId::QqMusic, true);
             m_qqClient.setBaseUrl(m_qqApiService.apiBase());
             restoreQqSession();
             m_recommend->setActiveSource(core::SourceId::QqMusic);
         }, [this](const QString &) {
             m_qqApiReady = false;
+            m_recommend->setSourceAvailable(core::SourceId::QqMusic, false);
             m_search->setOnlineSourceEnabled(core::SourceId::QqMusic, false);
         });
     });
@@ -622,6 +645,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_apiService.ensureRunning(
         [this] {
             m_apiReady = true;
+            m_recommend->setSourceAvailable(core::SourceId::Netease, true);
             m_apiClient.setBaseUrl(m_apiService.apiBase());
             restoreOnlineSession();
             // 先让首屏和数据库恢复后的本地列表稳定显示，再分批补充历史在线歌曲封面。
@@ -632,6 +656,7 @@ MainWindow::MainWindow(QWidget *parent)
         },
         [this](const QString &) {
             m_apiReady = false;
+            m_recommend->setSourceAvailable(core::SourceId::Netease, false);
             m_recommend->refresh();
         });
 
@@ -641,12 +666,14 @@ MainWindow::MainWindow(QWidget *parent)
         QTimer::singleShot(2200, this, [this] {
             m_qqApiService.ensureRunning([this] {
                 m_qqApiReady = true;
+                m_recommend->setSourceAvailable(core::SourceId::QqMusic, true);
                 m_search->setOnlineSourceEnabled(core::SourceId::QqMusic, true);
                 m_qqClient.setBaseUrl(m_qqApiService.apiBase());
                 restoreQqSession();
             }, [this](const QString &) {
                 // 临时不可用时保留本地账号展示，不影响网易云和本地曲库。
                 m_qqApiReady = false;
+                m_recommend->setSourceAvailable(core::SourceId::QqMusic, false);
                 m_search->setOnlineSourceEnabled(core::SourceId::QqMusic, false);
             });
         });
@@ -1470,12 +1497,14 @@ void MainWindow::ensureQqSearchSource()
     m_qqApiService.ensureRunning([this] {
         m_qqApiStarting = false;
         m_qqApiReady = true;
+        m_recommend->setSourceAvailable(core::SourceId::QqMusic, true);
         m_search->setOnlineSourceEnabled(core::SourceId::QqMusic, true);
         m_qqClient.setBaseUrl(m_qqApiService.apiBase());
         refreshSearchAfterQqReady();
     }, [this](const QString &) {
         m_qqApiStarting = false;
         m_qqApiReady = false;
+        m_recommend->setSourceAvailable(core::SourceId::QqMusic, false);
         m_qqSearchExecutionPending = false;
         m_search->setOnlineSourceEnabled(core::SourceId::QqMusic, false);
     });
@@ -1807,32 +1836,4 @@ void MainWindow::changeEvent(QEvent *event)
     if (event->type() == QEvent::WindowStateChange && m_titleBar)
         m_titleBar->setMaximizedState(isMaximized());
     QMainWindow::changeEvent(event);
-}
-
-void MainWindow::resizeEvent(QResizeEvent *event)
-{
-    QMainWindow::resizeEvent(event);
-    positionPlayerBar();
-}
-
-void MainWindow::positionPlayerBar()
-{
-    if (!m_playerBar)
-        return;
-    QWidget *central = centralWidget();
-    if (!central)
-        return;
-    if (!m_stack || m_stack->width() <= 0)
-        return;
-    const QPoint contentTopLeft = m_stack->mapTo(central, QPoint(0, 0));
-    const int contentWidth = m_stack->width();
-    const int playerWidth = qMax(1, qMin(860, contentWidth - 24));
-    if (m_playerBar->width() != playerWidth)
-        m_playerBar->setFixedWidth(playerWidth);
-    const int maxX = contentTopLeft.x() + qMax(0, contentWidth - m_playerBar->width());
-    const int centeredX = contentTopLeft.x() + (contentWidth - m_playerBar->width()) / 2;
-    const int x = qBound(contentTopLeft.x(), centeredX, maxX);
-    const int y = central->height() - m_playerBar->height() - 14;
-    m_playerBar->move(x, qMax(contentTopLeft.y(), y));
-    m_playerBar->raise();
 }
