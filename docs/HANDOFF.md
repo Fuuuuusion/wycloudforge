@@ -453,3 +453,10 @@ a4dcb21  SongListModel 改多列表 + 登录补齐uid/昵称 + QPointer防闪退
 - QQ 包装层 Node 契约测试 8/8 通过，QQ/微信扫码状态、字符串远端 ID、推荐/歌单/搜索/热搜/联想归一化契约均未回归。
 - 最终二进制使用空音乐目录、独立 SQLite、独立设置目录和固定推荐夹具生成六张隔离截图：1920×1080、1280×800、940×600 推荐页，1280×800 搜索发现页，以及 125%/150% DPI。目视确认标题栏无旧 Logo/名称、侧栏和底部播放器边界正确、歌曲保持整行 112px、最小窗口无重叠、搜索双热搜等宽无灰底、高 DPI 图标无裁切；未读取或修改真实曲库。
 - 本轮只在 `codex/ui-layout-redesign` 提交并推送，不合并 `main`，不提交 `db-backups/`、`ui-repro-data/`、`ui-repro.sqlite*` 或隔离构建/截图产物，也未操作并行 `仿网易云播放器-ui-controls` worktree。
+
+## UI 布局重构合并与本地发布（2026-09-01）
+
+- 用户在分支验收后明确授权合并和更新正式快捷方式版本；`main` 已从 `d1c5941` 快进到已验收提交 `5f7ff31` 并推送到 `origin/main`，没有产生合并冲突，也未改动并行 `仿网易云播放器-ui-controls` worktree。
+- 使用仓库现有 `scripts/package.ps1` 从 `build-ascii` 生成全新的 `dist/NeteaseClone.new`。`windeployqt` 只提示未找到可选的 `dxcompiler.dll/dxil.dll`；当前应用不使用 Direct3D 12 对应功能，该提示不影响 Qt Widgets、FFmpeg 多媒体或现有播放器功能，无需伪造或额外复制未知版本 DLL。
+- 新发布目录包含 38 个文件、共 90,243,405 字节；发布 EXE 与已通过完整回归的构建 EXE SHA-256 均为 `8D99A9B6B4F8E7461DBE0A008BDAD887D8185FE38E09C6CB58A834281E7A34B0`。使用空音乐目录、独立 SQLite 和独立设置目录启动发布包，应用自行退出且退出码为 0。
+- 验证通过后将新目录切换为 `dist/NeteaseClone`，旧发布版本保留在 `dist/NeteaseClone.previous-20260901-135821`。桌面 `仿网易云播放器.lnk` 未被重写，时间戳仍为 2026-08-31 16:12:03，内嵌目标与工作目录均继续指向 `dist/NeteaseClone`，因此现在会启动新的 UI 布局版本。
