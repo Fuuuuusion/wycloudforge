@@ -50,6 +50,7 @@ public:
     bool addSong(int playlistId, qint64 songId);
     BatchResult addSongsBatch(int playlistId, const QList<qint64> &songIds);
     bool removeSong(int playlistId, qint64 songId);
+    BatchResult removeSongsBatch(int playlistId, const QList<qint64> &songIds);
     bool moveSong(int playlistId, int from, int to);
     bool setFavorite(qint64 songId, bool favorite);
     BatchResult setFavoritesBatch(const QList<qint64> &songIds, bool favorite);

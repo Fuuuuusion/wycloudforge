@@ -979,8 +979,8 @@ SongListView::SongListView(QWidget *parent)
     connect(m_exitBatch, &QPushButton::clicked, this, [this] { setBatchMode(false); });
     connect(m_selectAll, &QPushButton::clicked, this, [this] {
         m_selectedIdentities.clear();
-        for (const core::Song &song : m_model->songs())
-            m_selectedIdentities.insert(song.selectionIdentity());
+        for (int row = 0; row < m_model->rowCount(); ++row)
+            m_selectedIdentities.insert(m_model->rowIdentityAt(row));
         m_model->setSelectedIdentities(m_selectedIdentities);
         updateBatchButtons();
     });
@@ -990,10 +990,10 @@ SongListView::SongListView(QWidget *parent)
         updateBatchButtons();
     });
     connect(m_favoriteSelected, &QPushButton::clicked, this, [this] {
-        emit batchFavoriteRequested(selectedSongs(), true);
+        emit batchFavoriteRequested(selectedCollectionActionSongs(), true);
     });
     connect(m_unfavoriteSelected, &QPushButton::clicked, this, [this] {
-        emit batchFavoriteRequested(selectedSongs(), false);
+        emit batchFavoriteRequested(selectedCollectionActionSongs(), false);
     });
     connect(m_downloadSelected, &QPushButton::clicked, this, [this] {
         emit batchDownloadRequested(selectedSongs());
@@ -1188,6 +1188,11 @@ QList<core::Song> SongListView::songs() const
     return m_model->songs();
 }
 
+QList<core::Song> SongListView::memberSongsAt(int row) const
+{
+    return m_model->memberSongsAt(row);
+}
+
 void SongListView::setPlayingId(qint64 playingId)
 {
     const bool changed = m_model->playingId() != playingId;
@@ -1312,6 +1317,29 @@ QList<core::Song> SongListView::selectedSongs() const
     return result;
 }
 
+QList<core::Song> SongListView::selectedMemberSongs() const
+{
+    QList<core::Song> result;
+    QSet<QString> seen;
+    for (int row = 0; row < m_model->rowCount(); ++row) {
+        if (!m_selectedIdentities.contains(m_model->rowIdentityAt(row)))
+            continue;
+        for (const core::Song &song : m_model->memberSongsAt(row)) {
+            const QString identity = song.selectionIdentity();
+            if (seen.contains(identity))
+                continue;
+            seen.insert(identity);
+            result.append(song);
+        }
+    }
+    return result;
+}
+
+QList<core::Song> SongListView::selectedCollectionActionSongs() const
+{
+    return m_mergedCollectionActions ? selectedMemberSongs() : selectedSongs();
+}
+
 int SongListView::hoveredRow() const
 {
     if (auto *delegate = static_cast<SongRowDelegate *>(itemDelegate()))
@@ -1389,14 +1417,14 @@ void SongListView::rebuildBatchPlaylistMenu()
     m_batchPlaylistMenu->clear();
     QAction *newPlaylist = m_batchPlaylistMenu->addAction(QStringLiteral("新建歌单…"));
     connect(newPlaylist, &QAction::triggered, this, [this] {
-        emit batchCreatePlaylistRequested(selectedSongs());
+        emit batchCreatePlaylistRequested(selectedCollectionActionSongs());
     });
     if (!m_playlistItems.isEmpty())
         m_batchPlaylistMenu->addSeparator();
     for (const auto &item : m_playlistItems) {
         QAction *action = m_batchPlaylistMenu->addAction(item.second);
         connect(action, &QAction::triggered, this, [this, id = item.first] {
-            emit batchAddToPlaylistRequested(selectedSongs(), id);
+            emit batchAddToPlaylistRequested(selectedCollectionActionSongs(), id);
         });
     }
 }

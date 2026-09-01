@@ -75,6 +75,7 @@ private slots:
     void groupsMatchingMetadataRegardlessOfCandidateCount();
     void separatesDifferentOrMissingAlbums();
     void groupsMultipleReleasesByAlbum();
+    void groupsStoredPlaylistSongsPreservingOrder();
     void honorsOptionalSortModes();
     void persistsSearchCacheAndHistory();
     void ignoresCorruptCacheAndRecoversAfterRewrite();
@@ -495,6 +496,43 @@ void SearchServiceTest::groupsMultipleReleasesByAlbum()
     for (const SearchResultGroup &group : backward)
         backwardIds.append(group.identity);
     QCOMPARE(forwardIds, backwardIds);
+}
+
+void SearchServiceTest::groupsStoredPlaylistSongsPreservingOrder()
+{
+    auto makeStoredSong = [](qint64 id, SourceId source, const QString &remoteId,
+                             const QString &title, qint64 durationMs) {
+        Song song;
+        song.id = id;
+        song.source = int(source);
+        song.remoteId = remoteId;
+        song.filePath = QStringLiteral("%1://%2")
+                            .arg(source == SourceId::Netease
+                                     ? QStringLiteral("netease") : QStringLiteral("qqmusic"),
+                                 remoteId);
+        song.title = title;
+        song.artist = QStringLiteral("孙燕姿");
+        song.album = QStringLiteral("未完成");
+        song.durationMs = durationMs;
+        return song;
+    };
+
+    const Song netease = makeStoredSong(
+        11, SourceId::Netease, QStringLiteral("287398"), QStringLiteral("我不难过"), 320400);
+    const Song other = makeStoredSong(
+        12, SourceId::Netease, QStringLiteral("other"), QStringLiteral("风衣"), 220000);
+    const Song qq = makeStoredSong(
+        13, SourceId::QqMusic, QStringLiteral("001fsNdn1zuZnA"),
+        QStringLiteral("我不难过"), 320000);
+
+    const QList<SearchResultGroup> groups =
+        SearchAggregator::aggregateSongsPreservingOrder({ netease, other, qq });
+    QCOMPARE(groups.size(), 2);
+    QCOMPARE(groups.at(0).variants.size(), 2);
+    QCOMPARE(groups.at(0).variants.at(0).item.song.id, qint64(11));
+    QCOMPARE(groups.at(0).variants.at(1).item.song.id, qint64(13));
+    QCOMPARE(groups.at(1).variants.size(), 1);
+    QCOMPARE(groups.at(1).variants.constFirst().item.song.id, qint64(12));
 }
 
 void SearchServiceTest::honorsOptionalSortModes()

@@ -192,6 +192,18 @@ void PlaylistControllerTest::batchTransactions()
 
     playlistsChanged.clear();
     songsChanged.clear();
+    result = m_controller->removeSongsBatch(
+        playlistId, { ids[0], ids[1], ids[1] });
+    QVERIFY(result.success);
+    QCOMPARE(result.requested, 3);
+    QCOMPARE(result.changed, 2);
+    QCOMPARE(result.unchanged, 1);
+    QCOMPARE(m_controller->songsOf(playlistId).size(), 0);
+    QCOMPARE(playlistsChanged.count(), 0);
+    QCOMPARE(songsChanged.count(), 1);
+
+    playlistsChanged.clear();
+    songsChanged.clear();
     result = m_controller->setFavoritesBatch(ids, true);
     QVERIFY(result.success);
     QCOMPARE(result.changed, 3);

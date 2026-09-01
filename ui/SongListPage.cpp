@@ -1,6 +1,7 @@
 #include "SongListPage.h"
 
 #include "core/LibraryService.h"
+#include "core/SearchAggregator.h"
 #include "ui/CoverProvider.h"
 #include "ui/SongListView.h"
 
@@ -47,8 +48,9 @@ SongListPage::SongListPage(QWidget *parent)
         "QPushButton{background:#EC4141;color:white;border:none;border-radius:18px;padding:8px 22px;font-size:13px;}"
         "QPushButton:hover{background:#F04A4A;}"));
     connect(playAll, &QPushButton::clicked, this, [this] {
-        if (!m_songs.isEmpty())
-            emit playAllRequested(m_songs);
+        const QList<core::Song> songs = m_view->songs();
+        if (!songs.isEmpty())
+            emit playAllRequested(songs);
     });
     actions->addWidget(playAll);
 
@@ -71,7 +73,7 @@ SongListPage::SongListPage(QWidget *parent)
     layout->addWidget(m_view, 1);
 
     connect(m_view, &SongListView::playRequested, this, [this](int row) {
-        emit playRequested(m_songs, row);
+        emit playRequested(m_view->songs(), row);
     });
     connect(m_view, &SongListView::heartRequested, this, &SongListPage::heartRequested);
     connect(m_view, &SongListView::addToPlaylistRequested, this, &SongListPage::addToPlaylistRequested);
@@ -80,11 +82,13 @@ SongListPage::SongListPage(QWidget *parent)
 }
 
 void SongListPage::showContent(const QList<core::Song> &songs, const QString &title, const QString &meta,
-                               qint64 playingId, bool removable, const QString &headerCoverPath)
+                               qint64 playingId, bool removable, const QString &headerCoverPath,
+                               bool mergeSources)
 {
     m_songs = songs;
     m_playingId = playingId;
     m_headerCoverPath = headerCoverPath;
+    m_mergeSources = mergeSources;
     m_title->setText(title);
     m_meta->setText(meta);
     if (!m_headerCoverPath.isEmpty() && QFileInfo::exists(m_headerCoverPath)) {
@@ -94,13 +98,24 @@ void SongListPage::showContent(const QList<core::Song> &songs, const QString &ti
         m_cover->setPixmap(CoverProvider::placeholder(title, 160, 10));
     else
         m_cover->setPixmap(CoverProvider::coverFor(songs.first(), 160, 10));
-    m_view->setSongs(songs, playingId);
+    m_view->setMergedCollectionActions(mergeSources);
+    if (mergeSources) {
+        m_view->setSearchResultGroups(
+            core::SearchAggregator::aggregateSongsPreservingOrder(songs), playingId);
+    } else {
+        m_view->setSongs(songs, playingId);
+    }
     m_view->setRemovable(removable);
 }
 
 QList<core::Song> SongListPage::currentSongs() const
 {
-    return m_songs;
+    return m_view->songs();
+}
+
+QList<core::Song> SongListPage::memberSongsAt(int row) const
+{
+    return m_view->memberSongsAt(row);
 }
 
 void SongListPage::setPlayingId(qint64 playingId)
@@ -125,7 +140,12 @@ void SongListPage::refreshCovers(core::LibraryService *library)
     }
     if (!changed)
         return;
-    m_view->setSongs(m_songs, m_playingId);
+    if (m_mergeSources) {
+        m_view->setSearchResultGroups(
+            core::SearchAggregator::aggregateSongsPreservingOrder(m_songs), m_playingId);
+    } else {
+        m_view->setSongs(m_songs, m_playingId);
+    }
     if (!m_headerCoverPath.isEmpty() && QFileInfo::exists(m_headerCoverPath)) {
         const QPixmap pm(m_headerCoverPath);
         m_cover->setPixmap(pm.scaled(160, 160, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation));

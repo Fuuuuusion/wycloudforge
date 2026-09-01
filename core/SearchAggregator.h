@@ -53,6 +53,8 @@ class SearchAggregator
 public:
     static QList<SearchResultGroup> aggregate(const QList<SearchResultItem> &items,
                                               const SearchAggregateOptions &options);
+    static QList<SearchResultGroup> aggregateSongsPreservingOrder(
+        const QList<Song> &songs, qint64 durationToleranceMs = 3000);
     static int relevanceScore(const SearchResultItem &item, const QString &query);
     static bool sameRecording(const SearchResultItem &left,
                               const SearchResultItem &right,

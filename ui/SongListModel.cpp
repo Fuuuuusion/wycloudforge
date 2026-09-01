@@ -101,7 +101,15 @@ QVariant SongListModel::data(const QModelIndex &index, int role) const
     case CachedRole: return song.isCached();
     case MissingRole: return song.missing;
     case DownloadedRole: return song.isDownloaded();
-    case FavoriteRole: return m_favoriteIds.contains(song.id);
+    case FavoriteRole: {
+        if (index.row() < m_rows.size()) {
+            for (const core::Song &member : m_rows.at(index.row()).members) {
+                if (m_favoriteIds.contains(member.id))
+                    return true;
+            }
+        }
+        return m_favoriteIds.contains(song.id);
+    }
     case SelectedRole: return m_selectedIdentities.contains(rowIdentityAt(index.row()));
     case BatchModeRole: return m_batchMode;
     case DownloadingRole: return m_downloadingIdentities.contains(song.selectionIdentity());
@@ -173,6 +181,7 @@ void SongListModel::setSongs(const QList<core::Song> &songs, qint64 playingId)
         RowContext row;
         row.identity = song.selectionIdentity();
         row.choices.append(choice);
+        row.members.append(song);
         row.activeSource = choice.source;
         m_rows.append(row);
     }
@@ -203,6 +212,7 @@ void SongListModel::setSearchResultGroups(const QList<core::SearchResultGroup> &
         for (const core::SearchResultVariant &variant : group.variants) {
             if (variant.item.type != core::SearchItemType::Song)
                 continue;
+            row.members.append(variant.item.song);
             const int sourceKey = int(variant.item.source);
             const auto current = preferredBySource.constFind(sourceKey);
             if (current == preferredBySource.cend()
@@ -275,6 +285,13 @@ void SongListModel::refreshSongs(const QList<core::Song> &songs)
     }
     m_songs = songs;
     for (int row = 0; row < m_songs.size() && row < m_rows.size(); ++row) {
+        const QString activeIdentity = m_songs.at(row).selectionIdentity();
+        for (core::Song &member : m_rows[row].members) {
+            if (member.selectionIdentity() == activeIdentity) {
+                member = m_songs.at(row);
+                break;
+            }
+        }
         for (SongSourceChoice &choice : m_rows[row].choices) {
             if (choice.source != m_rows.at(row).activeSource)
                 continue;
@@ -301,6 +318,12 @@ bool SongListModel::updateSong(const core::Song &song)
             changed = true;
         }
         if (row < m_rows.size()) {
+            for (core::Song &member : m_rows[row].members) {
+                if (member.selectionIdentity() == identity) {
+                    member = song;
+                    changed = true;
+                }
+            }
             for (SongSourceChoice &choice : m_rows[row].choices) {
                 if (choice.song.selectionIdentity() != identity)
                     continue;
@@ -325,6 +348,13 @@ core::Song SongListModel::songAt(int row) const
     if (row < 0 || row >= m_songs.size())
         return {};
     return m_songs[row];
+}
+
+QList<core::Song> SongListModel::memberSongsAt(int row) const
+{
+    if (row < 0 || row >= m_rows.size())
+        return {};
+    return m_rows.at(row).members;
 }
 
 QString SongListModel::rowIdentityAt(int row) const

@@ -2,7 +2,9 @@
 #include "ui/SongListModel.h"
 #include "ui/PlayerBar.h"
 #include "ui/CoverCard.h"
+#include "ui/FavoritesPage.h"
 #include "ui/RecommendPage.h"
+#include "ui/SongListPage.h"
 #include "ui/AccountPanel.h"
 #include "ui/AccountSettingsButton.h"
 #include "ui/SideBar.h"
@@ -64,6 +66,8 @@ private slots:
     void rowHoverClearsOverBatchBarAndPlayingStaysIndependent();
     void songListProvidesScrollableTopAndBottomSafeAreas();
     void sourcePickerRequiresSecondClickAndKeepsGroupIdentity();
+    void mergedCollectionKeepsMembersAndBatchActions();
+    void collectionPagesDisplayMergedSourcesOnce();
     void sourceSwitchIsVisibleAndExclusive();
     void sourceIconResourcesPreserveSizeAndAlpha();
     void recommendedPlaylistsScrollAtNarrowWidths();
@@ -763,6 +767,115 @@ void SongListViewTest::sourcePickerRequiresSecondClickAndKeepsGroupIdentity()
     QCOMPARE(view.songs().constFirst().remoteId, QStringLiteral("netease-id"));
     QCOMPARE(view.model()->index(0, 0).data(SongListModel::StableIdentityRole).toString(),
              group.identity);
+}
+
+void SongListViewTest::mergedCollectionKeepsMembersAndBatchActions()
+{
+    auto makeSong = [](qint64 id, SourceId source, const QString &remoteId) {
+        Song song;
+        song.id = id;
+        song.source = int(source);
+        song.remoteId = remoteId;
+        song.filePath = QStringLiteral("%1://%2")
+                            .arg(source == SourceId::Netease
+                                     ? QStringLiteral("netease") : QStringLiteral("qqmusic"),
+                                 remoteId);
+        song.title = QStringLiteral("我不难过");
+        song.artist = QStringLiteral("孙燕姿");
+        song.album = QStringLiteral("未完成");
+        song.durationMs = source == SourceId::Netease ? 320400 : 320000;
+        return song;
+    };
+    const QList<SearchResultGroup> groups = SearchAggregator::aggregateSongsPreservingOrder({
+        makeSong(101, SourceId::Netease, QStringLiteral("287398")),
+        makeSong(102, SourceId::QqMusic, QStringLiteral("001fsNdn1zuZnA"))
+    });
+    QCOMPARE(groups.size(), 1);
+
+    SongListView view;
+    view.resize(1200, 420);
+    view.setMergedCollectionActions(true);
+    view.setSearchResultGroups(groups);
+    view.show();
+    QApplication::processEvents();
+
+    QCOMPARE(view.songs().size(), 1);
+    QCOMPARE(view.memberSongsAt(0).size(), 2);
+
+    auto *batchToggle = view.findChild<QPushButton *>(QStringLiteral("batchToggle"));
+    auto *selectAll = view.findChild<QPushButton *>(QStringLiteral("batchSelectAll"));
+    auto *favorite = view.findChild<QPushButton *>(QStringLiteral("batchFavorite"));
+    QVERIFY(batchToggle);
+    QVERIFY(selectAll);
+    QVERIFY(favorite);
+    QSignalSpy favoriteSpy(&view, &SongListView::batchFavoriteRequested);
+
+    batchToggle->click();
+    selectAll->click();
+    QCOMPARE(view.selectedSongs().size(), 1);
+    QCOMPARE(view.selectedMemberSongs().size(), 2);
+    favorite->click();
+    QCOMPARE(favoriteSpy.count(), 1);
+    const QList<QVariant> arguments = favoriteSpy.takeFirst();
+    QCOMPARE(qvariant_cast<QList<Song>>(arguments.at(0)).size(), 2);
+}
+
+void SongListViewTest::collectionPagesDisplayMergedSourcesOnce()
+{
+    auto makeSong = [](qint64 id, SourceId source, const QString &remoteId) {
+        Song song;
+        song.id = id;
+        song.source = int(source);
+        song.remoteId = remoteId;
+        song.filePath = QStringLiteral("%1://%2")
+                            .arg(source == SourceId::Netease
+                                     ? QStringLiteral("netease") : QStringLiteral("qqmusic"),
+                                 remoteId);
+        song.title = QStringLiteral("我不难过");
+        song.artist = QStringLiteral("孙燕姿");
+        song.album = QStringLiteral("未完成");
+        song.durationMs = source == SourceId::Netease ? 320400 : 320000;
+        return song;
+    };
+    const QList<Song> songs = {
+        makeSong(201, SourceId::Netease, QStringLiteral("287398")),
+        makeSong(202, SourceId::QqMusic, QStringLiteral("001fsNdn1zuZnA"))
+    };
+
+    FavoritesPage favorites;
+    favorites.setSongs(songs, -1);
+    QCOMPARE(favorites.currentSongs().size(), 1);
+    QCOMPARE(favorites.memberSongsAt(0).size(), 2);
+
+    SongListPage playlist;
+    playlist.showContent(songs, QStringLiteral("测试歌单"), QStringLiteral("1 首"),
+                         -1, true, QString(), true);
+    playlist.resize(1200, 520);
+    playlist.show();
+    QApplication::processEvents();
+    QCOMPARE(playlist.currentSongs().size(), 1);
+    QCOMPARE(playlist.memberSongsAt(0).size(), 2);
+
+    auto *playlistView = playlist.findChild<SongListView *>();
+    QVERIFY(playlistView);
+    QSignalSpy playSpy(&playlist, &SongListPage::playRequested);
+    const QRect sourceRect = playlistView->visualRect(playlistView->model()->index(0, 3));
+    QTest::mouseClick(playlistView->viewport(), Qt::LeftButton, Qt::NoModifier,
+                      sourceRect.center());
+    auto *qq = playlistView->findChild<QToolButton *>(QStringLiteral("sourceChoice_2"));
+    QVERIFY(qq);
+    qq->click();
+    QCOMPARE(playSpy.count(), 1);
+    const QList<QVariant> playArguments = playSpy.takeFirst();
+    const QList<Song> playQueue = qvariant_cast<QList<Song>>(playArguments.at(0));
+    QCOMPARE(playQueue.size(), 1);
+    QCOMPARE(playQueue.constFirst().remoteId, QStringLiteral("001fsNdn1zuZnA"));
+    QCOMPARE(playArguments.at(1).toInt(), 0);
+
+    SongListPage ordinaryDetails;
+    ordinaryDetails.showContent(songs, QStringLiteral("普通详情"), QStringLiteral("2 首"),
+                                -1, false, QString(), false);
+    QCOMPARE(ordinaryDetails.currentSongs().size(), 2);
 }
 
 void SongListViewTest::sourceSwitchIsVisibleAndExclusive()

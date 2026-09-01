@@ -17,6 +17,7 @@ public:
     void setSongs(const QList<core::Song> &songs, qint64 playingId);
     void setPlayingId(qint64 playingId);
     QList<core::Song> currentSongs() const;
+    QList<core::Song> memberSongsAt(int row) const;
     void setPlaylistMenuItems(const QList<QPair<int, QString>> &items);
 
 signals:

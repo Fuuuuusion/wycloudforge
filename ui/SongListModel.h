@@ -54,6 +54,7 @@ public:
     QList<core::Song> songs() const { return m_songs; }
     qint64 playingId() const { return m_playingId; }
     core::Song songAt(int row) const;
+    QList<core::Song> memberSongsAt(int row) const;
     QString rowIdentityAt(int row) const;
     QList<SongSourceChoice> sourceChoicesAt(int row) const;
     core::SourceId activeSourceAt(int row) const;
@@ -68,6 +69,7 @@ private:
     struct RowContext {
         QString identity;
         QList<SongSourceChoice> choices;
+        QList<core::Song> members;
         core::SourceId activeSource = core::SourceId::Local;
     };
 

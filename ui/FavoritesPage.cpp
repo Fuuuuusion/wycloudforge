@@ -1,5 +1,6 @@
 #include "FavoritesPage.h"
 
+#include "core/SearchAggregator.h"
 #include "ui/SongListView.h"
 
 #include <QHBoxLayout>
@@ -24,6 +25,7 @@ FavoritesPage::FavoritesPage(QWidget *parent)
 
     m_view = new SongListView(this);
     m_view->setRemovable(true);
+    m_view->setMergedCollectionActions(true);
     layout->addWidget(m_view, 1);
 
     connect(m_view, &SongListView::playRequested, this, [this](int row) {
@@ -42,7 +44,8 @@ FavoritesPage::FavoritesPage(QWidget *parent)
 
 void FavoritesPage::setSongs(const QList<core::Song> &songs, qint64 playingId)
 {
-    m_view->setSongs(songs, playingId);
+    m_view->setSearchResultGroups(
+        core::SearchAggregator::aggregateSongsPreservingOrder(songs), playingId);
 }
 
 void FavoritesPage::setPlayingId(qint64 playingId)
@@ -53,6 +56,11 @@ void FavoritesPage::setPlayingId(qint64 playingId)
 QList<core::Song> FavoritesPage::currentSongs() const
 {
     return m_view->songs();
+}
+
+QList<core::Song> FavoritesPage::memberSongsAt(int row) const
+{
+    return m_view->memberSongsAt(row);
 }
 
 void FavoritesPage::setPlaylistMenuItems(const QList<QPair<int, QString>> &items)

@@ -24,8 +24,9 @@ public:
 
     void showContent(const QList<core::Song> &songs, const QString &title, const QString &meta,
                      qint64 playingId, bool removable = false,
-                     const QString &headerCoverPath = QString());
+                     const QString &headerCoverPath = QString(), bool mergeSources = false);
     QList<core::Song> currentSongs() const;
+    QList<core::Song> memberSongsAt(int row) const;
     void setPlayingId(qint64 playingId);
     void refreshCovers(core::LibraryService *library);
     void setHeaderCoverPath(const QString &path);
@@ -53,6 +54,7 @@ private:
     qint64 m_playingId = -1;
     QString m_headerCoverPath;
     int m_playlistContext = -1;
+    bool m_mergeSources = false;
 };
 
 } // namespace ui

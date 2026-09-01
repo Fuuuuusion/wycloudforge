@@ -38,6 +38,7 @@ public:
                                qint64 playingId = -1);
     bool updateSong(const core::Song &song);
     QList<core::Song> songs() const;
+    QList<core::Song> memberSongsAt(int row) const;
     void setPlayingId(qint64 playingId);
     void setPlaybackActive(bool active);
     bool playbackActive() const { return m_playbackActive; }
@@ -49,6 +50,8 @@ public:
     void refreshLibraryState(core::LibraryService *library);
     void setDownloadActionMode(DownloadActionMode mode);
     QList<core::Song> selectedSongs() const;
+    QList<core::Song> selectedMemberSongs() const;
+    void setMergedCollectionActions(bool enabled) { m_mergedCollectionActions = enabled; }
     bool batchMode() const { return m_batchMode; }
     int hoveredRow() const;
 
@@ -92,6 +95,7 @@ private:
     void verifyPointerStillOverViewport();
     void showSourcePicker(int row, const QRect &cellRect);
     void closeSourcePicker();
+    QList<core::Song> selectedCollectionActionSongs() const;
     SongListModel *m_model = nullptr;
     QMenu *m_menu = nullptr;
     QWidget *m_batchBar = nullptr;
@@ -126,6 +130,7 @@ private:
     bool m_batchMode = false;
     bool m_favoriteStateInitialized = false;
     bool m_playbackActive = false;
+    bool m_mergedCollectionActions = false;
     DownloadActionMode m_downloadMode = DownloadAction;
 };
 

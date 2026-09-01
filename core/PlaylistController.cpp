@@ -417,6 +417,71 @@ bool PlaylistController::removeSong(int playlistId, qint64 songId)
     return ok;
 }
 
+PlaylistController::BatchResult PlaylistController::removeSongsBatch(
+    int playlistId, const QList<qint64> &songIds)
+{
+    BatchResult result;
+    result.requested = songIds.size();
+    QList<qint64> uniqueIds;
+    QSet<qint64> seen;
+    for (qint64 songId : songIds) {
+        if (songId <= 0) {
+            fail(QStringLiteral("批量从歌单移除歌曲"), QStringLiteral("歌曲记录无效"));
+            return result;
+        }
+        if (seen.contains(songId)) {
+            ++result.unchanged;
+            continue;
+        }
+        seen.insert(songId);
+        uniqueIds.append(songId);
+    }
+    if (uniqueIds.isEmpty()) {
+        result.success = true;
+        return result;
+    }
+    if (!m_db.isOpen()) {
+        fail(QStringLiteral("批量从歌单移除歌曲"), QStringLiteral("数据库未打开"));
+        return result;
+    }
+    if (!m_db.transaction()) {
+        fail(QStringLiteral("批量从歌单移除歌曲"), m_db.lastError().text());
+        return result;
+    }
+
+    QSqlQuery remove(m_db);
+    remove.prepare(QStringLiteral(
+        "DELETE FROM playlist_songs WHERE playlist_id=? AND song_id=?"));
+    for (qint64 songId : uniqueIds) {
+        remove.bindValue(0, playlistId);
+        remove.bindValue(1, songId);
+        if (!remove.exec()) {
+            const QString detail = remove.lastError().text();
+            remove.finish();
+            m_db.rollback();
+            result.changed = 0;
+            fail(QStringLiteral("批量从歌单移除歌曲"), detail);
+            return result;
+        }
+        if (remove.numRowsAffected() > 0)
+            ++result.changed;
+        else
+            ++result.unchanged;
+    }
+    remove.finish();
+    if (!m_db.commit()) {
+        const QString detail = m_db.lastError().text();
+        m_db.rollback();
+        result.changed = 0;
+        fail(QStringLiteral("批量从歌单移除歌曲"), detail);
+        return result;
+    }
+    result.success = true;
+    reloadPlaylists();
+    emit playlistSongsChanged(playlistId);
+    return result;
+}
+
 bool PlaylistController::moveSong(int playlistId, int from, int to)
 {
     if (!m_db.isOpen() || from == to)

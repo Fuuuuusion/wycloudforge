@@ -424,4 +424,66 @@ QList<SearchResultGroup> SearchAggregator::aggregate(
     return groups;
 }
 
+QList<SearchResultGroup> SearchAggregator::aggregateSongsPreservingOrder(
+    const QList<Song> &songs, qint64 durationToleranceMs)
+{
+    QList<SearchResultGroup> groups;
+    groups.reserve(songs.size());
+    QSet<QString> seenIdentities;
+
+    for (int songIndex = 0; songIndex < songs.size(); ++songIndex) {
+        const Song &song = songs.at(songIndex);
+        const QString identity = song.stableIdentity();
+        if (identity.isEmpty() || seenIdentities.contains(identity))
+            continue;
+        seenIdentities.insert(identity);
+
+        SearchResultVariant variant;
+        variant.item.type = SearchItemType::Song;
+        variant.item.source = song.sourceId();
+        variant.item.remoteId = song.effectiveRemoteId();
+        variant.item.title = song.title;
+        variant.item.artist = song.artist;
+        variant.item.album = song.album;
+        variant.item.coverUrl = song.coverUrl;
+        variant.item.durationMs = song.durationMs;
+        variant.item.sourceRank = songIndex;
+        variant.item.playable = !song.missing;
+        if (song.missing)
+            variant.item.availabilityError = QStringLiteral("歌曲文件或来源已失效");
+        variant.item.song = song;
+        variant.localPriority = ::core::localPriority(variant.item);
+
+        QList<int> candidates;
+        for (int groupIndex = 0; groupIndex < groups.size(); ++groupIndex) {
+            if (canJoinGroup(variant, groups.at(groupIndex), durationToleranceMs))
+                candidates.append(groupIndex);
+        }
+        if (candidates.isEmpty()) {
+            SearchResultGroup group;
+            group.variants.append(variant);
+            groups.append(group);
+            continue;
+        }
+
+        int bestCandidate = candidates.constFirst();
+        for (int i = 1; i < candidates.size(); ++i) {
+            const int candidate = candidates.at(i);
+            const qint64 candidateDelta = largestDurationDelta(variant, groups.at(candidate));
+            const qint64 bestDelta = largestDurationDelta(variant, groups.at(bestCandidate));
+            if (candidateDelta < bestDelta
+                || (candidateDelta == bestDelta
+                    && groupTieIdentity(groups.at(candidate))
+                        < groupTieIdentity(groups.at(bestCandidate)))) {
+                bestCandidate = candidate;
+            }
+        }
+        groups[bestCandidate].variants.append(variant);
+    }
+
+    for (SearchResultGroup &group : groups)
+        finalizeGroup(&group, SourceId::Local);
+    return groups;
+}
+
 } // namespace core

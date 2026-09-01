@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 
 #include "core/LyricsLoader.h"
+#include "core/SearchAggregator.h"
 #include "core/SettingsService.h"
 #include "ui/AccountDialog.h"
 #include "ui/AccountPanel.h"
@@ -445,22 +446,13 @@ MainWindow::MainWindow(QWidget *parent)
     // ---------- 收藏页 ----------
     connect(m_favorites, &ui::FavoritesPage::playRequested, this, &MainWindow::playSongs);
     connect(m_favorites, &ui::FavoritesPage::heartRequested, this, [this](int row) {
-        const auto songs = m_playlists.songsOf(m_playlists.favoritePlaylistId());
-        const core::Song s = songs.value(row);
-        if (s.id > 0)
-            m_playlists.setFavorite(s.id, false);
+        handleBatchFavorite(m_favorites->memberSongsAt(row), false);
     });
     connect(m_favorites, &ui::FavoritesPage::addToPlaylistRequested, this, [this](int row, int plId) {
-        const auto songs = m_playlists.songsOf(m_playlists.favoritePlaylistId());
-        const core::Song s = songs.value(row);
-        if (s.id > 0)
-            addSongToPlaylist(s, plId);
+        handleBatchAddToPlaylist(m_favorites->memberSongsAt(row), plId);
     });
     connect(m_favorites, &ui::FavoritesPage::removeFromPlaylistRequested, this, [this](int row) {
-        const auto songs = m_playlists.songsOf(m_playlists.favoritePlaylistId());
-        const core::Song s = songs.value(row);
-        if (s.id > 0)
-            m_playlists.setFavorite(s.id, false);
+        handleBatchFavorite(m_favorites->memberSongsAt(row), false);
     });
 
     // ---------- 本地歌单页 ----------
@@ -508,21 +500,25 @@ MainWindow::MainWindow(QWidget *parent)
     });
     connect(m_songListPage, &ui::SongListPage::playRequested, this, &MainWindow::playSongs);
     connect(m_songListPage, &ui::SongListPage::heartRequested, this, [this](int row) {
-        const core::Song s = m_songListPage->currentSongs().value(row);
-        if (s.id > 0)
-            m_playlists.setFavorite(s.id, !m_playlists.isFavorite(s.id));
+        const QList<core::Song> members = m_songListPage->memberSongsAt(row);
+        bool anyFavorite = false;
+        for (const core::Song &song : members)
+            anyFavorite = anyFavorite || m_playlists.isFavorite(song.id);
+        handleBatchFavorite(members, !anyFavorite);
     });
     connect(m_songListPage, &ui::SongListPage::addToPlaylistRequested, this, [this](int row, int plId) {
-        const core::Song s = m_songListPage->currentSongs().value(row);
-        if (s.id > 0)
-            addSongToPlaylist(s, plId);
+        handleBatchAddToPlaylist(m_songListPage->memberSongsAt(row), plId);
     });
     connect(m_songListPage, &ui::SongListPage::removeFromPlaylistRequested, this, [this](int row) {
-        const core::Song s = m_songListPage->currentSongs().value(row);
-        if (s.id > 0 && m_playlistContext > 0) {
-            m_playlists.removeSong(m_playlistContext, s.id);
-            openPlaylist(m_playlistContext);
+        if (m_playlistContext <= 0)
+            return;
+        QList<qint64> songIds;
+        for (const core::Song &song : m_songListPage->memberSongsAt(row)) {
+            if (song.id > 0)
+                songIds.append(song.id);
         }
+        if (!songIds.isEmpty())
+            m_playlists.removeSongsBatch(m_playlistContext, songIds);
     });
     connect(m_songListPage, &ui::SongListPage::deleteFromLibraryRequested, this, [this](int row) {
         const core::Song s = m_songListPage->currentSongs().value(row);
@@ -749,13 +745,18 @@ void MainWindow::openPlaylist(int playlistId)
     m_playlistContext = playlistId;
     refreshSidebar();
     const auto songs = m_playlists.songsOf(playlistId);
+    const QList<core::SearchResultGroup> groups =
+        core::SearchAggregator::aggregateSongsPreservingOrder(songs);
     qint64 totalSec = 0;
-    for (const auto &s : songs)
-        totalSec += s.durationMs / 1000;
+    for (const core::SearchResultGroup &group : groups) {
+        if (!group.variants.isEmpty())
+            totalSec += group.variants.constFirst().item.song.durationMs / 1000;
+    }
     const QString meta = desc.isEmpty()
-        ? QStringLiteral("%1 首 · 共 %2:%3").arg(songs.size()).arg(totalSec / 60).arg(totalSec % 60, 2, 10, QLatin1Char('0'))
-        : QStringLiteral("%1 首 · %2").arg(songs.size()).arg(desc);
-    m_songListPage->showContent(songs, name, meta, m_currentSongId, playlistId > 0, cover);
+        ? QStringLiteral("%1 首 · 共 %2:%3").arg(groups.size()).arg(totalSec / 60).arg(totalSec % 60, 2, 10, QLatin1Char('0'))
+        : QStringLiteral("%1 首 · %2").arg(groups.size()).arg(desc);
+    m_songListPage->showContent(songs, name, meta, m_currentSongId,
+                                playlistId > 0, cover, true);
     m_songListPage->setPlaylistContext(playlistId);
     showPage(4);
 }
