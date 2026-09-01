@@ -494,3 +494,8 @@ a4dcb21  SongListModel 改多列表 + 登录补齐uid/昵称 + QPointer防闪退
 - `W:\build-ascii` 正式应用和全部测试目标增量构建成功。两轮完整 8 项 Qt CTest 均为 7/8，唯一失败是未修改的 `tst_playerservice`；在 CTest 工作目录复现并写入 QtTest 报告后，精确失败为 `playPauseAndPosition` 位置不推进、`mixedSourceAutoAdvanceInOrderMode` 未在 4 秒内切到下一首、`cachedOnlineSongPlayback` 位置不推进，另有 `onlineUrlRetriesOnce` 因“无可用音频输出设备”跳过。同一二进制从仓库工作目录直接重跑为 14 通过、0 失败、1 跳过，证明这是既有 Windows/Qt Multimedia 音频时钟对运行上下文敏感的环境问题，不是本轮歌单、聚合或播放器改动；可行方案仍是在具有活动默认输出的交互桌面上下文复跑，长期方案是将队列结束事件拆成不依赖真实声卡的确定性测试，本轮没有放宽断言或伪造通过。
 - QQ Node 契约测试首次调用未启动，`CreateProcessWithLogonW` 返回 267。根因是沿用了旧简称 `qq-api` 作为工作目录，当前真实目录为 `本地部署\qq-api`；改用实际目录后 8/8 通过，不需要配置或重装 Node 依赖。
 - 首次隔离 GUI smoke 用 PowerShell 调用运算符直接执行 GUI 子系统 EXE，调用立即返回，因而当场检查到退出码为空且数据库、截图尚未生成。根因是启动命令没有等待 GUI 进程，不是应用崩溃；改用 `Start-Process -Wait -PassThru -WindowStyle Hidden` 后，空音乐目录、独立数据库和独立设置目录的收藏页 smoke 退出码为 0，数据库与截图均生成。
+
+### 正式发布
+
+- 从 `W:\build-ascii` 生成 38 文件、90,255,230 字节的新发布包；构建 EXE 与发布 EXE 的 SHA-256 均为 `41943607707C83BFF6943E0EFC1B50A643B605B5A188AB7084BB064DCBD7E9C6`。发布包再次通过空音乐目录、独立数据库和独立设置目录的收藏页 smoke，退出码为 0，数据库与截图均生成。
+- 新包已切换到桌面快捷方式既有目标 `dist\NeteaseClone\NeteaseClone.exe` 并启动正式窗口。被替换版本保留在 `dist\NeteaseClone.previous-20260901-153302`，可通过目录换回恢复；快捷方式的目标和工作目录均已复核，无需改写 `.lnk` 文件。
