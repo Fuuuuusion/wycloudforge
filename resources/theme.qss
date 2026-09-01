@@ -159,7 +159,7 @@ QPushButton#neteaseSourceSwitch:pressed, QPushButton#qqSourceSwitch:pressed {
 
 /* ---------- 底部播放器 ---------- */
 QWidget#playerBar {
-    background: #14141B;
+    background: #0E0E14;
 }
 QLabel[class="nowTitle"] {
     font-size: 14px;

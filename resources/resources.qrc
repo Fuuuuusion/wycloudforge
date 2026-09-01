@@ -28,8 +28,12 @@
     <file alias="icons/icon-clock.svg">../design/prototype/assets/icon-clock.svg</file>
     <file alias="icons/icon-trash.svg">../design/prototype/assets/icon-trash.svg</file>
     <file alias="icons/icon-download.svg">../design/prototype/assets/icon-download.svg</file>
-    <file alias="icons/icon-cloud.svg">icons/icon-cloud.svg</file>
     <file alias="icons/icon-check.svg">icons/icon-check.svg</file>
+    <file alias="icons/player-mode-loop.png">icons/player-mode-loop.png</file>
+    <file alias="icons/player-mode-single.png">icons/player-mode-single.png</file>
+    <file alias="icons/player-mode-shuffle.png">icons/player-mode-shuffle.png</file>
+    <file alias="icons/player-lyrics.png">icons/player-lyrics.png</file>
+    <file alias="icons/player-queue.png">icons/player-queue.png</file>
     <file alias="source-icons/local.png">source-icons/local.png</file>
     <file alias="source-icons/local-disabled.png">source-icons/local-disabled.png</file>
     <file alias="source-icons/netease.png">source-icons/netease.png</file>

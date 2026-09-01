@@ -5,7 +5,6 @@
 #include "ui/CoverProvider.h"
 #include "ui/SourceIcons.h"
 #include "ui/SongListModel.h"
-#include "ui/SvgIcon.h"
 
 #include <QAction>
 #include <QApplication>
@@ -29,6 +28,7 @@
 #include <QShowEvent>
 #include <QScrollBar>
 #include <QStyledItemDelegate>
+#include <QSvgRenderer>
 #include <QTimer>
 #include <QToolButton>
 #include <QToolTip>
@@ -79,15 +79,20 @@ QBrush activeTextBrush(const QRectF &)
 
 QPixmap tintedIcon(const QString &path, int size, const QColor &color)
 {
-    const QPixmap source = makeSvgIcon(path, size).pixmap(size, size);
-    if (source.isNull())
+    QSvgRenderer renderer(path);
+    if (!renderer.isValid())
         return {};
-    QPixmap result(source.size());
+    const qreal dpr = qGuiApp ? qGuiApp->devicePixelRatio() : 1.0;
+    const int pixels = qMax(1, qRound(size * dpr));
+    QPixmap result(pixels, pixels);
     result.fill(Qt::transparent);
     QPainter painter(&result);
-    painter.drawPixmap(0, 0, source);
+    painter.setRenderHint(QPainter::Antialiasing);
+    renderer.render(&painter, QRectF(0, 0, pixels, pixels));
     painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
     painter.fillRect(result.rect(), color);
+    painter.end();
+    result.setDevicePixelRatio(dpr);
     return result;
 }
 
@@ -238,7 +243,6 @@ void drawHighlightedText(QPainter &p, const QRectF &rect, const QString &text, c
         const QString match = elided.mid(range.first, range.second - range.first);
         const int matchWidth = fm.horizontalAdvance(match);
         const QRectF matchRect(drawX, base.top(), matchWidth, base.height());
-        p.fillRect(matchRect.adjusted(0, 2, 0, -2), QColor(236, 65, 65, 80));
         p.setPen(kPrimary);
         p.drawText(matchRect, Qt::AlignVCenter, match);
         drawX += matchWidth;
@@ -462,8 +466,8 @@ public:
             }
             const QPixmap heart = tintedIcon(favorite ? QStringLiteral(":/icons/icon-heart-fill.svg")
                                                        : QStringLiteral(":/icons/icon-heart.svg"),
-                                             18, color);
-            const qreal size = 18.0 * scale;
+                                             24, color);
+            const qreal size = 24.0 * scale;
             painter->drawPixmap(QRectF(rect.center().x() - size / 2.0,
                                        rect.center().y() - size / 2.0, size, size).toRect(), heart);
         } else if (col == 7) {
@@ -474,16 +478,16 @@ public:
                     || m_downloadMode == SongListView::DeleteDownloadAction);
             if (downloading && m_downloadMode == SongListView::DownloadAction) {
                 painter->setRenderHint(QPainter::Antialiasing);
-                painter->setPen(QPen(kPrimaryHover, 1.8, Qt::SolidLine, Qt::RoundCap));
-                const QRectF spinner(rect.center().x() - 8, rect.center().y() - 8, 16, 16);
+                painter->setPen(QPen(kPrimaryHover, 2.2, Qt::SolidLine, Qt::RoundCap));
+                const QRectF spinner(rect.center().x() - 10.5, rect.center().y() - 10.5, 21, 21);
                 painter->drawArc(spinner, (90 - m_loadingAngle) * 16, -270 * 16);
             } else if (deleteAction) {
                 const qreal completion = completionAmount(index.row());
                 if (completion < 1.0) {
                     painter->save();
                     painter->setOpacity(1.0 - completion);
-                    painter->setPen(QPen(kPrimaryHover, 1.8, Qt::SolidLine, Qt::RoundCap));
-                    const QRectF spinner(rect.center().x() - 8, rect.center().y() - 8, 16, 16);
+                    painter->setPen(QPen(kPrimaryHover, 2.2, Qt::SolidLine, Qt::RoundCap));
+                    const QRectF spinner(rect.center().x() - 10.5, rect.center().y() - 10.5, 21, 21);
                     painter->drawArc(spinner, (90 - m_loadingAngle) * 16, -270 * 16);
                     painter->restore();
                 }
@@ -503,10 +507,10 @@ public:
                 const qreal iconCenterX = rect.center().x()
                     + (buttonRect.left() + 15.0 - rect.center().x()) * hoverAmount;
                 const QColor iconColor = pressed || hoverAmount > 0.05 ? Qt::white : kText2;
-                const QPixmap trash = tintedIcon(QStringLiteral(":/icons/icon-trash.svg"), 15,
+                const QPixmap trash = tintedIcon(QStringLiteral(":/icons/icon-trash.svg"), 20,
                                                   iconColor);
-                const qreal iconCenterY = buttonRect.center().y() + 2.0 * hoverAmount;
-                painter->drawPixmap(QRectF(iconCenterX - 7.5, iconCenterY - 7.5, 15, 15).toRect(),
+                const qreal iconCenterY = rect.center().y();
+                painter->drawPixmap(QRectF(iconCenterX - 10.0, iconCenterY - 10.0, 20, 20).toRect(),
                                     trash);
 
                 if (hoverAmount > 0.01) {
@@ -524,21 +528,20 @@ public:
                 const QColor color = pressed ? kPrimaryActive
                     : blendedColor(kText2, kPrimaryHover, hoverAmount);
                 const QPointF center = rect.center();
-                const qreal arrowOffset = 2.0 * hoverAmount;
                 painter->setRenderHint(QPainter::Antialiasing);
-                painter->setPen(QPen(color, 1.7, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-                painter->drawLine(QPointF(center.x(), center.y() - 7 + arrowOffset),
-                                  QPointF(center.x(), center.y() + 1 + arrowOffset));
-                painter->drawLine(QPointF(center.x() - 3.5, center.y() - 2.5 + arrowOffset),
-                                  QPointF(center.x(), center.y() + 1 + arrowOffset));
-                painter->drawLine(QPointF(center.x() + 3.5, center.y() - 2.5 + arrowOffset),
-                                  QPointF(center.x(), center.y() + 1 + arrowOffset));
-                painter->drawLine(QPointF(center.x() - 6, center.y() + 5),
-                                  QPointF(center.x() + 6, center.y() + 5));
-                painter->drawLine(QPointF(center.x() - 6, center.y() + 5),
-                                  QPointF(center.x() - 6, center.y() + 3));
-                painter->drawLine(QPointF(center.x() + 6, center.y() + 5),
-                                  QPointF(center.x() + 6, center.y() + 3));
+                painter->setPen(QPen(color, 2.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+                painter->drawLine(QPointF(center.x(), center.y() - 8),
+                                  QPointF(center.x(), center.y() + 2));
+                painter->drawLine(QPointF(center.x() - 4.5, center.y() - 2.5),
+                                  QPointF(center.x(), center.y() + 2));
+                painter->drawLine(QPointF(center.x() + 4.5, center.y() - 2.5),
+                                  QPointF(center.x(), center.y() + 2));
+                painter->drawLine(QPointF(center.x() - 8, center.y() + 8),
+                                  QPointF(center.x() + 8, center.y() + 8));
+                painter->drawLine(QPointF(center.x() - 8, center.y() + 8),
+                                  QPointF(center.x() - 8, center.y() + 5));
+                painter->drawLine(QPointF(center.x() + 8, center.y() + 8),
+                                  QPointF(center.x() + 8, center.y() + 5));
             }
             painter->restore();
         }

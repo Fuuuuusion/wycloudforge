@@ -1,11 +1,14 @@
 #include "PlayerBar.h"
 
+#include "CoverProvider.h"
 #include "ProgressSlider.h"
 #include "ui/SvgIcon.h"
 
+#include <QEvent>
 #include <QFileInfo>
 #include <QFocusEvent>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QLabel>
 #include <QMouseEvent>
 #include <QPainter>
@@ -14,6 +17,7 @@
 #include <QResizeEvent>
 #include <QSvgRenderer>
 #include <QTimer>
+#include <QToolTip>
 #include <QVariantAnimation>
 #include <QVBoxLayout>
 #include <QtMath>
@@ -29,18 +33,45 @@ QString formatTime(qint64 ms)
         .arg(total % 60, 2, 10, QLatin1Char('0'));
 }
 
-QPixmap placeholderCover(const QString &text, int size = 148)
+class ElidedLabel final : public QLabel
 {
-    QPixmap pm(size, size);
-    pm.fill(QColor(0xEC, 0x41, 0x41));
-    QPainter p(&pm);
-    p.setRenderHint(QPainter::Antialiasing);
-    p.setPen(Qt::white);
-    QFont f(QStringLiteral("Microsoft YaHei UI"), qMax(14, size / 4), QFont::Bold);
-    p.setFont(f);
-    p.drawText(pm.rect(), Qt::AlignCenter, text.left(1));
-    return pm;
-}
+public:
+    explicit ElidedLabel(QWidget *parent = nullptr)
+        : QLabel(parent)
+    {
+    }
+
+    void setFullText(const QString &text)
+    {
+        m_fullText = text;
+        setToolTip(text);
+        updateElidedText();
+    }
+
+    QString fullText() const { return m_fullText; }
+
+protected:
+    void resizeEvent(QResizeEvent *event) override
+    {
+        QLabel::resizeEvent(event);
+        updateElidedText();
+    }
+
+    void changeEvent(QEvent *event) override
+    {
+        QLabel::changeEvent(event);
+        if (event->type() == QEvent::FontChange || event->type() == QEvent::StyleChange)
+            updateElidedText();
+    }
+
+private:
+    void updateElidedText()
+    {
+        QLabel::setText(fontMetrics().elidedText(m_fullText, Qt::ElideRight, qMax(0, width())));
+    }
+
+    QString m_fullText;
+};
 
 QPixmap tintedSvg(const QString &path, const QColor &color, qreal dpr)
 {
@@ -692,45 +723,37 @@ PlayerBar::PlayerBar(QWidget *parent)
     : QWidget(parent)
 {
     setObjectName("playerBar");
-    setFixedHeight(224);
+    setFixedHeight(204);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    setAttribute(Qt::WA_StyledBackground, false);
+    setAttribute(Qt::WA_StyledBackground, true);
 
     m_cover = new QLabel(this);
     m_cover->setObjectName(QStringLiteral("playerCover"));
-    m_cover->setFixedSize(148, 148);
-    m_cover->setPixmap(placeholderCover(QStringLiteral("乐")));
+    m_cover->setFixedSize(128, 128);
+    m_cover->setPixmap(CoverProvider::placeholder(QStringLiteral("乐"), 128, 12));
 
-    m_title = new QLabel(QStringLiteral("未在播放"), this);
+    auto *titleLabel = new ElidedLabel(this);
+    titleLabel->setFullText(QStringLiteral("未在播放"));
+    m_title = titleLabel;
     m_title->setObjectName(QStringLiteral("playerTitle"));
     m_title->setProperty("class", "nowTitle");
     m_title->setMinimumWidth(0);
     m_title->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    m_artist = new QLabel(this);
+    auto *artistLabel = new ElidedLabel(this);
+    artistLabel->setFullText(QString());
+    m_artist = artistLabel;
+    m_artist->setObjectName(QStringLiteral("playerArtist"));
     m_artist->setProperty("class", "nowSub");
     m_artist->setMinimumWidth(0);
     m_artist->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-
-    m_sourceBadge = new QLabel(this);
-    m_sourceBadge->setStyleSheet(QStringLiteral(
-        "QLabel{color:#8F8F9C;background:transparent;"
-        "border:none;padding:0;font-size:11px;}"));
-    m_sourceBadge->setVisible(false);
-
-    auto *titleRow = new QHBoxLayout;
-    titleRow->setContentsMargins(0, 0, 0, 0);
-    titleRow->setSpacing(6);
-    titleRow->addWidget(m_title);
-    titleRow->addWidget(m_sourceBadge);
-    titleRow->addStretch(1);
 
     m_infoBox = new QWidget(this);
     m_infoBox->setMinimumWidth(0);
     m_infoBox->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     auto *infoLayout = new QVBoxLayout(m_infoBox);
     infoLayout->setContentsMargins(0, 0, 0, 0);
-    infoLayout->setSpacing(2);
-    infoLayout->addLayout(titleRow);
+    infoLayout->setSpacing(4);
+    infoLayout->addWidget(m_title);
     infoLayout->addWidget(m_artist);
 
     m_heartBtn = new FavoriteButton(this);
@@ -753,8 +776,9 @@ PlayerBar::PlayerBar(QWidget *parent)
 
     m_leftBox = new QWidget(this);
     m_leftBox->setObjectName(QStringLiteral("playerLeftBox"));
-    m_leftBox->setMinimumWidth(220);
-    m_leftBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    m_leftBox->setMinimumWidth(270);
+    m_leftBox->setMaximumWidth(360);
+    m_leftBox->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
     auto *leftLayout = new QHBoxLayout(m_leftBox);
     leftLayout->setContentsMargins(0, 0, 0, 0);
     leftLayout->setSpacing(10);
@@ -763,9 +787,10 @@ PlayerBar::PlayerBar(QWidget *parent)
 
     m_actionBox = new QWidget(this);
     m_actionBox->setObjectName(QStringLiteral("playerActionBox"));
-    auto *actionLayout = new QVBoxLayout(m_actionBox);
+    m_actionBox->setFixedWidth(72);
+    auto *actionLayout = new QHBoxLayout(m_actionBox);
     actionLayout->setContentsMargins(0, 0, 0, 0);
-    actionLayout->setSpacing(14);
+    actionLayout->setSpacing(12);
     actionLayout->addStretch(1);
     actionLayout->addWidget(m_heartBtn, 0, Qt::AlignCenter);
     actionLayout->addWidget(m_downloadBtn, 0, Qt::AlignCenter);
@@ -795,7 +820,9 @@ PlayerBar::PlayerBar(QWidget *parent)
     auto makeCtrlButton = [this](const QString &icon, const QString &tip) {
         auto *btn = new QPushButton(this);
         btn->setProperty("class", "ctrlBtn");
-        btn->setIcon(makeSvgIcon(icon, 20));
+        btn->setIcon(icon.endsWith(QStringLiteral(".png"), Qt::CaseInsensitive)
+                         ? QIcon(icon)
+                         : makeSvgIcon(icon, 20));
         btn->setIconSize(QSize(20, 20));
         btn->setFixedSize(30, 30);
         btn->setToolTip(tip);
@@ -803,7 +830,8 @@ PlayerBar::PlayerBar(QWidget *parent)
         return btn;
     };
 
-    m_modeBtn = makeCtrlButton(QStringLiteral(":/icons/icon-loop.svg"), QStringLiteral("列表循环"));
+    m_modeBtn = makeCtrlButton(QStringLiteral(":/icons/player-mode-loop.png"),
+                               QStringLiteral("列表循环"));
     m_modeBtn->setObjectName(QStringLiteral("playerModeButton"));
     m_prevBtn = new DirectionalButton(QStringLiteral(":/icons/icon-prev.svg"), -1,
                                       QStringLiteral("上一首"), this);
@@ -842,8 +870,8 @@ PlayerBar::PlayerBar(QWidget *parent)
     centerLayout->setAlignment(controls, Qt::AlignCenter);
     centerLayout->addStretch(1);
 
-    m_lyricsBtn = makeCtrlButton(QStringLiteral(":/icons/icon-lyrics.svg"), QStringLiteral("歌词"));
-    m_queueBtn = makeCtrlButton(QStringLiteral(":/icons/icon-queue.svg"), QStringLiteral("播放列表"));
+    m_lyricsBtn = makeCtrlButton(QStringLiteral(":/icons/player-lyrics.png"), QStringLiteral("歌词"));
+    m_queueBtn = makeCtrlButton(QStringLiteral(":/icons/player-queue.png"), QStringLiteral("播放列表"));
     m_lyricsBtn->setObjectName(QStringLiteral("playerLyricsButton"));
     m_queueBtn->setObjectName(QStringLiteral("playerQueueButton"));
 
@@ -858,7 +886,8 @@ PlayerBar::PlayerBar(QWidget *parent)
     volumeRow->setContentsMargins(0, 0, 0, 0);
     volumeRow->setSpacing(8);
     volumeRow->addWidget(m_muteBtn);
-    volumeRow->addWidget(m_volume, 1);
+    volumeRow->addWidget(m_volume);
+    volumeRow->addStretch(1);
     auto *toolRow = new QHBoxLayout;
     toolRow->setContentsMargins(0, 0, 0, 0);
     toolRow->setSpacing(12);
@@ -872,12 +901,12 @@ PlayerBar::PlayerBar(QWidget *parent)
     rightLayout->addStretch(1);
 
     m_rootLayout = new QHBoxLayout(this);
-    m_rootLayout->setContentsMargins(28, 20, 28, 20);
+    m_rootLayout->setContentsMargins(28, 12, 28, 12);
     m_rootLayout->setSpacing(18);
-    m_rootLayout->addWidget(m_leftBox, 28);
-    m_rootLayout->addWidget(m_actionBox, 13);
-    m_rootLayout->addWidget(m_centerBox, 28);
-    m_rootLayout->addWidget(m_rightBox, 31);
+    m_rootLayout->addWidget(m_leftBox);
+    m_rootLayout->addWidget(m_actionBox);
+    m_rootLayout->addWidget(m_centerBox, 45);
+    m_rootLayout->addWidget(m_rightBox, 55);
 
     connect(m_modeBtn, &QPushButton::clicked, this, &PlayerBar::modeClicked);
     connect(m_prevBtn, &QPushButton::clicked, this, &PlayerBar::prevClicked);
@@ -904,14 +933,6 @@ PlayerBar::PlayerBar(QWidget *parent)
             emit seekRequested(qint64(v) * m_durationMs / 1000);
     });
     updateResponsiveLayout();
-}
-
-void PlayerBar::paintEvent(QPaintEvent *)
-{
-    QPainter p(this);
-    p.setPen(Qt::NoPen);
-    p.setBrush(QColor(0x14, 0x14, 0x1B));
-    p.drawRect(rect());
 }
 
 void PlayerBar::resizeEvent(QResizeEvent *event)
@@ -941,33 +962,27 @@ void PlayerBar::updateResponsiveLayout()
     m_modeBtn->show();
     m_muteBtn->show();
 
-    const int coverSize = medium ? 112 : 148;
+    const int coverSize = medium ? 104 : 128;
     if (!compact && m_cover->size() != QSize(coverSize, coverSize)) {
         m_cover->setFixedSize(coverSize, coverSize);
-        if (!m_song.coverPath.isEmpty()) {
-            const QPixmap pixmap(m_song.coverPath);
-            if (!pixmap.isNull()) {
-                m_cover->setPixmap(pixmap.scaled(coverSize, coverSize,
-                                                  Qt::KeepAspectRatioByExpanding,
-                                                  Qt::SmoothTransformation));
-            }
-        } else {
-            m_cover->setPixmap(placeholderCover(
-                m_song.title.isEmpty() ? QStringLiteral("乐") : m_song.title.left(1), coverSize));
-        }
+        updateCoverPixmap();
     }
 
-    // 最小宽度必须始终保持为可收缩下限。若在宽屏状态把这里抬高到
-    // 280/240，布局会反向阻止父控件缩到 780px 以下，紧凑模式永远无法触发。
-    // 宽屏的 28/13/28/31 比例继续由根布局 stretch 分配。
-    m_leftBox->setMinimumWidth(158);
-    m_actionBox->setMinimumWidth(56);
+    if (compact) {
+        m_leftBox->setMinimumWidth(140);
+        m_leftBox->setMaximumWidth(210);
+    } else if (medium) {
+        m_leftBox->setMinimumWidth(220);
+        m_leftBox->setMaximumWidth(300);
+    } else {
+        m_leftBox->setMinimumWidth(270);
+        m_leftBox->setMaximumWidth(360);
+    }
     m_centerBox->setMinimumWidth(250);
     m_rightBox->setMinimumWidth(76);
 
     const int horizontalMargin = compact ? 12 : medium ? 20 : 28;
-    m_rootLayout->setContentsMargins(horizontalMargin, compact ? 16 : 20,
-                                     horizontalMargin, compact ? 16 : 20);
+    m_rootLayout->setContentsMargins(horizontalMargin, 12, horizontalMargin, 12);
     m_rootLayout->setSpacing(compact ? 10 : medium ? 14 : 18);
     m_rootLayout->invalidate();
 }
@@ -978,26 +993,15 @@ void PlayerBar::setSong(const core::Song &song, bool favorite, bool animateDownl
         m_downloadActive = false;
     m_song = song;
     m_favorite = favorite;
-    m_title->setText(song.title.isEmpty() ? QFileInfo(song.filePath).completeBaseName() : song.title);
-    m_artist->setText(song.artist.isEmpty() ? QStringLiteral("未知歌手") : song.artist);
-    if (song.isOnline())
-        m_sourceBadge->setText(song.isDownloaded() ? QStringLiteral("☁ 已下载")
-                               : song.isCached() ? QStringLiteral("☁ 已缓存") : QStringLiteral("☁ 在线"));
-    else
-        m_sourceBadge->setText(QStringLiteral("本地"));
-    m_sourceBadge->setVisible(!m_sourceBadge->text().isEmpty());
-    m_sourceBadge->setToolTip(QString());
+    const QString title = song.title.isEmpty() ? QFileInfo(song.filePath).completeBaseName() : song.title;
+    const QString artist = song.artist.isEmpty() ? QStringLiteral("未知歌手") : song.artist;
+    static_cast<ElidedLabel *>(m_title)->setFullText(title);
+    static_cast<ElidedLabel *>(m_artist)->setFullText(artist);
+    setToolTip(QString());
+    m_cover->setToolTip(QString());
     static_cast<FavoriteButton *>(m_heartBtn)->setFavorite(favorite, false);
     updateDownloadButtonState(animateDownloadState);
-    if (!song.coverPath.isEmpty()) {
-        QPixmap pm(song.coverPath);
-        if (!pm.isNull())
-            m_cover->setPixmap(pm.scaled(m_cover->size(), Qt::KeepAspectRatioByExpanding,
-                                         Qt::SmoothTransformation));
-    } else {
-        m_cover->setPixmap(placeholderCover(
-            song.title.isEmpty() ? QStringLiteral("乐") : song.title.left(1), m_cover->width()));
-    }
+    updateCoverPixmap();
     setDuration(song.durationMs);
     setPosition(0);
 }
@@ -1012,14 +1016,22 @@ void PlayerBar::setDownloadActive(bool active)
 
 void PlayerBar::setPlaybackError(const QString &message)
 {
-    m_sourceBadge->setText(QStringLiteral("⚠ 播放失败"));
-    m_sourceBadge->setToolTip(message);
-    m_sourceBadge->setVisible(true);
+    const QString error = message.trimmed().isEmpty() ? QStringLiteral("播放失败") : message;
+    setToolTip(error);
+    m_title->setToolTip(error);
+    m_cover->setToolTip(error);
+    QToolTip::showText(m_title->mapToGlobal(QPoint(0, m_title->height())), error,
+                       this, QRect(), 3500);
 }
 
 void PlayerBar::setPlaying(bool playing)
 {
     m_playing = playing;
+    if (playing) {
+        setToolTip(QString());
+        m_title->setToolTip(static_cast<ElidedLabel *>(m_title)->fullText());
+        m_cover->setToolTip(QString());
+    }
     updatePlayIcon();
 }
 
@@ -1055,10 +1067,12 @@ void PlayerBar::setMuted(bool muted)
 void PlayerBar::setMode(int mode)
 {
     m_mode = mode;
-    static const char *icons[] = { ":/icons/icon-loop.svg", ":/icons/icon-single.svg", ":/icons/icon-shuffle.svg" };
+    static const char *icons[] = { ":/icons/player-mode-loop.png",
+                                  ":/icons/player-mode-single.png",
+                                  ":/icons/player-mode-shuffle.png" };
     static const char *tips[] = { "列表循环", "单曲循环", "随机播放" };
     if (mode >= 0 && mode <= 2) {
-        m_modeBtn->setIcon(makeSvgIcon(QLatin1String(icons[mode]), 20));
+        m_modeBtn->setIcon(QIcon(QLatin1String(icons[mode])));
         m_modeBtn->setToolTip(QLatin1String(tips[mode]));
     }
 }
@@ -1095,6 +1109,12 @@ void PlayerBar::updateVolumeIcon()
 void PlayerBar::updateTimeLabel()
 {
     m_timeCur->setText(formatTime(m_positionMs));
+}
+
+void PlayerBar::updateCoverPixmap()
+{
+    const int size = qMax(1, m_cover->width());
+    m_cover->setPixmap(CoverProvider::coverFor(m_song, size, 12));
 }
 
 } // namespace ui

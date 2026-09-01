@@ -36,7 +36,7 @@ QPixmap scaledToCover(const QPixmap &src, int size)
 QPixmap CoverProvider::placeholder(const QString &seed, int size, qreal radius)
 {
     QPixmap pm(size, size);
-    pm.fill(QColor(0xEC, 0x41, 0x41));
+    pm.fill(Qt::transparent);
     QPainter p(&pm);
     p.setRenderHint(QPainter::Antialiasing);
     p.setPen(Qt::NoPen);

@@ -6,7 +6,6 @@
 
 class QLabel;
 class QHBoxLayout;
-class QPaintEvent;
 class QPushButton;
 class QResizeEvent;
 class ProgressSlider;
@@ -43,7 +42,6 @@ signals:
     void playlistClicked();
 
 protected:
-    void paintEvent(QPaintEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
 
 private:
@@ -52,6 +50,7 @@ private:
     void updateTimeLabel();
     void updateDownloadButtonState(bool animate);
     void updateResponsiveLayout();
+    void updateCoverPixmap();
 
     QWidget *m_leftBox = nullptr;
     QWidget *m_actionBox = nullptr;
@@ -61,7 +60,6 @@ private:
     QLabel *m_cover = nullptr;
     QLabel *m_title = nullptr;
     QLabel *m_artist = nullptr;
-    QLabel *m_sourceBadge = nullptr;
     QLabel *m_timeCur = nullptr;
     QLabel *m_timeTotal = nullptr;
     QPushButton *m_heartBtn = nullptr;

@@ -60,6 +60,9 @@ private slots:
     void playerBarDownloadStateKeepsSignalsSeparate();
     void playerBarDirectionalControlsKeepGeometryAndSignals();
     void playerBarHighDpiIconsRemainComplete();
+    void playerBarVisualRefinementUsesResourcesAndTooltips();
+    void songRowActionIconsStayVerticallyCentered();
+    void highlightedSearchTextKeepsRedGlyphsWithoutBackground();
     void rowHoverKeepsBackgroundClear();
     void rowHoverClearsWhenPointerLeavesViewport();
     void rowHoverRapidTransitionsRepaintInterruptedRow();
@@ -489,6 +492,225 @@ void SongListViewTest::playerBarHighDpiIconsRemainComplete()
     QVERIFY2(favoriteDifferences <= 180,
              qPrintable(QStringLiteral("favorite mirrored pixel differences: %1")
                             .arg(favoriteDifferences)));
+}
+
+void SongListViewTest::playerBarVisualRefinementUsesResourcesAndTooltips()
+{
+    const QStringList resources = {
+        QStringLiteral(":/icons/player-mode-loop.png"),
+        QStringLiteral(":/icons/player-mode-single.png"),
+        QStringLiteral(":/icons/player-mode-shuffle.png"),
+        QStringLiteral(":/icons/player-lyrics.png"),
+        QStringLiteral(":/icons/player-queue.png"),
+    };
+    for (const QString &path : resources) {
+        const QImage image(path);
+        QVERIFY2(!image.isNull(), qPrintable(path));
+        QCOMPARE(image.size(), QSize(200, 200));
+        QVERIFY(!image.createAlphaMask().isNull());
+    }
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString coverPath = dir.filePath(QStringLiteral("cover.png"));
+    QImage sourceCover(80, 80, QImage::Format_ARGB32);
+    sourceCover.fill(QColor(QStringLiteral("#456789")));
+    QVERIFY(sourceCover.save(coverPath));
+
+    Song song;
+    song.id = 907;
+    song.source = int(SourceId::Netease);
+    song.remoteId = QStringLiteral("player-visual");
+    song.filePath = QStringLiteral("netease://player-visual");
+    song.title = QStringLiteral("一首足够长以验证右侧省略规则的歌曲名称");
+    song.artist = QStringLiteral("一位足够长以验证右侧省略规则的歌手名称");
+    song.coverPath = coverPath;
+
+    PlayerBar bar;
+    QFile theme(QStringLiteral(":/theme.qss"));
+    QVERIFY(theme.open(QIODevice::ReadOnly));
+    bar.setStyleSheet(QString::fromUtf8(theme.readAll()));
+    bar.resize(1200, 204);
+    bar.setSong(song, false);
+    bar.show();
+    QApplication::processEvents();
+
+    QCOMPARE(bar.height(), 204);
+    auto *title = bar.findChild<QLabel *>(QStringLiteral("playerTitle"));
+    auto *artist = bar.findChild<QLabel *>(QStringLiteral("playerArtist"));
+    auto *cover = bar.findChild<QLabel *>(QStringLiteral("playerCover"));
+    auto *actionBox = bar.findChild<QWidget *>(QStringLiteral("playerActionBox"));
+    auto *favorite = bar.findChild<QPushButton *>(QStringLiteral("favoriteActionButton"));
+    auto *download = bar.findChild<QPushButton *>(QStringLiteral("downloadActionButton"));
+    auto *mode = bar.findChild<QPushButton *>(QStringLiteral("playerModeButton"));
+    QVERIFY(title);
+    QVERIFY(artist);
+    QVERIFY(cover);
+    QVERIFY(actionBox);
+    QVERIFY(favorite);
+    QVERIFY(download);
+    QVERIFY(mode);
+    QVERIFY(title->isVisible());
+    QVERIFY(artist->isVisible());
+    QCOMPARE(title->toolTip(), song.title);
+    QCOMPARE(artist->toolTip(), song.artist);
+    QCOMPARE(cover->size(), QSize(128, 128));
+
+    const QPixmap roundedCover = cover->pixmap();
+    QVERIFY(!roundedCover.isNull());
+    QCOMPARE(roundedCover.size(), QSize(128, 128));
+    QCOMPARE(roundedCover.toImage().pixelColor(0, 0).alpha(), 0);
+    QVERIFY(roundedCover.toImage().pixelColor(64, 64).alpha() > 0);
+
+    song.coverPath.clear();
+    bar.setSong(song, false);
+    const QPixmap placeholderCover = cover->pixmap();
+    QVERIFY(!placeholderCover.isNull());
+    QCOMPARE(placeholderCover.toImage().pixelColor(0, 0).alpha(), 0);
+    QVERIFY(placeholderCover.toImage().pixelColor(64, 64).alpha() > 0);
+
+    const QPoint favoriteCenter = favorite->mapTo(actionBox, favorite->rect().center());
+    const QPoint downloadCenter = download->mapTo(actionBox, download->rect().center());
+    QVERIFY(favoriteCenter.x() < downloadCenter.x());
+    QVERIFY(qAbs(favoriteCenter.y() - downloadCenter.y()) <= 1);
+
+    QSet<quint64> modeIconKeys;
+    for (int playbackMode = 0; playbackMode < 3; ++playbackMode) {
+        bar.setMode(playbackMode);
+        modeIconKeys.insert(mode->icon().cacheKey());
+        QVERIFY(!mode->icon().pixmap(QSize(20, 20)).isNull());
+    }
+    QCOMPARE(modeIconKeys.size(), 3);
+
+    const QStringList forbiddenStateLabels = {
+        QStringLiteral("本地"), QStringLiteral("☁ 在线"),
+        QStringLiteral("☁ 已缓存"), QStringLiteral("☁ 已下载"),
+    };
+    for (QLabel *label : bar.findChildren<QLabel *>())
+        QVERIFY2(!forbiddenStateLabels.contains(label->text()), qPrintable(label->text()));
+
+    const QString error = QStringLiteral("测试播放失败原因");
+    bar.setPlaybackError(error);
+    QCOMPARE(bar.toolTip(), error);
+    QCOMPARE(title->toolTip(), error);
+    QCOMPARE(cover->toolTip(), error);
+}
+
+void SongListViewTest::songRowActionIconsStayVerticallyCentered()
+{
+    Song song;
+    song.id = 908;
+    song.source = int(SourceId::Netease);
+    song.remoteId = QStringLiteral("centered-actions");
+    song.filePath = QStringLiteral("netease://centered-actions");
+    song.title = QStringLiteral("Centered actions");
+
+    SongListView view;
+    view.resize(1000, 260);
+    view.setStyleSheet(QStringLiteral("QTableView{background:#0E0E14;}"));
+    view.setSongs({ song });
+    view.show();
+    QApplication::processEvents();
+
+    const auto iconBounds = [&view](const QRect &logicalRect, const QColor &target) {
+        const QPixmap shot = view.viewport()->grab();
+        const qreal dpr = shot.devicePixelRatio();
+        const QImage image = shot.toImage().convertToFormat(QImage::Format_ARGB32);
+        const QRect area(qRound(logicalRect.left() * dpr), qRound(logicalRect.top() * dpr),
+                         qRound(logicalRect.width() * dpr), qRound(logicalRect.height() * dpr));
+        QRect bounds;
+        for (int y = qMax(0, area.top()); y <= qMin(image.height() - 1, area.bottom()); ++y) {
+            for (int x = qMax(0, area.left()); x <= qMin(image.width() - 1, area.right()); ++x) {
+                const QColor pixel = image.pixelColor(x, y);
+                if (pixel.alpha() < 32 || qAbs(pixel.red() - target.red()) > 12
+                    || qAbs(pixel.green() - target.green()) > 12
+                    || qAbs(pixel.blue() - target.blue()) > 12) {
+                    continue;
+                }
+                bounds = bounds.isNull() ? QRect(x, y, 1, 1) : bounds.united(QRect(x, y, 1, 1));
+            }
+        }
+        return qMakePair(bounds, dpr);
+    };
+
+    const QRect favoriteRect = view.visualRect(view.model()->index(0, 6));
+    const QRect downloadRect = view.visualRect(view.model()->index(0, 7));
+    QVERIFY(favoriteRect.isValid());
+    QVERIFY(downloadRect.isValid());
+
+    const auto favoriteResult = iconBounds(favoriteRect, QColor(QStringLiteral("#6E6E7A")));
+    const auto downloadResult = iconBounds(downloadRect, QColor(QStringLiteral("#9A9AA5")));
+    QVERIFY(!favoriteResult.first.isNull());
+    QVERIFY(!downloadResult.first.isNull());
+    const qreal favoriteCenterY = (favoriteResult.first.top() + favoriteResult.first.bottom())
+        / (2.0 * favoriteResult.second);
+    const qreal downloadCenterY = (downloadResult.first.top() + downloadResult.first.bottom())
+        / (2.0 * downloadResult.second);
+    // The first model row includes a 42px non-content safe area above the
+    // 112px song block. Compare against the delegate's actual content center,
+    // not the full visualRect center.
+    const qreal favoriteContentCenterY = favoriteRect.top() + 42.0 + 55.5;
+    const qreal downloadContentCenterY = downloadRect.top() + 42.0 + 55.5;
+    QVERIFY2(qAbs(favoriteCenterY - favoriteContentCenterY) <= 1.0,
+             qPrintable(QStringLiteral("favorite center=%1 expected=%2 bounds=%3,%4 %5x%6 dpr=%7")
+                            .arg(favoriteCenterY).arg(favoriteContentCenterY)
+                            .arg(favoriteResult.first.x()).arg(favoriteResult.first.y())
+                            .arg(favoriteResult.first.width()).arg(favoriteResult.first.height())
+                            .arg(favoriteResult.second)));
+    QVERIFY2(qAbs(downloadCenterY - downloadContentCenterY) <= 1.0,
+             qPrintable(QStringLiteral("download center=%1 expected=%2 bounds=%3,%4 %5x%6 dpr=%7")
+                            .arg(downloadCenterY).arg(downloadContentCenterY)
+                            .arg(downloadResult.first.x()).arg(downloadResult.first.y())
+                            .arg(downloadResult.first.width()).arg(downloadResult.first.height())
+                            .arg(downloadResult.second)));
+    // The heart SVG intentionally keeps breathing room inside its 24px
+    // viewport; its opaque contour is about 18px, still 1.33x the former
+    // 18px viewport rendering.
+    QVERIFY(favoriteResult.first.width() / favoriteResult.second >= 17.0);
+    QVERIFY(downloadResult.first.width() / downloadResult.second >= 16.0);
+}
+
+void SongListViewTest::highlightedSearchTextKeepsRedGlyphsWithoutBackground()
+{
+    Song song;
+    song.id = 909;
+    song.filePath = QStringLiteral("C:/music/highlight.mp3");
+    song.title = QStringLiteral("Target song");
+    song.artist = QStringLiteral("Artist");
+
+    SongListView view;
+    view.resize(1000, 260);
+    view.setStyleSheet(QStringLiteral("QTableView{background:#0E0E14;}"));
+    view.setSongs({ song });
+    view.setHighlightQuery(QStringLiteral("Target"));
+    view.show();
+    QApplication::processEvents();
+
+    const QRect titleRect = view.visualRect(view.model()->index(0, 2)).adjusted(12, 0, -8, 0);
+    const QPixmap shot = view.viewport()->grab();
+    const qreal dpr = shot.devicePixelRatio();
+    const QImage image = shot.toImage().convertToFormat(QImage::Format_ARGB32);
+    const QRect area(qRound(titleRect.left() * dpr), qRound(titleRect.top() * dpr),
+                     qRound(titleRect.width() * dpr), qRound(titleRect.height() * dpr));
+    int redPixels = 0;
+    int longestRun = 0;
+    for (int y = qMax(0, area.top()); y <= qMin(image.height() - 1, area.bottom()); ++y) {
+        int currentRun = 0;
+        for (int x = qMax(0, area.left()); x <= qMin(image.width() - 1, area.right()); ++x) {
+            const QColor pixel = image.pixelColor(x, y);
+            const bool red = pixel.red() > 120 && pixel.red() > pixel.green() * 1.8
+                && pixel.red() > pixel.blue() * 1.5;
+            if (red) {
+                ++redPixels;
+                longestRun = qMax(longestRun, ++currentRun);
+            } else {
+                currentRun = 0;
+            }
+        }
+    }
+    QVERIFY(redPixels > 10);
+    QVERIFY2(longestRun <= qCeil(12.0 * dpr),
+             qPrintable(QStringLiteral("highlight background run: %1").arg(longestRun)));
 }
 
 void SongListViewTest::rowHoverKeepsBackgroundClear()
@@ -1068,8 +1290,11 @@ void SongListViewTest::layoutComponentsFollowConfirmedGeometry()
     QCOMPARE(settings.size(), QSize(28, 28));
 
     PlayerBar player;
-    QCOMPARE(player.height(), 224);
-    player.resize(1200, 224);
+    QFile theme(QStringLiteral(":/theme.qss"));
+    QVERIFY(theme.open(QIODevice::ReadOnly));
+    player.setStyleSheet(QString::fromUtf8(theme.readAll()));
+    QCOMPARE(player.height(), 204);
+    player.resize(1200, 204);
     player.show();
     QApplication::processEvents();
     auto *leftBox = player.findChild<QWidget *>(QStringLiteral("playerLeftBox"));
@@ -1084,11 +1309,12 @@ void SongListViewTest::layoutComponentsFollowConfirmedGeometry()
     QVERIFY(actionBox->isVisible());
     QVERIFY(centerBox->isVisible());
     QVERIFY(rightBox->isVisible());
-    QCOMPARE(player.grab().toImage().pixelColor(2, 2), QColor(QStringLiteral("#14141B")));
+    QCOMPARE(player.grab().toImage().pixelColor(2, 2), QColor(QStringLiteral("#0E0E14")));
 
-    player.resize(700, 224);
+    player.resize(700, 204);
     QApplication::processEvents();
     QVERIFY(player.findChild<QLabel *>(QStringLiteral("playerTitle"))->isVisible());
+    QVERIFY(player.findChild<QLabel *>(QStringLiteral("playerArtist"))->isVisible());
     QVERIFY(player.findChild<QWidget *>(QStringLiteral("playerProgress"))->isVisible());
     QVERIFY(player.findChild<QPushButton *>(QStringLiteral("favoriteActionButton"))->isVisible());
     QVERIFY(player.findChild<QPushButton *>(QStringLiteral("downloadActionButton"))->isVisible());
