@@ -473,3 +473,9 @@ a4dcb21  SongListModel 改多列表 + 登录补齐uid/昵称 + QPointer防闪退
 
 - 首次尝试用 `ctest -R "^(tst_searchservice|tst_songlistview)$"` 同时运行两个定向测试时，外层 PowerShell 在进入 `cmd.exe` 前把正则中的 `|` 当成管道，随后报 `tst_searchservice` 不是命令；CTest 实际没有启动。根因是多层 shell 转义，不是源码或测试失败。可行方案是逐项使用不含管道的 `-R tst_searchservice` / `-R tst_songlistview`，或对外层 PowerShell 单独转义管道；本轮改为逐项运行后两项均通过。
 - 完整 8 项 Qt CTest 本轮为 7/8：搜索、页面、歌曲列表、数据库/DPAPI 等 7 项通过，`tst_playerservice` 的 `playPauseAndPosition`、`autoAdvanceInOrderMode` 和 `downloadedOnlineSongPlayback` 在进入 `PlayingState` 后位置仍停在 0。直接运行和独立隐藏桌面进程重跑得到同样 3 个失败，`onlineUrlRetriesOnce` 同时明确以“无可用音频输出设备”跳过；Windows Audio 服务运行且能枚举多个状态为 OK 的声卡/端点，因此根因仍是既有的自动化执行上下文没有可推进的 Qt Multimedia 真实音频时钟，不是本轮搜索聚合或 `PlayerService` 改动（本轮未修改播放器）。可行方案仍是在具有活动默认输出的交互桌面终端重跑播放器计时测试，或以后把媒体结束/队列推进拆成不依赖真实声卡的确定性测试；本轮未放宽断言或伪造通过。
+
+### 快捷方式发布约定
+
+- 用户要求以后每次功能修改完成后，不仅构建、测试、commit 和 push，还必须同步更新桌面快捷方式实际指向的 `dist\NeteaseClone` 发布包并启动正式窗口供预览；若新包未部署，不能只报告源码完成。
+- 本轮从 `W:\build-ascii` 生成 38 文件、90,240,676 字节的新发布包，发布 EXE 与构建 EXE 的 SHA-256 均为 `F6AC8CF0714AAF2B0D4588731FAD09446351EF6B91D512419759D9EAC5F2EEEA`；空曲库、独立数据库与独立设置目录 smoke 退出码为 0。
+- 新包已切换到快捷方式既有目标 `dist\NeteaseClone\NeteaseClone.exe` 并启动正式窗口。被替换版本保留在 `dist\NeteaseClone.previous-20260901-144655`，可通过目录换回恢复；快捷方式路径本身未改变。
