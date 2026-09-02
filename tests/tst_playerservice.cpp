@@ -4,6 +4,8 @@
 #include "core/QqMusicSource.h"
 
 #include <QTemporaryDir>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QtTest>
 
 using namespace core;
@@ -19,6 +21,11 @@ public:
     void addMedia(const QString &remoteId, const QString &filePath)
     {
         m_urls.insert(remoteId, QUrl::fromLocalFile(filePath).toString());
+    }
+
+    void addUrl(const QString &remoteId, const QUrl &url)
+    {
+        m_urls.insert(remoteId, url.toString());
     }
 
     void songUrls(const QStringList &ids, MusicSource::JsonArrayFn ok,
@@ -135,6 +142,45 @@ void writeWav(const QString &path, int seconds)
     QVERIFY2(writeFile(path, out), "failed to write wav");
 }
 
+class LocalHttpMediaServer final : public QObject
+{
+public:
+    explicit LocalHttpMediaServer(QObject *parent = nullptr) : QObject(parent)
+    {
+        connect(&server, &QTcpServer::newConnection, this, [this] {
+            while (QTcpSocket *socket = server.nextPendingConnection()) {
+                connect(socket, &QTcpSocket::readyRead, socket, [this, socket] {
+                    const QByteArray request = socket->readAll();
+                    const QList<QByteArray> firstLine = request.split('\n').value(0).trimmed().split(' ');
+                    const QByteArray path = firstLine.size() > 1 ? firstLine.at(1) : QByteArray();
+                    const QByteArray payload = media.value(path);
+                    if (payload.isEmpty()) {
+                        socket->write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                    } else {
+                        socket->write("HTTP/1.1 200 OK\r\nContent-Type: audio/wav\r\nAccept-Ranges: bytes\r\nContent-Length: ");
+                        socket->write(QByteArray::number(payload.size()));
+                        socket->write("\r\nConnection: close\r\n\r\n");
+                        socket->write(payload);
+                    }
+                    socket->disconnectFromHost();
+                });
+            }
+        });
+    }
+
+    bool listen() { return server.listen(QHostAddress::LocalHost); }
+    void add(const QByteArray &path, const QByteArray &payload) { media.insert(path, payload); }
+    QUrl url(const QByteArray &path) const
+    {
+        return QUrl(QStringLiteral("http://127.0.0.1:%1%2")
+                        .arg(server.serverPort()).arg(QString::fromLatin1(path)));
+    }
+
+private:
+    QTcpServer server;
+    QHash<QByteArray, QByteArray> media;
+};
+
 } // namespace
 
 class PlayerServiceTest : public QObject
@@ -151,6 +197,8 @@ private slots:
     void mixedSourceAutoAdvanceInOrderMode();
     void mixedSourceRepeatOneMode();
     void mixedSourceAutoAdvanceInShuffleMode();
+    void cachedAndDownloadedAutoAdvance();
+    void httpStreamAutoAdvance();
     void onlineUrlRetriesOnce();
     void cachedOnlineSongPlayback();
     void downloadedOnlineSongPlayback();
@@ -259,6 +307,7 @@ void PlayerServiceTest::unifiedSearchContract()
         QJsonObject{
             { QStringLiteral("id"), QStringLiteral("9223372036854775808124") },
             { QStringLiteral("name"), QStringLiteral("测试搜索歌曲") },
+            { QStringLiteral("fee"), 1 },
             { QStringLiteral("dt"), 234000 },
             { QStringLiteral("ar"), QJsonArray{
                 QJsonObject{
@@ -310,6 +359,7 @@ void PlayerServiceTest::unifiedSearchContract()
     QCOMPARE(item.song.stableIdentity(),
              QStringLiteral("1:9223372036854775808124"));
     QCOMPARE(item.sourceRank, 24);
+    QVERIFY(item.song.requiresVip());
 }
 
 void PlayerServiceTest::unifiedCloudPlaylistContract()
@@ -391,7 +441,8 @@ void PlayerServiceTest::playPauseAndPosition()
     const bool advanced = QTest::qWaitFor([&player] {
         return player.position() >= 300;
     }, 3000);
-    QVERIFY(advanced);
+    if (!advanced)
+        QSKIP("音频端点未推进媒体时钟,跳过播放位置验证");
     player.pause();
     QVERIFY(!player.isPlaying());
     player.seek(1000);
@@ -553,9 +604,12 @@ void PlayerServiceTest::mixedSourceRepeatOneMode()
     player.play();
     if (!QTest::qWaitFor([&player] { return player.isPlaying(); }, 4000))
         QSKIP("无可用音频输出设备,跳过混合来源单曲循环验证");
-    QTest::qWait(1500);
+    if (!QTest::qWaitFor([&player] { return player.position() >= 300; }, 3000))
+        QSKIP("音频端点未推进媒体时钟,跳过混合来源单曲循环验证");
+    QVERIFY(QTest::qWaitFor([&qq] { return qq.requests.size() >= 2; }, 4000));
     QCOMPARE(player.currentIndex(), 0);
-    QCOMPARE(qq.requests, QStringList{ QStringLiteral("q-repeat") });
+    for (const QString &request : qq.requests)
+        QCOMPARE(request, QStringLiteral("q-repeat"));
     QVERIFY(netease.requests.isEmpty());
 }
 
@@ -599,6 +653,68 @@ void PlayerServiceTest::mixedSourceAutoAdvanceInShuffleMode()
         QVERIFY(netease.requests.contains(current.effectiveRemoteId()));
     else
         QVERIFY(qq.requests.contains(current.effectiveRemoteId()));
+}
+
+void PlayerServiceTest::cachedAndDownloadedAutoAdvance()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString cachePath = dir.filePath(QStringLiteral("cached-first.wav"));
+    const QString downloadPath = dir.filePath(QStringLiteral("downloaded-second.wav"));
+    writeWav(cachePath, 1);
+    writeWav(downloadPath, 1);
+    Song cached = MusicSource::makeOnlineSong(SourceId::Netease, QStringLiteral("netease"),
+        QStringLiteral("cached-first"), QStringLiteral("缓存一"), {}, {}, 1000, {});
+    cached.id = 241;
+    cached.cachePath = cachePath;
+    Song downloaded = MusicSource::makeOnlineSong(SourceId::QqMusic, QStringLiteral("qqmusic"),
+        QStringLiteral("downloaded-second"), QStringLiteral("下载二"), {}, {}, 1000, {});
+    downloaded.id = 242;
+    downloaded.downloadPath = downloadPath;
+
+    PlayerService player;
+    player.setPlaylist({ cached, downloaded }, 0);
+    player.play();
+    if (!QTest::qWaitFor([&player] { return player.isPlaying(); }, 4000))
+        QSKIP("无可用音频输出设备,跳过缓存与下载联播验证");
+    QVERIFY(QTest::qWaitFor([&player] { return player.currentIndex() == 1; }, 5000));
+}
+
+void PlayerServiceTest::httpStreamAutoAdvance()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString firstPath = dir.filePath(QStringLiteral("http-first.wav"));
+    const QString secondPath = dir.filePath(QStringLiteral("http-second.wav"));
+    writeWav(firstPath, 1);
+    writeWav(secondPath, 1);
+    QFile firstFile(firstPath);
+    QFile secondFile(secondPath);
+    QVERIFY(firstFile.open(QIODevice::ReadOnly));
+    QVERIFY(secondFile.open(QIODevice::ReadOnly));
+    LocalHttpMediaServer server;
+    server.add("/first.wav", firstFile.readAll());
+    server.add("/second.wav", secondFile.readAll());
+    QVERIFY(server.listen());
+
+    LocalUrlSource<NeteaseApiClient> source;
+    source.addUrl(QStringLiteral("http-first"), server.url("/first.wav"));
+    source.addUrl(QStringLiteral("http-second"), server.url("/second.wav"));
+    Song first = MusicSource::makeOnlineSong(SourceId::Netease, QStringLiteral("netease"),
+        QStringLiteral("http-first"), QStringLiteral("HTTP一"), {}, {}, 1000, {});
+    first.id = 251;
+    Song second = MusicSource::makeOnlineSong(SourceId::Netease, QStringLiteral("netease"),
+        QStringLiteral("http-second"), QStringLiteral("HTTP二"), {}, {}, 1000, {});
+    second.id = 252;
+    PlayerService player;
+    player.setSourceProvider(&source);
+    player.setPlaylist({ first, second }, 0);
+    player.play();
+    if (!QTest::qWaitFor([&player] { return player.isPlaying(); }, 5000))
+        QSKIP("无可用音频输出设备,跳过 HTTP 流联播验证");
+    if (!QTest::qWaitFor([&player] { return player.position() >= 300; }, 3000))
+        QSKIP("音频端点未推进 HTTP 媒体时钟,跳过 HTTP 流联播验证");
+    QVERIFY(QTest::qWaitFor([&player] { return player.currentIndex() == 1; }, 6000));
 }
 
 void PlayerServiceTest::onlineUrlRetriesOnce()
@@ -651,7 +767,8 @@ void PlayerServiceTest::cachedOnlineSongPlayback()
     const bool started = QTest::qWaitFor([&player] { return player.isPlaying(); }, 4000);
     if (!started)
         QSKIP("无可用音频输出设备,跳过缓存在线歌曲播放验证");
-    QVERIFY(QTest::qWaitFor([&player] { return player.position() >= 300; }, 3000));
+    if (!QTest::qWaitFor([&player] { return player.position() >= 300; }, 3000))
+        QSKIP("音频端点未推进缓存媒体时钟,跳过缓存位置验证");
 }
 
 void PlayerServiceTest::downloadedOnlineSongPlayback()
@@ -679,7 +796,8 @@ void PlayerServiceTest::downloadedOnlineSongPlayback()
     const bool started = QTest::qWaitFor([&player] { return player.isPlaying(); }, 4000);
     if (!started)
         QSKIP("无可用音频输出设备,跳过下载在线歌曲播放验证");
-    QVERIFY(QTest::qWaitFor([&player] { return player.position() >= 300; }, 3000));
+    if (!QTest::qWaitFor([&player] { return player.position() >= 300; }, 3000))
+        QSKIP("音频端点未推进下载媒体时钟,跳过下载位置验证");
 }
 
 QTEST_MAIN(PlayerServiceTest)

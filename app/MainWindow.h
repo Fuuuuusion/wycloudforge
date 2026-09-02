@@ -38,6 +38,7 @@ class TitleBar;
 
 class QStackedWidget;
 class QPushButton;
+class QResizeEvent;
 
 class MainWindow : public QMainWindow
 {
@@ -50,6 +51,7 @@ protected:
     bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
     void closeEvent(QCloseEvent *event) override;
     void changeEvent(QEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
 
 private:
     struct RouteEntry
@@ -126,6 +128,8 @@ private:
     void resetManagedCacheViews();
     void refreshSourceAccessStates();
     bool focusIsEditable() const;
+    void requestNativeWindowCommand(quint32 command);
+    void updateWindowCorners();
 
     core::LibraryService m_library{ this };
     core::ApiService m_apiService{ this };

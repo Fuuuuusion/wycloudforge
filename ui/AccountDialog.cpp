@@ -155,6 +155,7 @@ void AccountDialog::logoutNetease()
     core::SettingsService::setOnlineCookie(QString());
     core::SettingsService::setOnlineUid(0);
     core::SettingsService::setOnlineNickname(QString());
+    core::SettingsService::setOnlineVipStatus(-1);
     core::SettingsService::setOnlineAvatarUrl(QString());
     if (m_netease)
         m_netease->setCookie(QString());

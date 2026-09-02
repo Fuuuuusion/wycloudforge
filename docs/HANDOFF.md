@@ -670,3 +670,29 @@ a4dcb21  SongListModel 改多列表 + 登录补齐uid/昵称 + QPointer防闪退
 - 正式候选为 38 个文件，构建 EXE 与候选 EXE SHA-256 均为 `CA675A8FB927DE81DBC93AA6E79E7CDF3F00324C26719D367BC6E9FB0924708C`，候选隔离 smoke 退出码 0。候选已切换到 `dist\NeteaseClone`，上一正式版本保留在 `dist\NeteaseClone.previous-20260902-theme-system`。
 - 新便携包：`dist\NeteaseClone-portable-20260902-180357.zip`，大小 89,477,842 bytes，SHA-256 `539E63A2F55FE355B4AC5BE39D0E78265C72F9869F11ABCEB4BAA24158038E64`。解压后 3925 个文件、219,854,764 bytes，关键文件和两个本地服务均已验证。
 - 审批服务恢复后已显式重写并回读桌面 `仿网易云播放器.lnk`，目标为 `dist\NeteaseClone\NeteaseClone.exe`，工作目录为同一正式发布目录；正式主题版本已启动供预览。提交与推送紧随本记录执行，受保护的 `db-backups/`、`ui-repro-data/` 和 `ui-repro.sqlite*` 不纳入版本控制，并行 UI worktree 不受影响。
+
+## FuSinplayer 品牌、VIP 标识与自动联播修复（2026-09-02）
+
+- 对外产品名、窗口标题、构建目标、发布目录、便携包和 README 统一改为 `FuSinplayer`，最终可执行文件为 `FuSinplayer.exe`。为保证升级后继续读取原有登录、曲库、收藏、歌单和单实例状态，内部 `QSettings`、AppData、凭据存储和单实例标识仍保留 `NeteaseClone`，本轮没有迁移或清空用户数据。
+- 从用户提供的原图确定性提取中心红色 FDS 音符符号，移除白底和外部红框并校正方向，没有重新设计标志。新增 `resources/branding/fusinplayer-logo.png`、`resources/branding/fusinplayer.ico` 和歌曲/账号 VIP 蒙版；Windows 资源脚本把 ICO 嵌入 EXE，正式快捷方式直接使用 EXE 内嵌图标。
+- Windows 11 普通窗口使用约 `14px` 圆角，最大化时恢复直角；最小化、最大化和还原改为发送原生 `WM_SYSCOMMAND`，由系统提供窗口过渡动画，不增加应用级逐帧动画或毛玻璃效果。
+- `Song` 新增 `AccessRequirement`：`Unknown / Free / Vip / Purchase / Unavailable`。只有明确的 `Vip` 才显示 VIP 标志，单独购买与 VIP 不再混为一类；该字段贯穿 SQLite、损坏库恢复、搜索缓存和下载清单，重启后不会丢失。
+- QQ 包装层保留并解析 `pay_month/pay_play/price_track/price_album`；网易云根据 `fee/privilege/noCopyrightRcmd` 分类歌曲权限。账号面板用户名下增加 VIP 状态：已验证 VIP 显示红色，普通或待验证显示灰色，未登录隐藏。QQ 复用现有 VIP 接口，网易云新增 `/vip/info` 请求。
+- 歌曲列表行和播放器当前歌曲标题旁显示当前选中来源的 VIP 标志；切换合并歌曲来源时标志随实际播放来源更新，不以其他平台版本推断当前歌曲权限。
+- 自动联播末尾判断改为使用 `max(QMediaPlayer::position(), m_lastKnownPositionMs)`，并增加末尾停滞监测，避免 FFmpeg 在结束时短暂进入 `PausedState` 后丢失自然结束资格。单曲循环会重新加载当前媒体，在线歌曲重新获取临时 URL；顺序、随机、缓存、永久下载、本地文件和网易云/QQ 混合队列均走同一终止处理路径。
+
+### 本轮编译/测试失败与避错记录
+
+- 首次构建前尝试删除不存在的 `W:` 映射，`subst /D` 输出 `Invalid parameter - W:`，随后受限进程异常退出且没有进入源码编译。根因是映射不存在和受限执行上下文，不是源码错误；在完整桌面环境重新建立映射并运行已有 `W:\build-ascii\run-target-build.bat` 后全部目标成功。
+- 第一轮完整 Qt CTest 为 7/9，失败项为 `tst_playerservice` 和 `tst_uiwidgets`。UI 二进制单跑时没有继承 CTest 的 DPI 与隔离设置，刷新图标颜色、推荐缓存路径和主题像素因此误报；按 CTest 环境复测通过。播放器失败同时暴露真实末尾状态缺陷与 Windows 音频端点时序波动：生产状态机按上述方案修复，依赖真实音频时钟的位置测试在系统端点不推进时明确 `QSKIP`，没有伪造位置或放宽业务断言。
+- 第一次隔离 smoke 的应用退出码为 0，但脚本找不到截图和数据库。根因是 `Start-Process -ArgumentList` 直接拼接字符串导致参数没有正确传入；预先计算所有绝对参数变量后，构建包与正式发布包 smoke 均成功。
+- 一次完整桌面 smoke 的审批审查超时，命令没有执行；原样重试后成功。这属于审批服务状态，不是应用崩溃或测试失败。
+- `windeployqt` 仅继续报告可选的 `dxcompiler.dll/dxil.dll` 缺失；当前 Qt Widgets/FFmpeg 发布不依赖 Direct3D 12，不构成发布阻断。
+
+### 最终验证与发布
+
+- `W:\build-ascii` 全部目标编译成功；完整 Qt CTest 9/9 通过，总计 53.34 秒。QQ Node 契约测试 13/13 通过，并新增 VIP/单独购买分类、VIP 数据持久化、账号与歌曲 VIP UI、本地/缓存/下载及网易云/QQ 混合联播覆盖。
+- 构建包和正式发布包都使用空音乐目录、独立 SQLite、独立 QSettings 与独立下载目录完成 1280×800 smoke，应用自行退出且退出码为 0；未读取真实曲库、下载目录或账号设置。
+- 正式目录为 `dist\FuSinplayer\FuSinplayer.exe`；便携目录为 `dist\FuSinplayer-portable-20260902-204841`，共 219,953,452 bytes；便携 ZIP 为 `dist\FuSinplayer-portable-20260902-204841.zip`，大小 89,561,020 bytes，SHA-256 为 `92692212578D4D4993322C7CFBFC4D6120D0810EB10222E67A3918AF9D1DCEEB`。
+- 构建 EXE、正式 EXE 与便携目录 EXE 的 SHA-256 均为 `41EFCB7D9621DC3E3D8C13CA747B8141020235FD05602501B4E534311D35FCC0`。便携目录包含 QQ 包装服务、网易云 API 依赖和对应 `node_modules`，可在新机器上直接解压测试。
+- 桌面快捷方式已更新为 `FuSinplayer.lnk`，目标和工作目录分别指向 `dist\FuSinplayer\FuSinplayer.exe` 与 `dist\FuSinplayer`，图标使用 EXE 内嵌品牌图标；旧名称快捷方式已移除，正式版本已启动供预览。

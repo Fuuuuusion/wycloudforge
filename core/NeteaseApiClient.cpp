@@ -721,6 +721,15 @@ void NeteaseApiClient::loginStatus(OkFn ok, ErrFn err)
     get(QStringLiteral("/login/status"), q, ok, err);
 }
 
+void NeteaseApiClient::vipStatus(qint64 uid, OkFn ok, ErrFn err)
+{
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("uid"), QString::number(uid));
+    query.addQueryItem(QStringLiteral("timestamp"),
+                       QString::number(QDateTime::currentMSecsSinceEpoch()));
+    get(QStringLiteral("/vip/info"), query, std::move(ok), std::move(err));
+}
+
 void NeteaseApiClient::logout(OkFn ok, ErrFn err)
 {
     QUrlQuery q;
@@ -851,7 +860,7 @@ Song NeteaseApiClient::songFromJson(const QJsonObject &obj) const
         coverUrl = obj.value(QStringLiteral("picUrl")).toString();
     if (coverUrl.isEmpty())
         coverUrl = obj.value(QStringLiteral("albumPicUrl")).toString();
-    return MusicSource::makeOnlineSong(
+    Song song = MusicSource::makeOnlineSong(
         sourceId(), sourceScheme(),
         obj.value(QStringLiteral("id")).toVariant().toString(),
         obj.value(QStringLiteral("name")).toString(),
@@ -861,6 +870,20 @@ Song NeteaseApiClient::songFromJson(const QJsonObject &obj) const
         coverUrl,
         al.value(QStringLiteral("id")).toVariant().toString(),
         artistRemoteId);
+    const QJsonObject privilege = obj.value(QStringLiteral("privilege")).toObject();
+    const bool noCopyright = privilege.value(QStringLiteral("st")).toInt(0) < 0
+        || obj.value(QStringLiteral("noCopyrightRcmd")).isObject()
+        || obj.value(QStringLiteral("noCopyrightRcmd")).isString();
+    const int fee = obj.value(QStringLiteral("fee")).toInt(0);
+    if (noCopyright)
+        song.accessRequirement = AccessRequirement::Unavailable;
+    else if (fee == 1)
+        song.accessRequirement = AccessRequirement::Vip;
+    else if (fee == 4)
+        song.accessRequirement = AccessRequirement::Purchase;
+    else
+        song.accessRequirement = AccessRequirement::Free;
+    return song;
 }
 
 } // namespace core

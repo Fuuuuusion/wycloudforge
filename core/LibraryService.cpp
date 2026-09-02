@@ -151,6 +151,7 @@ QJsonObject downloadRecordToJson(const DownloadManifestRecord &record)
     object.insert(QStringLiteral("coverUrl"), record.song.coverUrl);
     object.insert(QStringLiteral("albumRemoteId"), record.song.effectiveAlbumRemoteId());
     object.insert(QStringLiteral("artistRemoteId"), record.song.artistRemoteId);
+    object.insert(QStringLiteral("accessRequirement"), int(record.song.accessRequirement));
     return object;
 }
 
@@ -189,6 +190,10 @@ bool downloadRecordFromJson(const QJsonObject &object, const QString &directory,
     record->song.coverUrl = object.value(QStringLiteral("coverUrl")).toString();
     record->song.albumRemoteId = object.value(QStringLiteral("albumRemoteId")).toString();
     record->song.artistRemoteId = object.value(QStringLiteral("artistRemoteId")).toString();
+    record->song.accessRequirement = static_cast<AccessRequirement>(qBound(
+        int(AccessRequirement::Unknown),
+        object.value(QStringLiteral("accessRequirement")).toInt(),
+        int(AccessRequirement::Unavailable)));
     if (record->song.source == int(SourceId::Netease)) {
         record->song.onlineId = record->song.remoteId.toLongLong();
         record->song.albumId = record->song.albumRemoteId.toLongLong();
@@ -407,6 +412,7 @@ QList<DownloadManifestRecord> downloadRecordsFromBackup(
                 sql += QLatin1Char(',') + columnOr(QStringLiteral("artist_remote_id"), QStringLiteral("''"));
                 sql += QStringLiteral(",download_path,");
                 sql += columnOr(QStringLiteral("media_remote_id"), QStringLiteral("''"));
+                sql += QLatin1Char(',') + columnOr(QStringLiteral("access_requirement"), QStringLiteral("0"));
                 sql += QStringLiteral(" FROM songs NOT INDEXED "
                                       "WHERE source>0 AND download_path<>'' ORDER BY id");
                 QSqlQuery query(database);
@@ -431,6 +437,9 @@ QList<DownloadManifestRecord> downloadRecordsFromBackup(
                         record.song.albumId = query.value(11).toLongLong();
                         record.song.artistRemoteId = query.value(12).toString();
                         record.song.mediaRemoteId = query.value(14).toString();
+                        record.song.accessRequirement = static_cast<AccessRequirement>(qBound(
+                            int(AccessRequirement::Unknown), query.value(15).toInt(),
+                            int(AccessRequirement::Unavailable)));
                         record.song.downloadPath = filePath;
                         record.filePath = filePath;
                         if (record.song.hasRemoteIdentity())
@@ -541,7 +550,7 @@ bool executeRecoverySql(const QSqlDatabase &database, const QString &sql, QStrin
 bool createRecoverySchema(const QSqlDatabase &database, QString *error)
 {
     const QStringList statements = {
-        QStringLiteral("CREATE TABLE songs(id INTEGER PRIMARY KEY AUTOINCREMENT,path TEXT NOT NULL UNIQUE,title TEXT DEFAULT '',artist TEXT DEFAULT '',album TEXT DEFAULT '',duration_ms INTEGER DEFAULT 0,cover_path TEXT DEFAULT '',has_cover INTEGER DEFAULT 0,missing INTEGER DEFAULT 0,play_count INTEGER DEFAULT 0,last_played_ms INTEGER DEFAULT 0,source INTEGER DEFAULT 0,remote_id TEXT DEFAULT '',media_remote_id TEXT DEFAULT '',online_id INTEGER DEFAULT 0,cover_url TEXT DEFAULT '',cache_path TEXT DEFAULT '',album_remote_id TEXT DEFAULT '',album_id INTEGER DEFAULT 0,artist_remote_id TEXT DEFAULT '',download_path TEXT DEFAULT '',file_mtime_ms INTEGER DEFAULT 0,file_size INTEGER DEFAULT 0)"),
+        QStringLiteral("CREATE TABLE songs(id INTEGER PRIMARY KEY AUTOINCREMENT,path TEXT NOT NULL UNIQUE,title TEXT DEFAULT '',artist TEXT DEFAULT '',album TEXT DEFAULT '',duration_ms INTEGER DEFAULT 0,cover_path TEXT DEFAULT '',has_cover INTEGER DEFAULT 0,missing INTEGER DEFAULT 0,play_count INTEGER DEFAULT 0,last_played_ms INTEGER DEFAULT 0,source INTEGER DEFAULT 0,remote_id TEXT DEFAULT '',media_remote_id TEXT DEFAULT '',online_id INTEGER DEFAULT 0,cover_url TEXT DEFAULT '',cache_path TEXT DEFAULT '',album_remote_id TEXT DEFAULT '',album_id INTEGER DEFAULT 0,artist_remote_id TEXT DEFAULT '',download_path TEXT DEFAULT '',file_mtime_ms INTEGER DEFAULT 0,file_size INTEGER DEFAULT 0,access_requirement INTEGER DEFAULT 0)"),
         QStringLiteral("CREATE TABLE playlists(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL UNIQUE,cover_path TEXT DEFAULT '',description TEXT DEFAULT '',created_ms INTEGER DEFAULT 0)"),
         QStringLiteral("CREATE TABLE song_cache(song_id INTEGER PRIMARY KEY,cache_path TEXT NOT NULL,size_bytes INTEGER DEFAULT 0,last_used_ms INTEGER DEFAULT 0)"),
         QStringLiteral("CREATE TABLE playlist_songs(playlist_id INTEGER NOT NULL,song_id INTEGER NOT NULL,position INTEGER NOT NULL,PRIMARY KEY(playlist_id,song_id))"),
@@ -842,7 +851,8 @@ bool LibraryService::recoverCorruptDatabase(const QString &backupPath, QString *
     songsSql += QStringLiteral(",album_id,");
     songsSql += textColumnOr(QStringLiteral("artist_remote_id"), QStringLiteral("''"));
     songsSql += QLatin1Char(',') + textColumnOr(QStringLiteral("download_path"), QStringLiteral("''"));
-    songsSql += QLatin1Char(',') + textColumnOr(QStringLiteral("media_remote_id"), QStringLiteral("''")) + QLatin1Char(' ');
+    songsSql += QLatin1Char(',') + textColumnOr(QStringLiteral("media_remote_id"), QStringLiteral("''"));
+    songsSql += QLatin1Char(',') + textColumnOr(QStringLiteral("access_requirement"), QStringLiteral("0")) + QLatin1Char(' ');
     songsSql += QStringLiteral("FROM songs NOT INDEXED ORDER BY rowid");
     songColumns = QSqlQuery();
     const RecoveryRows songs = readRecoveryRows(m_db, songsSql);
@@ -926,9 +936,9 @@ bool LibraryService::recoverCorruptDatabase(const QString &backupPath, QString *
     QSet<QString> onlineKeys;
     const bool songsWritten = writeRecoveryRows(recovered, songs.rows, QStringLiteral(
         "INSERT OR IGNORE INTO songs(id,path,title,artist,album,duration_ms,cover_path,has_cover,missing,"
-        "play_count,last_played_ms,source,remote_id,online_id,cover_url,cache_path,album_remote_id,album_id,artist_remote_id,download_path,media_remote_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"),
+        "play_count,last_played_ms,source,remote_id,online_id,cover_url,cache_path,album_remote_id,album_id,artist_remote_id,download_path,media_remote_id,access_requirement) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"),
         [&paths, &onlineKeys](QSqlQuery &query, const QVariantList &row) {
-            if (row.size() != 21)
+            if (row.size() != 22)
                 return false;
             const QString path = row.at(1).toString();
             if (path.isEmpty() || paths.contains(path))
@@ -1160,7 +1170,8 @@ bool LibraryService::openDatabase()
         { QStringLiteral("artist_remote_id"), QStringLiteral("TEXT DEFAULT ''") },
         { QStringLiteral("download_path"), QStringLiteral("TEXT DEFAULT ''") },
         { QStringLiteral("file_mtime_ms"), QStringLiteral("INTEGER DEFAULT 0") },
-        { QStringLiteral("file_size"), QStringLiteral("INTEGER DEFAULT 0") }
+        { QStringLiteral("file_size"), QStringLiteral("INTEGER DEFAULT 0") },
+        { QStringLiteral("access_requirement"), QStringLiteral("INTEGER DEFAULT 0") }
     };
     bool needsSongMigration = false;
     for (const auto &column : songColumnsToEnsure)
@@ -1356,8 +1367,8 @@ void LibraryService::reconcileManagedDownloads()
         QSqlQuery query(m_db);
         query.prepare(QStringLiteral(
             "INSERT INTO songs(path,title,artist,album,duration_ms,cover_path,has_cover,missing,"
-            "source,remote_id,online_id,cover_url,album_remote_id,album_id,artist_remote_id,media_remote_id,download_path) "
-            "VALUES(?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?,?) "
+            "source,remote_id,online_id,cover_url,album_remote_id,album_id,artist_remote_id,media_remote_id,download_path,access_requirement) "
+            "VALUES(?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(source,remote_id) WHERE source>0 AND remote_id<>'' DO UPDATE SET "
             "title=CASE WHEN songs.title='' THEN excluded.title ELSE songs.title END,"
             "artist=CASE WHEN songs.artist='' THEN excluded.artist ELSE songs.artist END,"
@@ -1371,6 +1382,7 @@ void LibraryService::reconcileManagedDownloads()
             "album_id=CASE WHEN songs.album_id<=0 THEN excluded.album_id ELSE songs.album_id END,"
             "artist_remote_id=CASE WHEN songs.artist_remote_id='' THEN excluded.artist_remote_id ELSE songs.artist_remote_id END,"
             "media_remote_id=CASE WHEN songs.media_remote_id='' THEN excluded.media_remote_id ELSE songs.media_remote_id END,"
+            "access_requirement=CASE WHEN excluded.access_requirement<>0 THEN excluded.access_requirement ELSE songs.access_requirement END,"
             "download_path=excluded.download_path,missing=0"));
         query.addBindValue(virtualPath);
         query.addBindValue(record.song.title);
@@ -1388,6 +1400,7 @@ void LibraryService::reconcileManagedDownloads()
         query.addBindValue(record.song.artistRemoteId);
         query.addBindValue(record.song.mediaRemoteId);
         query.addBindValue(normalizedPath);
+        query.addBindValue(int(record.song.accessRequirement));
         return query.exec();
     };
 
@@ -1408,7 +1421,7 @@ void LibraryService::reconcileManagedDownloads()
         QSqlQuery songs(m_db);
         if (!songs.exec(QStringLiteral(
                 "SELECT id,path,title,artist,album,duration_ms,cover_path,source,remote_id,online_id,"
-                "cover_url,album_remote_id,album_id,artist_remote_id,download_path,media_remote_id FROM songs "
+                "cover_url,album_remote_id,album_id,artist_remote_id,download_path,media_remote_id,access_requirement FROM songs "
                 "WHERE source>0 AND remote_id<>'' ORDER BY id")))
             return rows;
         while (songs.next()) {
@@ -1430,6 +1443,7 @@ void LibraryService::reconcileManagedDownloads()
             row.storedPath = songs.value(14).toString();
             row.song.downloadPath = row.storedPath;
             row.song.mediaRemoteId = songs.value(15).toString();
+            row.song.accessRequirement = static_cast<AccessRequirement>(songs.value(16).toInt());
             row.baseKey = downloadBaseName(row.song.title, row.song.artist,
                                            row.song.effectiveRemoteId()).toCaseFolded();
             row.assigned = !row.storedPath.isEmpty() && QFileInfo(row.storedPath).isFile()
@@ -1768,7 +1782,7 @@ void LibraryService::reloadSongs()
     if (!q.exec(QStringLiteral(
         "SELECT s.id,s.path,s.title,s.artist,s.album,s.duration_ms,s.cover_path,s.missing,"
         "s.play_count,s.last_played_ms,s.source,s.online_id,s.cover_url,s.album_id,sc.cache_path,s.download_path,"
-        "s.remote_id,s.album_remote_id,s.artist_remote_id,s.media_remote_id "
+        "s.remote_id,s.album_remote_id,s.artist_remote_id,s.media_remote_id,s.access_requirement "
         "FROM songs s LEFT JOIN song_cache sc ON sc.song_id=s.id ORDER BY s.id"))) {
         m_lastError = q.lastError().text();
         return;
@@ -1795,6 +1809,9 @@ void LibraryService::reloadSongs()
         s.albumRemoteId = q.value(17).toString();
         s.artistRemoteId = q.value(18).toString();
         s.mediaRemoteId = q.value(19).toString();
+        s.accessRequirement = static_cast<AccessRequirement>(qBound(
+            int(AccessRequirement::Unknown), q.value(20).toInt(),
+            int(AccessRequirement::Unavailable)));
         if (s.remoteId.isEmpty() && s.onlineId > 0)
             s.remoteId = QString::number(s.onlineId);
         if (s.albumRemoteId.isEmpty() && s.albumId > 0)
@@ -1883,8 +1900,8 @@ qint64 LibraryService::upsertOnlineSong(const Song &song)
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral(
         "INSERT INTO songs(path,title,artist,album,duration_ms,cover_path,has_cover,cover_url,source,"
-        "remote_id,online_id,album_remote_id,album_id,artist_remote_id,media_remote_id,missing) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0) "
+        "remote_id,online_id,album_remote_id,album_id,artist_remote_id,media_remote_id,access_requirement,missing) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0) "
         "ON CONFLICT(source,remote_id) WHERE source>0 AND remote_id<>'' DO UPDATE SET "
         "title=excluded.title,artist=excluded.artist,album=excluded.album,"
         "duration_ms=excluded.duration_ms,cover_url=excluded.cover_url,"
@@ -1894,6 +1911,7 @@ qint64 LibraryService::upsertOnlineSong(const Song &song)
         "album_remote_id=excluded.album_remote_id,album_id=excluded.album_id,"
         "artist_remote_id=excluded.artist_remote_id,"
         "media_remote_id=CASE WHEN excluded.media_remote_id<>'' THEN excluded.media_remote_id ELSE songs.media_remote_id END,"
+        "access_requirement=CASE WHEN excluded.access_requirement<>0 THEN excluded.access_requirement ELSE songs.access_requirement END,"
         "missing=0"));
     q.addBindValue(song.filePath);
     q.addBindValue(song.title);
@@ -1910,6 +1928,7 @@ qint64 LibraryService::upsertOnlineSong(const Song &song)
     q.addBindValue(song.albumId);
     q.addBindValue(song.artistRemoteId);
     q.addBindValue(song.mediaRemoteId);
+    q.addBindValue(int(song.accessRequirement));
     if (!q.exec())
         return -1;
 
@@ -1939,6 +1958,8 @@ qint64 LibraryService::upsertOnlineSong(const Song &song)
             s.artistRemoteId = song.artistRemoteId;
             if (!song.mediaRemoteId.isEmpty())
                 s.mediaRemoteId = song.mediaRemoteId;
+            if (song.accessRequirement != AccessRequirement::Unknown)
+                s.accessRequirement = song.accessRequirement;
             s.filePath = song.filePath;
             s.missing = false;
             return id;

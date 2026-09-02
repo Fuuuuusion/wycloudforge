@@ -39,6 +39,7 @@
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QInputDialog>
+#include <QIcon>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -48,7 +49,10 @@
 #include <QPlainTextEdit>
 #include <QPointer>
 #include <QPixmap>
+#include <QPainterPath>
 #include <QPushButton>
+#include <QRegion>
+#include <QResizeEvent>
 #include <QShortcut>
 #include <QStandardPaths>
 #include <QStackedWidget>
@@ -62,6 +66,7 @@
 #include <QVBoxLayout>
 
 #include <windows.h>
+#include <dwmapi.h>
 
 #include <algorithm>
 #include <functional>
@@ -70,6 +75,21 @@ namespace {
 constexpr int kResizeBorder = 5;
 constexpr int kOnlineCoverDetailsBatch = 24;
 constexpr int kOnlineCoverDownloadsBatch = 3;
+
+bool neteaseVipActive(const QJsonObject &object)
+{
+    const QStringList keys = { QStringLiteral("redVipLevel"), QStringLiteral("vipLevel"),
+                               QStringLiteral("vipCode"), QStringLiteral("vipType") };
+    for (const QString &key : keys) {
+        if (object.value(key).toVariant().toLongLong() > 0)
+            return true;
+    }
+    for (auto it = object.begin(); it != object.end(); ++it) {
+        if (it.value().isObject() && neteaseVipActive(it.value().toObject()))
+            return true;
+    }
+    return false;
+}
 
 void disableHorizontalScrollbars(QWidget *root)
 {
@@ -160,7 +180,8 @@ core::OnlinePlaylist cloudPlaylistFromJson(const QJsonObject &object)
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
-    setWindowTitle(QStringLiteral("仿网易云播放器"));
+    setWindowTitle(QStringLiteral("FuSinplayer"));
+    setWindowIcon(QIcon(QStringLiteral(":/branding/fusinplayer-logo.png")));
     setWindowFlags(Qt::FramelessWindowHint | Qt::Window);
     resize(1280, 800);
     setMinimumSize(940, 600);
@@ -317,9 +338,11 @@ MainWindow::MainWindow(QWidget *parent)
         "QWidget#rightColumn{background:@pageBackground;border:none;}"));
 
     // ---------- 标题栏 ----------
-    connect(m_titleBar, &ui::TitleBar::minimizeClicked, this, &QWidget::showMinimized);
+    connect(m_titleBar, &ui::TitleBar::minimizeClicked, this, [this] {
+        requestNativeWindowCommand(SC_MINIMIZE);
+    });
     connect(m_titleBar, &ui::TitleBar::maximizeClicked, this, [this] {
-        isMaximized() ? showNormal() : showMaximized();
+        requestNativeWindowCommand(isMaximized() ? SC_RESTORE : SC_MAXIMIZE);
     });
     connect(m_titleBar, &ui::TitleBar::closeClicked, this, &QWidget::close);
     const auto executeSearch = [this](const QString &requested) {
@@ -1841,6 +1864,7 @@ void MainWindow::restoreOnlineSession()
             core::SettingsService::setOnlineUid(0);
             core::SettingsService::setOnlineNickname(QString());
             core::SettingsService::setOnlineAvatarUrl(QString());
+            core::SettingsService::setOnlineVipStatus(-1);
             m_apiClient.setCookie(QString());
         }
         removeCloudPlaylists(core::SourceId::Netease);
@@ -1869,12 +1893,21 @@ void MainWindow::restoreOnlineSession()
             if (!nickname.isEmpty())
                 core::SettingsService::setOnlineNickname(nickname);
             refreshCloudPlaylists(core::SourceId::Netease, QString::number(uid));
+            core::SettingsService::setOnlineVipStatus(-1);
+            m_apiClient.vipStatus(uid, [this](const QJsonObject &vip) {
+                core::SettingsService::setOnlineVipStatus(neteaseVipActive(vip) ? 1 : 0);
+                m_accountPanel->refresh();
+            }, [this](const QString &) {
+                core::SettingsService::setOnlineVipStatus(-1);
+                m_accountPanel->refresh();
+            });
         } else {
             // cookie 已失效时同步清理展示状态，避免“显示已登录但请求均未授权”。
             core::SettingsService::setOnlineCookie(QString());
             core::SettingsService::setOnlineUid(0);
             core::SettingsService::setOnlineNickname(QString());
             core::SettingsService::setOnlineAvatarUrl(QString());
+            core::SettingsService::setOnlineVipStatus(-1);
             m_apiClient.setCookie(QString());
             removeCloudPlaylists(core::SourceId::Netease);
         }
@@ -2495,6 +2528,44 @@ bool MainWindow::nativeEvent(const QByteArray &, void *message, qintptr *result)
     return QMainWindow::nativeEvent(QByteArray(), message, result);
 }
 
+void MainWindow::requestNativeWindowCommand(quint32 command)
+{
+    if (HWND window = reinterpret_cast<HWND>(winId())) {
+        // WM_SYSCOMMAND keeps DWM's native transition and follows the Windows
+        // animation accessibility preference.
+        PostMessageW(window, WM_SYSCOMMAND, WPARAM(command), 0);
+        return;
+    }
+    if (command == SC_MINIMIZE)
+        showMinimized();
+    else if (command == SC_MAXIMIZE)
+        showMaximized();
+    else if (command == SC_RESTORE)
+        showNormal();
+}
+
+void MainWindow::updateWindowCorners()
+{
+    const bool square = isMaximized() || isFullScreen();
+    if (HWND window = reinterpret_cast<HWND>(winId())) {
+        // DWMWA_WINDOW_CORNER_PREFERENCE=33 is available on Windows 11. Local
+        // values keep compatibility with older MinGW header sets.
+        constexpr DWORD kCornerPreference = 33;
+        constexpr int kDoNotRound = 1;
+        constexpr int kRound = 2;
+        const int preference = square ? kDoNotRound : kRound;
+        DwmSetWindowAttribute(window, kCornerPreference, &preference, sizeof(preference));
+    }
+    if (square) {
+        clearMask();
+        return;
+    }
+    constexpr qreal radius = 14.0;
+    QPainterPath path;
+    path.addRoundedRect(QRectF(rect()), radius, radius);
+    setMask(QRegion(path.toFillPolygon().toPolygon()));
+}
+
 void MainWindow::closeEvent(QCloseEvent *event)
 {
     const core::Song song = m_player.currentSong();
@@ -2509,7 +2580,16 @@ void MainWindow::closeEvent(QCloseEvent *event)
 
 void MainWindow::changeEvent(QEvent *event)
 {
-    if (event->type() == QEvent::WindowStateChange && m_titleBar)
-        m_titleBar->setMaximizedState(isMaximized());
     QMainWindow::changeEvent(event);
+    if (event->type() == QEvent::WindowStateChange) {
+        if (m_titleBar)
+            m_titleBar->setMaximizedState(isMaximized());
+        QTimer::singleShot(0, this, &MainWindow::updateWindowCorners);
+    }
+}
+
+void MainWindow::resizeEvent(QResizeEvent *event)
+{
+    QMainWindow::resizeEvent(event);
+    updateWindowCorners();
 }

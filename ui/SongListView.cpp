@@ -98,6 +98,21 @@ QPixmap tintedIcon(const QString &path, int size, const QColor &color)
     return result;
 }
 
+QPixmap tintedRaster(const QString &path, const QSize &size, const QColor &color)
+{
+    QPixmap source(path);
+    if (source.isNull())
+        return {};
+    source = source.scaled(size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    QPixmap result(source.size());
+    result.fill(Qt::transparent);
+    QPainter painter(&result);
+    painter.drawPixmap(0, 0, source);
+    painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+    painter.fillRect(result.rect(), color);
+    return result;
+}
+
 class BatchDeleteButton final : public QPushButton
 {
 public:
@@ -420,7 +435,18 @@ public:
             const QString titleText = combinedSongTitle(song);
             const QBrush titleBrush = active ? activeTextBrush(textRect)
                                              : QBrush(song.missing ? textTertiaryColor() : textPrimaryColor());
-            drawHighlightedText(*painter, textRect, titleText, query, titleBrush, Qt::AlignLeft);
+            const bool vip = song.requiresVip();
+            const qreal badgeWidth = vip ? 32.0 : 0.0;
+            drawHighlightedText(*painter, textRect.adjusted(0, 0, -badgeWidth, 0),
+                                titleText, query, titleBrush, Qt::AlignLeft);
+            if (vip) {
+                const qreal titleWidth = painter->fontMetrics().horizontalAdvance(titleText);
+                const qreal x = qMin(textRect.left() + titleWidth + 6.0,
+                                     textRect.right() - 28.0);
+                const QPixmap badge = tintedRaster(
+                    QStringLiteral(":/branding/vip-song-mask.png"), QSize(28, 16), accentColor());
+                painter->drawPixmap(QRectF(x, textRect.center().y() - 8.0, 28, 16).toRect(), badge);
+            }
             painter->restore();
         } else if (col == 3) {
             bool available = false;

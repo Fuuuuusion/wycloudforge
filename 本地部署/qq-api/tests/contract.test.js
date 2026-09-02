@@ -20,7 +20,20 @@ test('normalizes fixture and ignores unknown fields', () => {
     albumRemoteId: '004DABuD2r4V8n',
     durationMs: 245000,
     coverUrl: 'https://y.gtimg.cn/music/photo_new/T002R300x300M000004DABuD2r4V8n.jpg?max_age=2592000',
+    accessRequirement: 1,
+    pay: { pay_month: 0, pay_play: 0, price_track: 0, price_album: 0 },
   });
+});
+
+test('distinguishes QQ VIP tracks from separately purchased tracks', () => {
+  const vip = contract.normalizeSong({
+    songmid: 'VIP_SONG', songname: '会员歌曲', pay: { pay_month: 1, pay_play: 1 },
+  });
+  const purchase = contract.normalizeSong({
+    songmid: 'PURCHASE_SONG', songname: '单独购买', pay: { price_track: 200 },
+  });
+  assert.equal(vip.accessRequirement, 2);
+  assert.equal(purchase.accessRequirement, 3);
 });
 
 test('preserves QQ media identity and upstream playback errors', () => {

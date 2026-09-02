@@ -12,7 +12,7 @@ if (-not $BuildDir) {
     $BuildDir = Join-Path $env:TEMP "netease_build"
 }
 
-$buildExe = Join-Path $BuildDir "bin\NeteaseClone.exe"
+$buildExe = Join-Path $BuildDir "bin\FuSinplayer.exe"
 if (-not (Test-Path -LiteralPath $buildExe -PathType Leaf)) {
     throw "未找到 $buildExe ,请先构建 Release 版本"
 }
@@ -63,7 +63,7 @@ $libZ = Resolve-RequiredFile (Join-Path $vcpkgBin "libz.dll") "zlib DLL"
 $outRoot = Join-Path $repo $OutputDir
 New-Item -ItemType Directory -Force -Path $outRoot | Out-Null
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$packageName = "NeteaseClone-portable-$stamp"
+$packageName = "FuSinplayer-portable-$stamp"
 $packageDir = Join-Path $outRoot $packageName
 $zipPath = Join-Path $outRoot "$packageName.zip"
 if (Test-Path -LiteralPath $packageDir) {
@@ -87,7 +87,7 @@ try {
 
 Copy-Item -LiteralPath $libTag -Destination (Join-Path $packageDir "libtag.dll") -Force
 Copy-Item -LiteralPath $libZ -Destination (Join-Path $packageDir "libz.dll") -Force
-Copy-Item -LiteralPath $buildExe -Destination (Join-Path $packageDir "NeteaseClone.exe") -Force
+Copy-Item -LiteralPath $buildExe -Destination (Join-Path $packageDir "FuSinplayer.exe") -Force
 
 $runtimeNodeDir = Join-Path $packageDir "runtime\node"
 $serviceRoot = Join-Path $packageDir "本地部署"
@@ -117,18 +117,18 @@ $launcher = @'
 @echo off
 setlocal
 cd /d "%~dp0"
-start "" "%~dp0NeteaseClone.exe" %*
+start "" "%~dp0FuSinplayer.exe" %*
 endlocal
 '@
-Set-Content -LiteralPath (Join-Path $packageDir "启动仿网易云播放器.cmd") -Value $launcher -Encoding ASCII
+Set-Content -LiteralPath (Join-Path $packageDir "启动FuSinplayer.cmd") -Value $launcher -Encoding ASCII
 
 $readme = @"
-仿网易云播放器便携版
+FuSinplayer 便携版
 
-启动：双击“启动仿网易云播放器.cmd”。不要只移动或重命名其中的 DLL。
+启动：双击“启动FuSinplayer.cmd”。不要只移动或重命名其中的 DLL。
 
 本包已内置：
-- NeteaseClone.exe 与 Qt/FFmpeg/TagLib 运行库
+- FuSinplayer.exe 与 Qt/FFmpeg/TagLib 运行库
 - Node.js $nodeVersion
 - 网易云 API NeteaseCloudMusicApi@4.32.0
 - QQ 音乐包装服务及 @sansenjian/qq-music-api@2.6.0
@@ -150,7 +150,7 @@ Windows DPAPI 登录凭据不能跨机器复制；如需迁移数据，请先正
 Set-Content -LiteralPath (Join-Path $packageDir "README-便携版.txt") -Value $readme -Encoding UTF8
 
 $manifest = [ordered]@{
-    product = "NeteaseClone"
+    product = "FuSinplayer"
     package = $packageName
     createdAt = (Get-Date).ToUniversalTime().ToString("o")
     node = $nodeVersion

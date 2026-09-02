@@ -38,6 +38,7 @@ QJsonObject songToJson(const Song &song)
         { QStringLiteral("durationMs"), number(song.durationMs) },
         { QStringLiteral("coverUrl"), song.coverUrl },
         { QStringLiteral("filePath"), song.filePath }
+        ,{ QStringLiteral("accessRequirement"), int(song.accessRequirement) }
     };
 }
 
@@ -54,6 +55,10 @@ Song songFromJson(const QJsonObject &object)
     song.durationMs = integer(object.value(QStringLiteral("durationMs")));
     song.coverUrl = object.value(QStringLiteral("coverUrl")).toString();
     song.filePath = object.value(QStringLiteral("filePath")).toString();
+    song.accessRequirement = static_cast<AccessRequirement>(qBound(
+        int(AccessRequirement::Unknown),
+        object.value(QStringLiteral("accessRequirement")).toInt(),
+        int(AccessRequirement::Unavailable)));
     if (song.sourceId() == SourceId::Netease) {
         song.onlineId = song.remoteId.toLongLong();
         song.albumId = song.albumRemoteId.toLongLong();

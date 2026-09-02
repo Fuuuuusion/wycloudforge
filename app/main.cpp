@@ -7,6 +7,7 @@
 
 #include <QApplication>
 #include <QDir>
+#include <QIcon>
 #include <QLockFile>
 #include <QSettings>
 #include <QStandardPaths>
@@ -67,7 +68,10 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     QApplication::setOrganizationName(QStringLiteral("NeteaseClone"));
     QApplication::setApplicationName(QStringLiteral("NeteaseClone"));
-    QApplication::setApplicationDisplayName(QStringLiteral("仿网易云播放器"));
+    // Keep the legacy internal identity so existing QSettings, AppData,
+    // credentials and the single-instance lock remain visible after rebranding.
+    QApplication::setApplicationDisplayName(QStringLiteral("FuSinplayer"));
+    app.setWindowIcon(QIcon(QStringLiteral(":/branding/fusinplayer-logo.png")));
 
     // 尽可能早地完成单实例判断。第二次启动无需加载主题、字体和播放器界面，
     // 只负责唤醒已有窗口后立即退出。

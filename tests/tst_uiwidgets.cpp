@@ -127,6 +127,7 @@ private slots:
     void recommendedPlaylistsScrollAtNarrowWidths();
     void accountActionIsExplicitAndPreservesSignal();
     void qqOnlyAccountFallsBackToQqIdentity();
+    void vipBadgesReflectAccountAndSelectedSong();
     void downloadPageKeepsFixedRowsAndByteProgress();
     void songListNavigationStateRestoresDetailContext();
     void guestSourcesHideBehindAuthenticatedVariant();
@@ -1732,6 +1733,41 @@ void SongListViewTest::qqOnlyAccountFallsBackToQqIdentity()
     QCOMPARE(SettingsService::accountDisplaySource(), 1);
 }
 
+void SongListViewTest::vipBadgesReflectAccountAndSelectedSong()
+{
+    SettingsService::setOnlineUid(0);
+    SettingsService::setQqUserId(QStringLiteral("vip-user"));
+    SettingsService::setQqNickname(QStringLiteral("VIP 用户"));
+    SettingsService::setAccountDisplaySource(1);
+    SettingsService::setQqVipStatus(1);
+    AccountPanel account;
+    auto *accountBadge = account.findChild<QLabel *>(QStringLiteral("accountVipBadge"));
+    QVERIFY(accountBadge);
+    QVERIFY(accountBadge->isVisibleTo(&account));
+    QVERIFY(!accountBadge->pixmap().isNull());
+
+    PlayerBar player;
+    Song vipSong;
+    vipSong.id = 3001;
+    vipSong.title = QStringLiteral("会员歌曲");
+    vipSong.source = int(SourceId::QqMusic);
+    vipSong.remoteId = QStringLiteral("vip-song");
+    vipSong.accessRequirement = AccessRequirement::Vip;
+    player.setSong(vipSong, false);
+    auto *songBadge = player.findChild<QLabel *>(QStringLiteral("playerVipBadge"));
+    QVERIFY(songBadge);
+    QVERIFY(songBadge->isVisibleTo(&player));
+
+    vipSong.accessRequirement = AccessRequirement::Purchase;
+    player.setSong(vipSong, false);
+    QVERIFY(!songBadge->isVisible());
+
+    SettingsService::setQqUserId(QString());
+    SettingsService::setQqNickname(QString());
+    SettingsService::setQqVipStatus(-1);
+    SettingsService::setAccountDisplaySource(-1);
+}
+
 void SongListViewTest::downloadPageKeepsFixedRowsAndByteProgress()
 {
     DownloadPage page;
@@ -1829,7 +1865,7 @@ void SongListViewTest::layoutComponentsFollowConfirmedGeometry()
     QCOMPARE(navButtons, 4);
 
     AccountPanel account;
-    QCOMPARE(account.height(), 224);
+    QCOMPARE(account.height(), 244);
     auto *avatar = account.findChild<QPushButton *>(QStringLiteral("accountAvatarButton"));
     QVERIFY(avatar);
     QCOMPARE(avatar->size(), QSize(120, 120));

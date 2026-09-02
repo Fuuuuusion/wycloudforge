@@ -542,6 +542,9 @@ Song QqMusicSource::songFromJson(const QJsonObject &obj) const
         obj.value(QStringLiteral("coverUrl")).toString(), obj.value(QStringLiteral("albumRemoteId")).toString(),
         obj.value(QStringLiteral("artistRemoteId")).toString());
     song.mediaRemoteId = obj.value(QStringLiteral("mediaRemoteId")).toString().trimmed();
+    song.accessRequirement = static_cast<AccessRequirement>(qBound(
+        int(AccessRequirement::Unknown), obj.value(QStringLiteral("accessRequirement")).toInt(),
+        int(AccessRequirement::Unavailable)));
     return song;
 }
 

@@ -9,6 +9,7 @@
 #include <QMediaDevices>
 #include <QObject>
 #include <QSet>
+#include <QTimer>
 #include <QVector>
 
 namespace core {
@@ -120,6 +121,8 @@ private:
     int m_consecutiveFailures = 0;
     QSet<qint64> m_coverSaveInFlight;
     int m_endOfMediaToken = -1;
+    QTimer m_endStallTimer;
+    int m_endStallToken = -1;
 };
 
 } // namespace core

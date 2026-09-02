@@ -92,6 +92,21 @@ QPixmap tintedSvg(const QString &path, const QColor &color, qreal dpr)
     return pixmap;
 }
 
+QPixmap tintedRaster(const QString &path, const QSize &size, const QColor &color)
+{
+    QPixmap source(path);
+    if (source.isNull())
+        return {};
+    source = source.scaled(size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    QPixmap result(source.size());
+    result.fill(Qt::transparent);
+    QPainter painter(&result);
+    painter.drawPixmap(0, 0, source);
+    painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+    painter.fillRect(result.rect(), color);
+    return result;
+}
+
 QColor blendedColor(const QColor &from, const QColor &to, qreal progress)
 {
     const qreal t = qBound<qreal>(0.0, progress, 1.0);
@@ -770,7 +785,17 @@ PlayerBar::PlayerBar(QWidget *parent)
     auto *infoLayout = new QVBoxLayout(m_infoBox);
     infoLayout->setContentsMargins(0, 0, 0, 0);
     infoLayout->setSpacing(4);
-    infoLayout->addWidget(m_title);
+    auto *titleRow = new QHBoxLayout;
+    titleRow->setContentsMargins(0, 0, 0, 0);
+    titleRow->setSpacing(6);
+    titleRow->addWidget(m_title, 1);
+    m_vipBadge = new QLabel(m_infoBox);
+    m_vipBadge->setObjectName(QStringLiteral("playerVipBadge"));
+    m_vipBadge->setFixedSize(28, 16);
+    m_vipBadge->setToolTip(QStringLiteral("当前来源需要 VIP"));
+    m_vipBadge->hide();
+    titleRow->addWidget(m_vipBadge, 0, Qt::AlignVCenter);
+    infoLayout->addLayout(titleRow);
     infoLayout->addWidget(m_artist);
 
     m_heartBtn = new FavoriteButton(this);
@@ -931,6 +956,12 @@ PlayerBar::PlayerBar(QWidget *parent)
     connect(m_nextBtn, &QPushButton::clicked, this, &PlayerBar::nextClicked);
     connect(m_lyricsBtn, &QPushButton::clicked, this, &PlayerBar::lyricsClicked);
     connect(m_queueBtn, &QPushButton::clicked, this, &PlayerBar::playlistClicked);
+    connect(&ThemeManager::instance(), &ThemeManager::themeChanged, this, [this] {
+        if (m_song.requiresVip())
+            m_vipBadge->setPixmap(tintedRaster(
+                QStringLiteral(":/branding/vip-song-mask.png"), QSize(28, 16),
+                themeColor(ThemeColor::Accent)));
+    });
     connect(m_muteBtn, &QPushButton::clicked, this, [this] {
         m_muted = !m_muted;
         updateVolumeIcon();
@@ -1025,6 +1056,13 @@ void PlayerBar::setSong(const core::Song &song, bool favorite, bool animateDownl
     const QString artist = song.artist.isEmpty() ? QStringLiteral("未知歌手") : song.artist;
     static_cast<ElidedLabel *>(m_title)->setFullText(title);
     static_cast<ElidedLabel *>(m_artist)->setFullText(artist);
+    if (song.requiresVip()) {
+        m_vipBadge->setPixmap(tintedRaster(QStringLiteral(":/branding/vip-song-mask.png"),
+                                            QSize(28, 16), themeColor(ThemeColor::Accent)));
+        m_vipBadge->show();
+    } else {
+        m_vipBadge->hide();
+    }
     setToolTip(QString());
     m_cover->setToolTip(QString());
     static_cast<FavoriteButton *>(m_heartBtn)->setFavorite(favorite, false);

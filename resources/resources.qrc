@@ -1,5 +1,8 @@
 <RCC>
   <qresource prefix="/">
+    <file alias="branding/fusinplayer-logo.png">branding/fusinplayer-logo.png</file>
+    <file alias="branding/vip-account-mask.png">branding/vip-account-mask.png</file>
+    <file alias="branding/vip-song-mask.png">branding/vip-song-mask.png</file>
     <file alias="theme.qss">theme.qss</file>
     <file alias="icons/icon-play-white.svg">icons/icon-play-white.svg</file>
     <file alias="icons/icon-pause-white.svg">icons/icon-pause-white.svg</file>

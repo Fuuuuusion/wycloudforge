@@ -87,6 +87,7 @@ public:
     void qrCreate(const QString &key, StringFn ok, ErrFn err = {}) override;
     void qrCheck(const QString &key, OkFn ok, ErrFn err = {}) override;
     void loginStatus(OkFn ok, ErrFn err = {}) override;
+    void vipStatus(qint64 uid, OkFn ok, ErrFn err = {});
     void logout(OkFn ok, ErrFn err = {}) override;
     void userPlaylists(const QString &uid, JsonArrayFn ok, ErrFn err = {}) override;
     void downloadToFile(const QUrl &url, const QString &filePath, BoolFn done) override;

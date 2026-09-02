@@ -10,7 +10,7 @@ if (-not $BuildDir) {
     $BuildDir = Join-Path $env:TEMP "netease_build"
 }
 
-$exe = Join-Path $BuildDir "bin\NeteaseClone.exe"
+$exe = Join-Path $BuildDir "bin\FuSinplayer.exe"
 if (-not (Test-Path $exe)) {
     throw "未找到 $exe ,请先构建(见 README)"
 }
@@ -31,7 +31,6 @@ $env:PATH = "$qtBin;$mingwBin;$vcpkgBin;$env:PATH"
 # 部署第三方动态库
 Copy-Item (Join-Path $vcpkgBin "libtag.dll") $out -Force
 Copy-Item (Join-Path $vcpkgBin "libz.dll") $out -Force
-Copy-Item $exe (Join-Path $out "NeteaseClone.exe") -Force
+Copy-Item $exe (Join-Path $out "FuSinplayer.exe") -Force
 
 Write-Host "打包完成:$out"
-

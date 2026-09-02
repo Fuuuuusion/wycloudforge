@@ -201,8 +201,11 @@ QString SettingsService::onlineDownloadDir()
     const QString configured = QSettings().value(QStringLiteral("online/downloadDir")).toString();
     if (!configured.isEmpty())
         return configured;
-    return QStandardPaths::writableLocation(QStandardPaths::MusicLocation)
-        + QStringLiteral("/NeteaseClone Downloads");
+    const QString music = QStandardPaths::writableLocation(QStandardPaths::MusicLocation);
+    const QString legacy = music + QStringLiteral("/NeteaseClone Downloads");
+    // Existing installations keep their old folder. Fresh installs use the public
+    // product name without making downloaded music appear to disappear.
+    return QDir(legacy).exists() ? legacy : music + QStringLiteral("/FuSinplayer Downloads");
 }
 
 void SettingsService::setOnlineDownloadDir(const QString &dir)
@@ -383,6 +386,16 @@ QString SettingsService::qqAvatarRemoteUrl()
 void SettingsService::setQqAvatarRemoteUrl(const QString &url)
 {
     QSettings().setValue(QStringLiteral("qq/avatarRemoteUrl"), url);
+}
+
+int SettingsService::onlineVipStatus(int fallback)
+{
+    return QSettings().value(QStringLiteral("online/vipStatus"), fallback).toInt();
+}
+
+void SettingsService::setOnlineVipStatus(int status)
+{
+    QSettings().setValue(QStringLiteral("online/vipStatus"), qBound(-1, status, 1));
 }
 
 int SettingsService::qqVipStatus(int fallback)

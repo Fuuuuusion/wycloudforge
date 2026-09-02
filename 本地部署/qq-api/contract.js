@@ -71,6 +71,16 @@ function normalizeSong(raw) {
     || (albumRemoteId
       ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${encodeURIComponent(albumRemoteId)}.jpg?max_age=2592000`
       : '');
+  const pay = raw.pay && typeof raw.pay === 'object' ? raw.pay : {};
+  const payMonth = Number(pay.pay_month ?? raw.pay_month ?? 0);
+  const payPlay = Number(pay.pay_play ?? raw.pay_play ?? 0);
+  const priceTrack = Number(pay.price_track ?? raw.price_track ?? 0);
+  const priceAlbum = Number(pay.price_album ?? raw.price_album ?? 0);
+  // Mirrors core::AccessRequirement: Unknown=0, Free=1, Vip=2,
+  // Purchase=3, Unavailable=4. pay_month is the explicit QQ VIP flag;
+  // separately purchasable tracks must not receive the VIP badge.
+  const accessRequirement = payMonth > 0 ? 2
+    : (payPlay > 0 || priceTrack > 0 || priceAlbum > 0) ? 3 : 1;
   return {
     remoteId,
     mediaRemoteId,
@@ -81,6 +91,8 @@ function normalizeSong(raw) {
     albumRemoteId,
     durationMs,
     coverUrl,
+    accessRequirement,
+    pay: { pay_month: payMonth, pay_play: payPlay, price_track: priceTrack, price_album: priceAlbum },
   };
 }
 

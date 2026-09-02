@@ -41,13 +41,28 @@ QPixmap letterAvatar(const QString &letter, int size)
     p.drawText(pm.rect(), Qt::AlignCenter, letter);
     return pm;
 }
+
+QPixmap tintedMask(const QString &path, const QSize &size, const QColor &color)
+{
+    QPixmap source(path);
+    if (source.isNull())
+        return {};
+    source = source.scaled(size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    QPixmap result(source.size());
+    result.fill(Qt::transparent);
+    QPainter painter(&result);
+    painter.drawPixmap(0, 0, source);
+    painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+    painter.fillRect(result.rect(), color);
+    return result;
+}
 }
 
 AccountPanel::AccountPanel(QWidget *parent)
     : QWidget(parent)
 {
     setObjectName("accountPanel");
-    setFixedHeight(224);
+    setFixedHeight(244);
 
     m_avatar = new QPushButton(this);
     m_avatar->setObjectName(QStringLiteral("accountAvatarButton"));
@@ -72,15 +87,23 @@ AccountPanel::AccountPanel(QWidget *parent)
         "padding:4px;text-align:center;}"
         "QPushButton:hover{color:@accent;}"));
 
+    m_vipBadge = new QLabel(this);
+    m_vipBadge->setObjectName(QStringLiteral("accountVipBadge"));
+    m_vipBadge->setFixedHeight(20);
+    m_vipBadge->setAlignment(Qt::AlignHCenter | Qt::AlignVCenter);
+
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(12, 12, 12, 12);
     layout->setSpacing(8);
     layout->addWidget(m_avatar, 0, Qt::AlignHCenter);
     layout->addWidget(m_accountButton);
+    layout->addWidget(m_vipBadge);
     layout->addStretch(1);
 
     connect(m_avatar, &QPushButton::clicked, this, &AccountPanel::accountClicked);
     connect(m_accountButton, &QPushButton::clicked, this, &AccountPanel::accountClicked);
+    connect(&ThemeManager::instance(), &ThemeManager::themeChanged,
+            this, [this] { refresh(); });
     refresh();
 }
 
@@ -119,6 +142,21 @@ void AccountPanel::refresh()
                                                 : QStringLiteral("登录"));
     m_accountButton->setToolTip(loggedIn ? QStringLiteral("查看账号")
                                          : QStringLiteral("登录网易云或 QQ音乐"));
+
+    if (!loggedIn || accountSource < 0) {
+        m_vipBadge->hide();
+    } else {
+        const int vip = accountSource == 0 ? core::SettingsService::onlineVipStatus()
+                                           : core::SettingsService::qqVipStatus();
+        const QColor color = vip > 0 ? themeColor(ThemeColor::Accent)
+                                     : themeColor(ThemeColor::DisabledText);
+        m_vipBadge->setPixmap(tintedMask(QStringLiteral(":/branding/vip-account-mask.png"),
+                                         QSize(52, 18), color));
+        m_vipBadge->setToolTip(vip > 0 ? QStringLiteral("当前账号为 VIP")
+                                       : vip == 0 ? QStringLiteral("当前账号为普通账号")
+                                                  : QStringLiteral("VIP 状态待验证"));
+        m_vipBadge->show();
+    }
 
     QPixmap pm = !avatarPath.isEmpty() ? QPixmap(avatarPath) : QPixmap();
     if (pm.isNull())

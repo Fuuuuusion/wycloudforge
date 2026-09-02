@@ -57,6 +57,9 @@ public:
     static void setOnlineNickname(const QString &name);
     static QString onlineAvatarUrl();
     static void setOnlineAvatarUrl(const QString &url);
+    // -1=未验证，0=普通账号，1=VIP 已识别
+    static int onlineVipStatus(int fallback = -1);
+    static void setOnlineVipStatus(int status);
 
     // QQ音乐
     static QString qqCookie();

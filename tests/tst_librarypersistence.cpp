@@ -768,6 +768,7 @@ void PlaylistControllerTest::stringRemoteIdentityPersists()
     qq.mediaRemoteId = QStringLiteral("C4000039MnYb0qxYhV");
     qq.albumRemoteId = QStringLiteral("004DABuD2r4V8n");
     qq.artistRemoteId = QStringLiteral("0025NhlN2yWrP4");
+    qq.accessRequirement = AccessRequirement::Vip;
     qq.filePath = QStringLiteral("qqmusic://0039MnYb0qxYhV");
     qq.title = QStringLiteral("字符串身份");
     qq.artist = QStringLiteral("QQ 歌手");
@@ -797,6 +798,8 @@ void PlaylistControllerTest::stringRemoteIdentityPersists()
     QCOMPARE(restored.mediaRemoteId, qq.mediaRemoteId);
     QCOMPARE(restored.albumRemoteId, qq.albumRemoteId);
     QCOMPARE(restored.artistRemoteId, qq.artistRemoteId);
+    QCOMPARE(restored.accessRequirement, AccessRequirement::Vip);
+    QVERIFY(restored.requiresVip());
     QCOMPARE(restored.onlineId, qint64(0));
     const Song playlistSong = m_controller->songsOf(playlistId).first();
     QCOMPARE(playlistSong.stableIdentity(), QStringLiteral("2:0039MnYb0qxYhV"));

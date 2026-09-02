@@ -31,11 +31,16 @@ PlayerService::PlayerService(QObject *parent)
             m_wasPlaying = true;
             m_consecutiveFailures = 0;
         } else if (state == QMediaPlayer::PausedState) {
-            m_wasPlaying = false;
+            // Some FFmpeg streams briefly report PausedState while draining at
+            // end-of-stream. Only an explicit user pause clears the natural-end
+            // eligibility; pause() has already cleared m_playbackIntent.
+            if (!m_playbackIntent)
+                m_wasPlaying = false;
         } else if (state == QMediaPlayer::StoppedState && m_wasPlaying && !m_internalStop
-                   && m_player.duration() > 0
-                   && m_player.position() >= qMax<qint64>(0, m_player.duration() - 1500)) {
-            scheduleAdvanceAfterEndOfMedia();
+                   && m_playbackIntent && m_player.duration() > 0) {
+            const qint64 endPosition = qMax(m_player.position(), m_lastKnownPositionMs);
+            if (endPosition >= qMax<qint64>(0, m_player.duration() - 1800))
+                scheduleAdvanceAfterEndOfMedia();
         }
         emit playingChanged(state == QMediaPlayer::PlayingState);
     });
@@ -44,6 +49,16 @@ PlayerService::PlayerService(QObject *parent)
             m_lastKnownPositionMs = pos;
         emit positionChanged(pos);
         maybeCacheCurrent(pos);
+        const qint64 duration = m_player.duration();
+        const qint64 endPosition = qMax(pos, m_lastKnownPositionMs);
+        if (m_playbackIntent && duration > 0
+            && endPosition >= qMax<qint64>(0, duration - 2500)) {
+            m_endStallToken = m_loadToken;
+            m_endStallTimer.start();
+        } else {
+            m_endStallTimer.stop();
+            m_endStallToken = -1;
+        }
     });
     connect(&m_player, &QMediaPlayer::durationChanged, this, [this](qint64 dur) {
         emit durationChanged(dur);
@@ -69,6 +84,16 @@ PlayerService::PlayerService(QObject *parent)
         if (!retryInvalidDownloadedFile() && !retryInvalidCache()
             && !retryInvalidRemoteSource())
             handleUnrecoverableError(err.isEmpty() ? QStringLiteral("播放失败") : err);
+    });
+    m_endStallTimer.setSingleShot(true);
+    m_endStallTimer.setInterval(1200);
+    connect(&m_endStallTimer, &QTimer::timeout, this, [this] {
+        if (m_endStallToken != m_loadToken || !m_playbackIntent || m_internalStop)
+            return;
+        const qint64 duration = m_player.duration();
+        const qint64 endPosition = qMax(m_player.position(), m_lastKnownPositionMs);
+        if (duration > 0 && endPosition >= qMax<qint64>(0, duration - 1800))
+            scheduleAdvanceAfterEndOfMedia();
     });
 }
 
@@ -125,6 +150,9 @@ bool PlayerService::removeAt(int index)
 void PlayerService::clearPlaylist()
 {
     ++m_loadToken;
+    m_endStallTimer.stop();
+    m_endStallToken = -1;
+    m_endOfMediaToken = -1;
     m_pendingAutoPlay = false;
     m_internalStop = true;
     m_player.stop();
@@ -195,6 +223,8 @@ void PlayerService::pause()
 {
     m_pendingAutoPlay = false;
     m_playbackIntent = false;
+    m_endStallTimer.stop();
+    m_endStallToken = -1;
     m_player.pause();
 }
 
@@ -237,6 +267,9 @@ void PlayerService::prev()
 
 void PlayerService::seek(qint64 ms)
 {
+    m_lastKnownPositionMs = qMax<qint64>(0, ms);
+    m_endStallTimer.stop();
+    m_endStallToken = -1;
     m_player.setPosition(ms);
 }
 
@@ -257,6 +290,8 @@ PlayerService::FileReleaseState PlayerService::releaseFileForRemoval(const QStri
     state.positionMs = qMax(m_player.position(), m_lastKnownPositionMs);
     state.songId = currentSong().id;
     ++m_loadToken;
+    m_endStallTimer.stop();
+    m_endStallToken = -1;
     m_pendingAutoPlay = false;
     m_internalStop = true;
     m_player.stop();
@@ -396,6 +431,8 @@ void PlayerService::loadCurrent(bool autoPlay, bool allowCached, bool resetCache
         m_lastKnownPositionMs = 0;
     }
     ++m_loadToken;
+    m_endStallTimer.stop();
+    m_endStallToken = -1;
     if (resetCacheRetry)
         m_cacheRetryAttempted = false;
     if (resetCacheRetry)
@@ -670,14 +707,11 @@ void PlayerService::advanceAfterEndOfMedia()
         return;
 
     if (m_mode == RepeatOne) {
-        if (!ensureAudioOutput()) {
-            m_pendingAutoPlay = false;
-            return;
-        }
-        m_pendingAutoPlay = true;
-        m_playbackIntent = true;
-        m_player.setPosition(0);
-        m_player.play();
+        // Reload the same logical song. Online URLs are short-lived, so repeating
+        // must resolve the source again instead of replaying an exhausted stream.
+        m_pendingResumePositionMs = -1;
+        m_lastKnownPositionMs = 0;
+        loadCurrent(true);
         return;
     }
 
@@ -695,7 +729,7 @@ void PlayerService::scheduleAdvanceAfterEndOfMedia()
     QTimer::singleShot(0, this, [this, token] {
         if (m_endOfMediaToken != token)
             return;
-        m_endOfMediaToken = -1;
+    m_endOfMediaToken = -1;
         if (token != m_loadToken)
             return;
         m_wasPlaying = false;

@@ -22,6 +22,7 @@ signals:
 private:
     QPushButton *m_avatar = nullptr;
     QPushButton *m_accountButton = nullptr;
+    QLabel *m_vipBadge = nullptr;
 };
 
 } // namespace ui

@@ -1,11 +1,12 @@
-add_executable(NeteaseClone WIN32
+add_executable(FuSinplayer WIN32
     main.cpp
     MainWindow.h
     MainWindow.cpp
+    FuSinplayer.rc
     ${CMAKE_SOURCE_DIR}/resources/resources.qrc
 )
 
-target_link_libraries(NeteaseClone PRIVATE
+target_link_libraries(FuSinplayer PRIVATE
     neteclone_core
     neteclone_ui
     Qt6::Widgets
@@ -15,4 +16,8 @@ target_link_libraries(NeteaseClone PRIVATE
     Qt6::Sql
 )
 
-target_include_directories(NeteaseClone PRIVATE ${CMAKE_SOURCE_DIR})
+if(WIN32)
+    target_link_libraries(FuSinplayer PRIVATE dwmapi)
+endif()
+
+target_include_directories(FuSinplayer PRIVATE ${CMAKE_SOURCE_DIR})

@@ -13,6 +13,17 @@ enum class SourceId : int
     QqMusic = 2
 };
 
+// Platform access metadata is informational. Playback still resolves a fresh URL
+// and never assumes that an account can bypass copyright or regional restrictions.
+enum class AccessRequirement : int
+{
+    Unknown = 0,
+    Free = 1,
+    Vip = 2,
+    Purchase = 3,
+    Unavailable = 4
+};
+
 struct Song
 {
     qint64 id = -1;
@@ -41,6 +52,7 @@ struct Song
     QString cachePath;
     QString downloadPath; // 用户主动下载的永久文件路径
     qint64 albumId = 0;
+    AccessRequirement accessRequirement = AccessRequirement::Unknown;
 
     SourceId sourceId() const { return static_cast<SourceId>(source); }
     QString effectiveRemoteId() const
@@ -71,6 +83,7 @@ struct Song
     }
 
     bool isOnline() const { return source != int(SourceId::Local); }
+    bool requiresVip() const { return accessRequirement == AccessRequirement::Vip; }
     bool hasRemoteIdentity() const { return isOnline() && !effectiveRemoteId().isEmpty(); }
     bool isCached() const
     {
@@ -98,3 +111,4 @@ struct Song
 
 Q_DECLARE_METATYPE(core::Song)
 Q_DECLARE_METATYPE(core::SourceId)
+Q_DECLARE_METATYPE(core::AccessRequirement)
