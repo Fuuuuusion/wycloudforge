@@ -1015,7 +1015,8 @@ void PlayerBar::updateResponsiveLayout()
 
 void PlayerBar::setSong(const core::Song &song, bool favorite, bool animateDownloadState)
 {
-    if (m_song.selectionIdentity() != song.selectionIdentity())
+    const bool songChanged = m_song.selectionIdentity() != song.selectionIdentity();
+    if (songChanged)
         m_downloadActive = false;
     m_song = song;
     m_favorite = favorite;
@@ -1029,7 +1030,8 @@ void PlayerBar::setSong(const core::Song &song, bool favorite, bool animateDownl
     updateDownloadButtonState(animateDownloadState);
     updateCoverPixmap();
     setDuration(song.durationMs);
-    setPosition(0);
+    if (songChanged)
+        setPosition(0);
 }
 
 void PlayerBar::setDownloadActive(bool active)

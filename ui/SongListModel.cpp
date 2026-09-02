@@ -28,20 +28,59 @@ bool localFileAvailable(const core::Song &song)
     return !song.missing && info.isFile() && info.size() > 0;
 }
 
-bool choiceAvailable(const core::SearchResultItem &item)
+bool onlineSourceAvailable(const QHash<int, core::SourceAccessState> &states,
+                           core::SourceId source)
+{
+    return states.value(int(source), core::SourceAccessState::Guest)
+        != core::SourceAccessState::Unavailable;
+}
+
+bool choiceAvailable(const core::SearchResultItem &item,
+                     const QHash<int, core::SourceAccessState> &states)
 {
     if (localFileAvailable(item.song))
         return true;
     if (item.source == core::SourceId::Local)
         return false;
-    return item.playable && !item.song.missing;
+    return onlineSourceAvailable(states, item.source)
+        && item.playable && !item.song.missing;
+}
+
+bool sourceAuthenticated(const QHash<int, core::SourceAccessState> &states,
+                         core::SourceId source)
+{
+    if (source == core::SourceId::Local)
+        return true;
+    return states.value(int(source), core::SourceAccessState::Guest)
+        == core::SourceAccessState::Authenticated;
+}
+
+bool guestChoice(const core::Song &song,
+                 const QHash<int, core::SourceAccessState> &states)
+{
+    return song.isOnline() && !localFileAvailable(song)
+        && !sourceAuthenticated(states, song.sourceId());
+}
+
+int choicePriority(const SongSourceChoice &choice,
+                   const QHash<int, core::SourceAccessState> &states)
+{
+    if (!choice.available)
+        return 0;
+    if (choice.song.isDownloaded())
+        return 40;
+    if (choice.song.isCached() || choice.source == core::SourceId::Local)
+        return 30;
+    if (sourceAuthenticated(states, choice.source))
+        return 20;
+    return 10;
 }
 
 bool betterSourceVariant(const core::SearchResultVariant &left,
                          const core::SearchResultVariant &right)
 {
-    const bool leftAvailable = choiceAvailable(left.item);
-    const bool rightAvailable = choiceAvailable(right.item);
+    const bool leftAvailable = left.item.playable && !left.item.song.missing;
+    const bool rightAvailable = right.item.playable && !right.item.song.missing;
     if (leftAvailable != rightAvailable)
         return leftAvailable;
     if (left.localPriority != right.localPriority)
@@ -171,6 +210,8 @@ QVariant SongListModel::data(const QModelIndex &index, int role) const
 void SongListModel::setSongs(const QList<core::Song> &songs, qint64 playingId)
 {
     beginResetModel();
+    m_groupMode = false;
+    m_lastGroups.clear();
     m_songs = songs;
     m_rows.clear();
     m_rows.reserve(songs.size());
@@ -179,7 +220,11 @@ void SongListModel::setSongs(const QList<core::Song> &songs, qint64 playingId)
         choice.source = song.sourceId();
         choice.song = song;
         choice.available = song.sourceId() == core::SourceId::Local
-            ? localFileAvailable(song) : (localFileAvailable(song) || !song.missing);
+            ? localFileAvailable(song)
+            : (localFileAvailable(song)
+               || (onlineSourceAvailable(m_sourceAccessStates, song.sourceId())
+                   && !song.missing));
+        choice.guest = guestChoice(song, m_sourceAccessStates);
         if (!choice.available)
             choice.unavailableReason = defaultUnavailableReason(choice.source, true);
 
@@ -204,6 +249,8 @@ void SongListModel::setSearchResultGroups(const QList<core::SearchResultGroup> &
         previousSources.insert(row.identity, row.activeSource);
 
     beginResetModel();
+    m_groupMode = true;
+    m_lastGroups = groups;
     m_songs.clear();
     m_rows.clear();
     m_songs.reserve(groups.size());
@@ -234,7 +281,8 @@ void SongListModel::setSearchResultGroups(const QList<core::SearchResultGroup> &
             SongSourceChoice choice;
             choice.source = variant->item.source;
             choice.song = variant->item.song;
-            choice.available = choiceAvailable(variant->item);
+            choice.available = choiceAvailable(variant->item, m_sourceAccessStates);
+            choice.guest = guestChoice(choice.song, m_sourceAccessStates);
             if (!choice.available) {
                 choice.unavailableReason = variant->item.availabilityError.trimmed();
                 if (choice.unavailableReason.isEmpty())
@@ -245,9 +293,24 @@ void SongListModel::setSearchResultGroups(const QList<core::SearchResultGroup> &
         if (row.choices.isEmpty())
             continue;
 
+        bool hasNonGuest = false;
+        for (const SongSourceChoice &choice : std::as_const(row.choices)) {
+            if (choice.available && !choice.guest) {
+                hasNonGuest = true;
+                break;
+            }
+        }
+        if (hasNonGuest) {
+            for (SongSourceChoice &choice : row.choices) {
+                if (choice.guest)
+                    choice.visible = false;
+            }
+        }
+
         auto choose = [&row](core::SourceId source, bool requireAvailable) {
             for (const SongSourceChoice &choice : std::as_const(row.choices)) {
-                if (choice.source == source && (!requireAvailable || choice.available)) {
+                if (choice.visible && choice.source == source
+                    && (!requireAvailable || choice.available)) {
                     row.activeSource = source;
                     return true;
                 }
@@ -259,9 +322,18 @@ void SongListModel::setSearchResultGroups(const QList<core::SearchResultGroup> &
         const auto previous = previousSources.constFind(row.identity);
         if (previous != previousSources.cend())
             selected = choose(previous.value(), true);
-        for (core::SourceId source : priority) {
-            if (!selected)
-                selected = choose(source, true);
+        if (!selected) {
+            int bestPriority = -1;
+            for (const SongSourceChoice &choice : std::as_const(row.choices)) {
+                if (!choice.visible)
+                    continue;
+                const int score = choicePriority(choice, m_sourceAccessStates);
+                if (score > bestPriority) {
+                    bestPriority = score;
+                    row.activeSource = choice.source;
+                    selected = true;
+                }
+            }
         }
         for (core::SourceId source : priority) {
             if (!selected)
@@ -338,9 +410,13 @@ bool SongListModel::updateSong(const core::Song &song)
                     continue;
                 choice.song = song;
                 choice.available = choice.source == core::SourceId::Local
-                    ? localFileAvailable(song) : (localFileAvailable(song) || !song.missing);
+                    ? localFileAvailable(song)
+                    : (localFileAvailable(song)
+                       || (onlineSourceAvailable(m_sourceAccessStates, choice.source)
+                           && !song.missing));
                 if (choice.available)
                     choice.unavailableReason.clear();
+                choice.guest = guestChoice(song, m_sourceAccessStates);
                 changed = true;
             }
         }
@@ -474,6 +550,34 @@ void SongListModel::setDownloadingIdentities(const QSet<QString> &identities)
     m_downloadingIdentities = identities;
     if (!m_songs.isEmpty())
         emit dataChanged(index(0, 7), index(m_songs.size() - 1, 7), { DownloadingRole });
+}
+
+void SongListModel::setSourceAccessStates(
+    const QHash<int, core::SourceAccessState> &states)
+{
+    if (m_sourceAccessStates == states)
+        return;
+    m_sourceAccessStates = states;
+    if (m_groupMode) {
+        const QList<core::SearchResultGroup> groups = m_lastGroups;
+        setSearchResultGroups(groups, m_playingId);
+        return;
+    }
+    for (RowContext &row : m_rows) {
+        for (SongSourceChoice &choice : row.choices) {
+            choice.guest = guestChoice(choice.song, m_sourceAccessStates);
+            choice.available = choice.source == core::SourceId::Local
+                ? localFileAvailable(choice.song)
+                : (localFileAvailable(choice.song)
+                   || (onlineSourceAvailable(m_sourceAccessStates, choice.source)
+                       && !choice.song.missing));
+            choice.unavailableReason = choice.available
+                ? QString()
+                : defaultUnavailableReason(choice.source, true);
+        }
+    }
+    if (!m_songs.isEmpty())
+        emit dataChanged(index(0, 0), index(m_songs.size() - 1, columnCount() - 1));
 }
 
 } // namespace ui

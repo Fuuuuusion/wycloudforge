@@ -417,6 +417,20 @@ QString SettingsService::recommendCachePath()
         + QStringLiteral("/recommend.json");
 }
 
+int SettingsService::accountDisplaySource(int fallback)
+{
+    return QSettings().value(QStringLiteral("account/displaySource"), fallback).toInt();
+}
+
+void SettingsService::setAccountDisplaySource(int source)
+{
+    QSettings settings;
+    if (source < 0)
+        settings.remove(QStringLiteral("account/displaySource"));
+    else
+        settings.setValue(QStringLiteral("account/displaySource"), source);
+}
+
 QString SettingsService::cloudPlaylistCachePath()
 {
     const QFileInfo recommendFile(recommendCachePath());

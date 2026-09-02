@@ -104,9 +104,21 @@ SearchPage::SearchPage(QWidget *parent)
     layout->setContentsMargins(28, 24, 28, 24);
     layout->setSpacing(12);
 
+    auto *titleRow = new QHBoxLayout;
+    auto *back = new QPushButton(QStringLiteral("返回"), this);
+    back->setFixedSize(68, 32);
+    back->setCursor(Qt::PointingHandCursor);
+    back->setStyleSheet(QStringLiteral(
+        "QPushButton{border:none;background:#1B1B24;color:#C8C8D0;border-radius:16px;}"
+        "QPushButton:hover{background:#3A2024;color:#EC4141;}"));
     m_title = new QLabel(QStringLiteral("搜索"), this);
     m_title->setProperty("class", "pageTitle");
-    layout->addWidget(m_title);
+    titleRow->addWidget(back);
+    titleRow->addSpacing(12);
+    titleRow->addWidget(m_title);
+    titleRow->addStretch(1);
+    layout->addLayout(titleRow);
+    connect(back, &QPushButton::clicked, this, &SearchPage::backRequested);
 
     auto *filterRow = new QWidget(this);
     auto *filterLayout = new QHBoxLayout(filterRow);
@@ -495,6 +507,19 @@ void SearchPage::setOnlineSourceEnabled(core::SourceId sourceId, bool enabled)
         m_enabledSourceIds.insert(int(sourceId));
     else
         m_enabledSourceIds.remove(int(sourceId));
+}
+
+void SearchPage::setSourceAccessStates(
+    const QHash<int, core::SourceAccessState> &states)
+{
+    if (m_sourceAccessStates == states)
+        return;
+    m_sourceAccessStates = states;
+    m_onlineList->setSourceAccessStates(states);
+    m_genericSongList->setSourceAccessStates(states);
+    updateOnlineHeader();
+    m_onlineSongs = m_onlineList->songs();
+    m_genericSongs = m_genericSongList->songs();
 }
 
 void SearchPage::setLocalSongs(const QList<core::Song> &songs)
@@ -956,7 +981,16 @@ void SearchPage::updateOnlineHeader()
             status = QStringLiteral("等待");
             break;
         }
-        parts.append(QStringLiteral("%1 %2").arg(sourceLabel(sourceId), status));
+        QString access;
+        switch (m_sourceAccessStates.value(int(sourceId),
+                                            core::SourceAccessState::Guest)) {
+        case core::SourceAccessState::Authenticated: access = QStringLiteral("已登录"); break;
+        case core::SourceAccessState::Verifying: access = QStringLiteral("验证中"); break;
+        case core::SourceAccessState::Unavailable: access = QStringLiteral("不可用"); break;
+        case core::SourceAccessState::Guest: access = QStringLiteral("游客"); break;
+        }
+        parts.append(QStringLiteral("%1(%2) %3")
+                         .arg(sourceLabel(sourceId), access, status));
     }
     m_onlineHeader->setText(parts.isEmpty() ? QStringLiteral("暂无可用在线来源")
                                             : parts.join(QStringLiteral(" · ")));

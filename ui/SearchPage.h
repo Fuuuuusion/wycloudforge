@@ -45,6 +45,7 @@ public:
     void setSourceProvider(core::MusicSource *source, core::LibraryService *library);
     void setSourceRegistry(core::MusicSourceRegistry *registry);
     void setOnlineSourceEnabled(core::SourceId sourceId, bool enabled);
+    void setSourceAccessStates(const QHash<int, core::SourceAccessState> &states);
     void setLocalSongs(const QList<core::Song> &songs);
     void performSearch(const QString &query);
     void previewSearchText(const QString &text);
@@ -68,6 +69,7 @@ public:
     void setPlaylistMenuItems(const QList<QPair<int, QString>> &items);
 
 signals:
+    void backRequested();
     void playRequested(const QList<core::Song> &songs, int index);
     void artistClicked(const QString &artist);
     void albumClicked(const QString &album, const QString &artist);
@@ -154,6 +156,7 @@ private:
     int m_coverDownloadsActive = 0;
     int m_albumCoverLookupsActive = 0;
     QSet<int> m_enabledSourceIds;
+    QHash<int, core::SourceAccessState> m_sourceAccessStates;
     core::MusicSource *m_source = nullptr;
     core::MusicSourceRegistry *m_registry = nullptr;
     core::LibraryService *m_lib = nullptr;

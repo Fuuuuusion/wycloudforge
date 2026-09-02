@@ -138,6 +138,9 @@ void AccountDialog::loginNetease()
     ui::LoginDialog dlg(m_netease, this);
     if (dlg.exec() != QDialog::Accepted)
         return;
+    core::SettingsService::setAccountDisplaySource(0);
+    if (core::SettingsService::avatarSource() != 2)
+        core::SettingsService::setAvatarSource(0);
     // 二维码对话框只有在 803 授权完成且 /login/status 返回有效账号后才会接受。
     emit accountStateChanged();
     accept();
@@ -153,6 +156,9 @@ void AccountDialog::logoutNetease()
     core::SettingsService::setOnlineAvatarUrl(QString());
     if (m_netease)
         m_netease->setCookie(QString());
+    if (core::SettingsService::accountDisplaySource() == 0)
+        core::SettingsService::setAccountDisplaySource(
+            core::SettingsService::qqUserId().isEmpty() ? -1 : 1);
     emit accountStateChanged();
     accept();
 }
@@ -166,6 +172,9 @@ void AccountDialog::loginQq()
         setEnabled(true);
         QqLoginDialog dialog(m_qq, this);
         if (dialog.exec() == QDialog::Accepted) {
+            core::SettingsService::setAccountDisplaySource(1);
+            if (core::SettingsService::avatarSource() != 2)
+                core::SettingsService::setAvatarSource(1);
             emit accountStateChanged();
             accept();
         }
@@ -187,6 +196,9 @@ void AccountDialog::logoutQq()
     core::SettingsService::setQqVipStatus(-1);
     if (m_qq)
         m_qq->setCookie(QString());
+    if (core::SettingsService::accountDisplaySource() == 1)
+        core::SettingsService::setAccountDisplaySource(
+            core::SettingsService::onlineUid() > 0 ? 0 : -1);
     emit accountStateChanged();
     accept();
 }

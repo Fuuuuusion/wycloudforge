@@ -48,6 +48,7 @@ public:
     void setPlaylistMenuItems(const QList<QPair<int, QString>> &items);
     void setFavoriteIds(const QSet<qint64> &ids);
     void setDownloadingIdentities(const QSet<QString> &identities);
+    void setSourceAccessStates(const QHash<int, core::SourceAccessState> &states);
     void refreshLibraryState(core::LibraryService *library);
     void setDownloadActionMode(DownloadActionMode mode);
     QList<core::Song> selectedSongs() const;

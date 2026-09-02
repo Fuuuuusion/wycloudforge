@@ -5,6 +5,7 @@
 
 #include <QAbstractTableModel>
 #include <QSet>
+#include <QHash>
 
 namespace ui {
 
@@ -13,6 +14,8 @@ struct SongSourceChoice
     core::SourceId source = core::SourceId::Local;
     core::Song song;
     bool available = false;
+    bool visible = true;
+    bool guest = false;
     QString unavailableReason;
 };
 
@@ -65,6 +68,7 @@ public:
     void setBatchMode(bool enabled);
     void setSelectedIdentities(const QSet<QString> &identities);
     void setDownloadingIdentities(const QSet<QString> &identities);
+    void setSourceAccessStates(const QHash<int, core::SourceAccessState> &states);
 
 private:
     struct RowContext {
@@ -76,12 +80,15 @@ private:
 
     QList<core::Song> m_songs;
     QList<RowContext> m_rows;
+    QList<core::SearchResultGroup> m_lastGroups;
+    QHash<int, core::SourceAccessState> m_sourceAccessStates;
     qint64 m_playingId = -1;
     QString m_playingIdentity;
     QSet<qint64> m_favoriteIds;
     QSet<QString> m_selectedIdentities;
     QSet<QString> m_downloadingIdentities;
     bool m_batchMode = false;
+    bool m_groupMode = false;
 };
 
 } // namespace ui

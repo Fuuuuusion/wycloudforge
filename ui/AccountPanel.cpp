@@ -84,23 +84,33 @@ AccountPanel::AccountPanel(QWidget *parent)
 
 void AccountPanel::refresh()
 {
-    const int src = core::SettingsService::avatarSource();
+    const bool neteaseLoggedIn = core::SettingsService::onlineUid() > 0;
+    const bool qqLoggedIn = !core::SettingsService::qqUserId().isEmpty();
+    int accountSource = core::SettingsService::accountDisplaySource();
+    if ((accountSource == 0 && !neteaseLoggedIn)
+        || (accountSource == 1 && !qqLoggedIn)
+        || (accountSource != 0 && accountSource != 1)) {
+        accountSource = qqLoggedIn ? 1 : (neteaseLoggedIn ? 0 : -1);
+        core::SettingsService::setAccountDisplaySource(accountSource);
+    }
+
     QString nickname;
     QString avatarPath;
-    if (src == 0 && core::SettingsService::onlineUid() > 0) {
+    if (accountSource == 0) {
         nickname = core::SettingsService::onlineNickname();
         avatarPath = core::SettingsService::onlineAvatarUrl();
-    } else if (src == 1 && !core::SettingsService::qqUserId().isEmpty()) {
+    } else if (accountSource == 1) {
         nickname = core::SettingsService::qqNickname();
         avatarPath = core::SettingsService::qqAvatarUrl();
-    } else if (src == 2) {
+    }
+    if (core::SettingsService::avatarSource() == 2
+        && !core::SettingsService::avatarUploadPath().isEmpty()) {
         avatarPath = core::SettingsService::avatarUploadPath();
     }
 
     if (nickname.isEmpty())
         nickname = QStringLiteral("未登录");
-    const bool loggedIn = core::SettingsService::onlineUid() > 0
-        || !core::SettingsService::qqUserId().isEmpty();
+    const bool loggedIn = neteaseLoggedIn || qqLoggedIn;
     const QString accountText = loggedIn ? nickname : QStringLiteral("登录");
     m_accountButton->setText(accountText);
     m_accountButton->setAccessibleName(loggedIn ? QStringLiteral("查看账号")

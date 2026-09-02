@@ -143,6 +143,7 @@ class PlayerServiceTest : public QObject
 private slots:
     void playlistNavigation();
     void playbackQueueMutations();
+    void removeSongByIdSynchronizesQueue();
     void playPauseAndPosition();
     void autoAdvanceInOrderMode();
     void repeatOneRestartsCurrentSong();
@@ -231,6 +232,24 @@ void PlayerServiceTest::playbackQueueMutations()
     QCOMPARE(player.currentIndex(), -1);
     QCOMPARE(songSpy.count(), 1);
     QCOMPARE(qvariant_cast<Song>(songSpy.first().at(0)).id, qint64(-1));
+}
+
+void PlayerServiceTest::removeSongByIdSynchronizesQueue()
+{
+    Song first;
+    first.id = 301;
+    first.filePath = QStringLiteral("C:/missing/first.mp3");
+    Song second;
+    second.id = 302;
+    second.filePath = QStringLiteral("C:/missing/second.mp3");
+    PlayerService player;
+    player.setPlaylist({ first, second }, 0);
+    QVERIFY(player.removeSongById(first.id));
+    QCOMPARE(player.playlist().size(), 1);
+    QCOMPARE(player.currentSong().id, second.id);
+    QVERIFY(player.removeSongById(second.id));
+    QVERIFY(player.playlist().isEmpty());
+    QCOMPARE(player.currentIndex(), -1);
 }
 
 void PlayerServiceTest::unifiedSearchContract()

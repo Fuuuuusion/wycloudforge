@@ -79,7 +79,21 @@ PlayingPage::PlayingPage(QWidget *parent)
     auto *layout = new QHBoxLayout(this);
     layout->setContentsMargins(64, 30, 64, 30);
     layout->setSpacing(56);
-    layout->addWidget(m_cover);
+    auto *left = new QWidget(this);
+    auto *leftLayout = new QVBoxLayout(left);
+    leftLayout->setContentsMargins(0, 0, 0, 0);
+    leftLayout->setSpacing(14);
+    auto *back = new QPushButton(QStringLiteral("返回"), left);
+    back->setFixedSize(68, 32);
+    back->setCursor(Qt::PointingHandCursor);
+    back->setStyleSheet(QStringLiteral(
+        "QPushButton{border:none;background:#1B1B24;color:#C8C8D0;border-radius:16px;}"
+        "QPushButton:hover{background:#3A2024;color:#EC4141;}"));
+    leftLayout->addWidget(back, 0, Qt::AlignLeft);
+    leftLayout->addWidget(m_cover);
+    leftLayout->addStretch(1);
+    connect(back, &QPushButton::clicked, this, &PlayingPage::backRequested);
+    layout->addWidget(left);
     layout->addWidget(right, 1);
 
     connect(m_lyric, &LyricWidget::seekRequested, this, &PlayingPage::seekRequested);

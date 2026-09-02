@@ -20,6 +20,20 @@ class SongListPage : public QWidget
 {
     Q_OBJECT
 public:
+    struct NavigationState
+    {
+        QList<core::Song> songs;
+        QString title;
+        QString meta;
+        qint64 playingId = -1;
+        bool removable = false;
+        QString headerCoverPath;
+        bool mergeSources = false;
+        int playlistContext = -1;
+        bool playbackQueueContext = false;
+        bool readOnlyContext = true;
+    };
+
     explicit SongListPage(QWidget *parent = nullptr);
 
     void showContent(const QList<core::Song> &songs, const QString &title, const QString &meta,
@@ -34,8 +48,11 @@ public:
     void setPlaybackQueueContext();
     void setReadOnlyContext();
     void setPlaylistMenuItems(const QList<QPair<int, QString>> &items);
+    NavigationState navigationState() const;
+    void restoreNavigationState(const NavigationState &state);
 
 signals:
+    void backRequested();
     void playAllRequested(const QList<core::Song> &songs);
     void playRequested(const QList<core::Song> &songs, int index);
     void heartRequested(int row);
@@ -61,6 +78,8 @@ private:
     int m_playlistContext = -1;
     bool m_playbackQueueContext = false;
     bool m_mergeSources = false;
+    bool m_removable = false;
+    bool m_readOnlyContext = true;
 };
 
 } // namespace ui

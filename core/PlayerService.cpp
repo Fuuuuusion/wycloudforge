@@ -7,6 +7,7 @@
 #include <numeric>
 
 #include <QFileInfo>
+#include <QDir>
 #include <QAudioDevice>
 #include <QRandomGenerator>
 #include <QTimer>
@@ -25,52 +26,55 @@ PlayerService::PlayerService(QObject *parent)
     });
 
     connect(&m_player, &QMediaPlayer::playbackStateChanged, this, [this](QMediaPlayer::PlaybackState state) {
-        if (state == QMediaPlayer::PlayingState)
+        if (state == QMediaPlayer::PlayingState) {
             m_pendingAutoPlay = false;
+            m_wasPlaying = true;
+            m_consecutiveFailures = 0;
+        } else if (state == QMediaPlayer::PausedState) {
+            m_wasPlaying = false;
+        } else if (state == QMediaPlayer::StoppedState && m_wasPlaying && !m_internalStop
+                   && m_player.duration() > 0
+                   && m_player.position() >= qMax<qint64>(0, m_player.duration() - 1500)) {
+            scheduleAdvanceAfterEndOfMedia();
+        }
         emit playingChanged(state == QMediaPlayer::PlayingState);
     });
     connect(&m_player, &QMediaPlayer::positionChanged, this, [this](qint64 pos) {
+        if (pos > 0)
+            m_lastKnownPositionMs = pos;
         emit positionChanged(pos);
         maybeCacheCurrent(pos);
     });
     connect(&m_player, &QMediaPlayer::durationChanged, this, [this](qint64 dur) {
         emit durationChanged(dur);
+        applyPendingResume();
     });
     connect(&m_player, &QMediaPlayer::mediaStatusChanged, this, [this](QMediaPlayer::MediaStatus status) {
         if ((status == QMediaPlayer::LoadedMedia || status == QMediaPlayer::BufferedMedia)
             && m_pendingAutoPlay) {
+            applyPendingResume();
             m_player.play();
         }
         if (status == QMediaPlayer::EndOfMedia) {
             // 结束状态可能在同一轮事件循环内重复通知。延迟到播放器完成状态切换后
             // 再处理，并用加载 token 丢弃用户手动切歌产生的过期任务。
-            const int token = m_loadToken;
-            if (m_endOfMediaToken == token)
-                return;
-            m_endOfMediaToken = token;
-            QTimer::singleShot(0, this, [this, token] {
-                if (m_endOfMediaToken != token)
-                    return;
-                m_endOfMediaToken = -1;
-                if (token != m_loadToken)
-                    return;
-                advanceAfterEndOfMedia();
-            });
+            scheduleAdvanceAfterEndOfMedia();
         }
         if (status == QMediaPlayer::InvalidMedia
             && !retryInvalidDownloadedFile() && !retryInvalidCache()
             && !retryInvalidRemoteSource())
-            emit errorOccurred(QStringLiteral("媒体无法解码或播放源已失效"));
+            handleUnrecoverableError(QStringLiteral("媒体无法解码或播放源已失效"));
     });
     connect(&m_player, &QMediaPlayer::errorOccurred, this, [this](QMediaPlayer::Error, const QString &err) {
         if (!retryInvalidDownloadedFile() && !retryInvalidCache()
             && !retryInvalidRemoteSource())
-            emit errorOccurred(err.isEmpty() ? QStringLiteral("播放失败") : err);
+            handleUnrecoverableError(err.isEmpty() ? QStringLiteral("播放失败") : err);
     });
 }
 
 void PlayerService::setPlaylist(const QList<Song> &songs, int startIndex)
 {
+    m_pendingResumePositionMs = -1;
     m_playlist = songs;
     buildShuffleOrder();
     m_history.clear();
@@ -94,7 +98,7 @@ bool PlayerService::removeAt(int index)
     if (index < 0 || index >= m_playlist.size())
         return false;
     const bool removingCurrent = index == m_index;
-    const bool resumePlayback = isPlaying() || m_pendingAutoPlay;
+    const bool resumePlayback = m_playbackIntent || isPlaying() || m_pendingAutoPlay;
     m_playlist.removeAt(index);
     if (m_playlist.isEmpty()) {
         clearPlaylist();
@@ -122,8 +126,10 @@ void PlayerService::clearPlaylist()
 {
     ++m_loadToken;
     m_pendingAutoPlay = false;
+    m_internalStop = true;
     m_player.stop();
     m_player.setSource(QUrl());
+    m_internalStop = false;
     m_playlist.clear();
     m_history.clear();
     m_shuffleOrder.clear();
@@ -135,6 +141,12 @@ void PlayerService::clearPlaylist()
     m_usingDownloadedSource = false;
     m_cacheRetryAttempted = false;
     m_urlRetryAttempted = false;
+    m_pendingResumePositionMs = -1;
+    m_lastKnownPositionMs = 0;
+    m_loadedSongIdentity.clear();
+    m_wasPlaying = false;
+    m_playbackIntent = false;
+    m_consecutiveFailures = 0;
     emit songChanged(Song(), -1);
     emit positionChanged(0);
     emit durationChanged(0);
@@ -145,6 +157,7 @@ void PlayerService::playIndex(int index)
     if (index < 0 || index >= m_playlist.size())
         return;
     m_history.append(m_index >= 0 ? m_index : 0);
+    m_pendingResumePositionMs = -1;
     m_index = index;
     alignShuffleToCurrent();
     loadCurrent(true);
@@ -169,16 +182,19 @@ void PlayerService::play()
     }
     if (!ensureAudioOutput()) {
         m_pendingAutoPlay = false;
+        m_playbackIntent = false;
         return;
     }
     // 线上歌曲的播放地址可能仍在请求中;保留自动播放意图,待新媒体加载完成后再启动。
     m_pendingAutoPlay = true;
+    m_playbackIntent = true;
     m_player.play();
 }
 
 void PlayerService::pause()
 {
     m_pendingAutoPlay = false;
+    m_playbackIntent = false;
     m_player.pause();
 }
 
@@ -187,6 +203,7 @@ void PlayerService::next()
     if (m_playlist.isEmpty())
         return;
     m_history.append(m_index);
+    m_pendingResumePositionMs = -1;
     int nextIndex = -1;
     if (m_mode == Shuffle && m_shuffleOrder.size() == m_playlist.size()) {
         alignShuffleToCurrent();
@@ -209,16 +226,99 @@ void PlayerService::prev()
     }
     if (!m_history.isEmpty()) {
         m_index = m_history.takeLast();
+        m_pendingResumePositionMs = -1;
         loadCurrent(true);
         return;
     }
     m_index = (m_index - 1 + m_playlist.size()) % m_playlist.size();
+    m_pendingResumePositionMs = -1;
     loadCurrent(true);
 }
 
 void PlayerService::seek(qint64 ms)
 {
     m_player.setPosition(ms);
+}
+
+PlayerService::FileReleaseState PlayerService::releaseFileForRemoval(const QString &path)
+{
+    FileReleaseState state;
+    if (path.isEmpty() || m_index < 0 || m_index >= m_playlist.size())
+        return state;
+    const QString currentPath = m_player.source().isLocalFile()
+        ? QFileInfo(m_player.source().toLocalFile()).absoluteFilePath() : QString();
+    if (currentPath.isEmpty()
+        || QDir::cleanPath(currentPath).compare(
+               QDir::cleanPath(QFileInfo(path).absoluteFilePath()), Qt::CaseInsensitive) != 0) {
+        return state;
+    }
+    state.detached = true;
+    state.wasPlaying = m_playbackIntent || isPlaying() || m_pendingAutoPlay;
+    state.positionMs = qMax(m_player.position(), m_lastKnownPositionMs);
+    state.songId = currentSong().id;
+    ++m_loadToken;
+    m_pendingAutoPlay = false;
+    m_internalStop = true;
+    m_player.stop();
+    m_player.setSource(QUrl());
+    m_internalStop = false;
+    return state;
+}
+
+void PlayerService::synchronizeSong(const Song &song)
+{
+    synchronizeSong(song, FileReleaseState{});
+}
+
+void PlayerService::synchronizeSong(const Song &song, const FileReleaseState &resume)
+{
+    bool currentUpdated = false;
+    for (int i = 0; i < m_playlist.size(); ++i) {
+        if (m_playlist.at(i).id != song.id)
+            continue;
+        m_playlist[i] = song;
+        currentUpdated = currentUpdated || i == m_index;
+    }
+    if (!currentUpdated)
+        return;
+    if (resume.detached && resume.songId == song.id) {
+        m_pendingResumePositionMs = resume.positionMs;
+        loadCurrent(resume.wasPlaying);
+    } else {
+        emit songChanged(m_playlist[m_index], m_index);
+    }
+}
+
+bool PlayerService::removeSongById(qint64 songId)
+{
+    if (songId <= 0 || m_playlist.isEmpty())
+        return false;
+    const bool resumePlayback = m_playbackIntent || isPlaying() || m_pendingAutoPlay;
+    const int oldIndex = m_index;
+    bool removedCurrent = false;
+    bool removed = false;
+    for (int i = m_playlist.size() - 1; i >= 0; --i) {
+        if (m_playlist.at(i).id != songId)
+            continue;
+        removedCurrent = removedCurrent || i == oldIndex;
+        m_playlist.removeAt(i);
+        removed = true;
+        if (i < m_index)
+            --m_index;
+    }
+    if (!removed)
+        return false;
+    if (m_playlist.isEmpty()) {
+        clearPlaylist();
+        return true;
+    }
+    m_index = qBound(0, m_index, m_playlist.size() - 1);
+    buildShuffleOrder();
+    alignShuffleToCurrent();
+    m_history.clear();
+    if (removedCurrent)
+        loadCurrent(resumePlayback);
+    return true;
 }
 
 void PlayerService::setVolume(int volume)
@@ -290,6 +390,11 @@ void PlayerService::loadCurrent(bool autoPlay, bool allowCached, bool resetCache
         }
     }
     const Song &song = m_playlist[m_index];
+    const QString identity = song.selectionIdentity();
+    if (identity != m_loadedSongIdentity) {
+        m_loadedSongIdentity = identity;
+        m_lastKnownPositionMs = 0;
+    }
     ++m_loadToken;
     if (resetCacheRetry)
         m_cacheRetryAttempted = false;
@@ -297,10 +402,13 @@ void PlayerService::loadCurrent(bool autoPlay, bool allowCached, bool resetCache
         m_urlRetryAttempted = false;
     m_currentUrl.clear();
     m_pendingAutoPlay = autoPlay;
+    m_playbackIntent = autoPlay;
     m_usingCachedSource = false;
     m_usingDownloadedSource = false;
+    m_internalStop = true;
     m_player.stop();
     m_player.setSource(QUrl());
+    m_internalStop = false;
 
     if (song.isOnline()) {
         MusicSource *source = sourceFor(song);
@@ -311,7 +419,9 @@ void PlayerService::loadCurrent(bool autoPlay, bool allowCached, bool resetCache
         QString downloaded = song.downloadPath;
         if (downloaded.isEmpty() && m_lib)
             downloaded = m_lib->downloadPathFor(song.id);
-        if (allowCached && !downloaded.isEmpty() && QFileInfo::exists(downloaded)
+        const bool skipDownloaded = m_skipDownloadedOnce;
+        m_skipDownloadedOnce = false;
+        if (allowCached && !skipDownloaded && !downloaded.isEmpty() && QFileInfo::exists(downloaded)
             && QFileInfo(downloaded).size() > 0) {
             m_cacheSaved = true;
             m_usingDownloadedSource = true;
@@ -339,7 +449,7 @@ void PlayerService::loadCurrent(bool autoPlay, bool allowCached, bool resetCache
         if (!source || !song.hasRemoteIdentity()) {
             m_pendingAutoPlay = false;
             emit songChanged(song, m_index);
-            emit errorOccurred(QStringLiteral("歌曲没有可用的缓存或在线播放源"));
+            handleUnrecoverableError(QStringLiteral("歌曲没有可用的缓存或在线播放源"));
             return;
         }
         const int token = m_loadToken;
@@ -363,10 +473,9 @@ void PlayerService::loadCurrent(bool autoPlay, bool allowCached, bool resetCache
                                        return;
                                    }
                                    m_pendingAutoPlay = false;
-                                   emit errorOccurred(addressError.isEmpty()
+                                   handleUnrecoverableError(addressError.isEmpty()
                                        ? QStringLiteral("歌曲不可用(可能受版权/VIP、地区或 DRM 限制)")
                                        : addressError);
-                                   QTimer::singleShot(0, this, [this] { next(); });
                                    return;
                                }
                                 m_currentUrl = url;
@@ -386,8 +495,8 @@ void PlayerService::loadCurrent(bool autoPlay, bool allowCached, bool resetCache
                                    return;
                                }
                                m_pendingAutoPlay = false;
-                               emit errorOccurred(QStringLiteral("获取播放地址失败:%1").arg(err));
-                               QTimer::singleShot(0, this, [this] { next(); });
+                               handleUnrecoverableError(
+                                   QStringLiteral("获取播放地址失败:%1").arg(err));
                            });
         emit songChanged(song, m_index);
         return;
@@ -396,7 +505,7 @@ void PlayerService::loadCurrent(bool autoPlay, bool allowCached, bool resetCache
     if (song.filePath.isEmpty() || !QFileInfo::exists(song.filePath)) {
         m_pendingAutoPlay = false;
         emit songChanged(song, m_index);
-        emit errorOccurred(QStringLiteral("本地音频文件不存在"));
+        handleUnrecoverableError(QStringLiteral("本地音频文件不存在"));
         return;
     }
     m_player.setSource(QUrl::fromLocalFile(song.filePath));
@@ -421,12 +530,11 @@ bool PlayerService::retryInvalidDownloadedFile()
 {
     if (!m_usingDownloadedSource || m_index < 0 || m_index >= m_playlist.size())
         return false;
-    const bool autoPlay = m_pendingAutoPlay || m_player.playbackState() == QMediaPlayer::PlayingState;
-    const qint64 songId = m_playlist[m_index].id;
+    const bool autoPlay = m_playbackIntent || m_pendingAutoPlay
+        || m_player.playbackState() == QMediaPlayer::PlayingState;
+    m_pendingResumePositionMs = qMax(m_player.position(), m_lastKnownPositionMs);
     m_usingDownloadedSource = false;
-    m_playlist[m_index].downloadPath.clear();
-    if (m_lib)
-        m_lib->removeSongDownload(songId);
+    m_skipDownloadedOnce = true;
     QTimer::singleShot(0, this, [this, autoPlay] {
         loadCurrent(autoPlay, true, false);
     });
@@ -438,7 +546,9 @@ bool PlayerService::retryInvalidCache()
     if (!m_usingCachedSource || m_cacheRetryAttempted || m_index < 0 || m_index >= m_playlist.size())
         return false;
     m_cacheRetryAttempted = true;
-    const bool autoPlay = m_pendingAutoPlay || m_player.playbackState() == QMediaPlayer::PlayingState;
+    const bool autoPlay = m_playbackIntent || m_pendingAutoPlay
+        || m_player.playbackState() == QMediaPlayer::PlayingState;
+    m_pendingResumePositionMs = qMax(m_player.position(), m_lastKnownPositionMs);
     const qint64 songId = m_playlist[m_index].id;
     m_usingCachedSource = false;
     m_playlist[m_index].cachePath.clear();
@@ -457,8 +567,9 @@ bool PlayerService::retryInvalidRemoteSource()
         || !m_playlist[m_index].hasRemoteIdentity())
         return false;
     m_urlRetryAttempted = true;
-    const bool autoPlay = m_pendingAutoPlay
+    const bool autoPlay = m_playbackIntent || m_pendingAutoPlay
         || m_player.playbackState() == QMediaPlayer::PlayingState;
+    m_pendingResumePositionMs = qMax(m_player.position(), m_lastKnownPositionMs);
     QTimer::singleShot(0, this, [this, autoPlay] {
         loadCurrent(autoPlay, false, false);
     });
@@ -564,6 +675,7 @@ void PlayerService::advanceAfterEndOfMedia()
             return;
         }
         m_pendingAutoPlay = true;
+        m_playbackIntent = true;
         m_player.setPosition(0);
         m_player.play();
         return;
@@ -572,6 +684,54 @@ void PlayerService::advanceAfterEndOfMedia()
     // Order 是列表循环：按原列表顺序切到下一首，到末尾回到第一首。
     // Shuffle 则由 next() 使用已经与当前歌曲对齐的随机序列。
     next();
+}
+
+void PlayerService::scheduleAdvanceAfterEndOfMedia()
+{
+    const int token = m_loadToken;
+    if (m_endOfMediaToken == token)
+        return;
+    m_endOfMediaToken = token;
+    QTimer::singleShot(0, this, [this, token] {
+        if (m_endOfMediaToken != token)
+            return;
+        m_endOfMediaToken = -1;
+        if (token != m_loadToken)
+            return;
+        m_wasPlaying = false;
+        advanceAfterEndOfMedia();
+    });
+}
+
+void PlayerService::handleUnrecoverableError(const QString &message)
+{
+    emit errorOccurred(message);
+    m_pendingAutoPlay = false;
+    if (m_mode == RepeatOne || m_playlist.size() <= 1) {
+        m_playbackIntent = false;
+        return;
+    }
+    if (++m_consecutiveFailures >= m_playlist.size()) {
+        m_playbackIntent = false;
+        emit errorOccurred(QStringLiteral("播放列表中没有可继续播放的歌曲"));
+        return;
+    }
+    const int token = m_loadToken;
+    QTimer::singleShot(0, this, [this, token] {
+        if (token == m_loadToken)
+            next();
+    });
+}
+
+void PlayerService::applyPendingResume()
+{
+    if (m_pendingResumePositionMs <= 0 || m_player.duration() <= 0)
+        return;
+    const qint64 resume = qMin(m_pendingResumePositionMs,
+                               qMax<qint64>(0, m_player.duration() - 500));
+    m_pendingResumePositionMs = -1;
+    if (resume > 0)
+        m_player.setPosition(resume);
 }
 
 } // namespace core

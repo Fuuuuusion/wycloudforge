@@ -2165,8 +2165,18 @@ void LibraryService::setSongCached(qint64 songId, const QString &path, qint64 si
 
 void LibraryService::invalidateSongCache(qint64 songId)
 {
-    if (!m_db.isOpen() || songId <= 0)
-        return;
+    const FileRemovalResult result = removeSongCacheDetailed(songId);
+    if (!result.ok && !result.error.isEmpty())
+        qWarning() << "Failed to invalidate song cache:" << result.error;
+}
+
+LibraryService::FileRemovalResult LibraryService::removeSongCacheDetailed(qint64 songId)
+{
+    FileRemovalResult result;
+    if (!m_db.isOpen() || songId <= 0) {
+        result.error = QStringLiteral("数据库未打开或歌曲无效");
+        return result;
+    }
     QString path;
     QSqlQuery find(m_db);
     find.prepare(QStringLiteral("SELECT cache_path FROM song_cache WHERE song_id=?"));
@@ -2174,22 +2184,51 @@ void LibraryService::invalidateSongCache(qint64 songId)
     if (find.exec() && find.next())
         path = find.value(0).toString();
 
+    result.path = path;
+    if (!path.isEmpty()) {
+        const QFileInfo info(path);
+        if (info.isRelative() || !isPathInside(path, cacheDir())) {
+            result.error = QStringLiteral("缓存路径不在应用托管目录内，已拒绝删除：%1")
+                               .arg(QDir::toNativeSeparators(path));
+            return result;
+        }
+    }
+    if (!path.isEmpty() && QFileInfo::exists(path)) {
+        if (!QFile::remove(path)) {
+            result.error = QStringLiteral("无法删除缓存，文件可能正在使用、只读或权限不足：%1")
+                               .arg(QDir::toNativeSeparators(path));
+            return result;
+        }
+    } else {
+        result.fileWasMissing = true;
+    }
+    if (!path.isEmpty()) {
+        const QString sidecar = LyricsLoader::sidecarPathFor(path);
+        if (QFileInfo::exists(sidecar) && !QFile::remove(sidecar))
+            result.error = QStringLiteral("缓存已删除，但歌词文件删除失败：%1")
+                               .arg(QDir::toNativeSeparators(sidecar));
+        LyricsLoader::invalidate(path);
+    }
+
+    if (!m_db.transaction()) {
+        result.error = QStringLiteral("缓存已删除，但无法开始数据库事务");
+        return result;
+    }
     QSqlQuery remove(m_db);
     remove.prepare(QStringLiteral("DELETE FROM song_cache WHERE song_id=?"));
     remove.addBindValue(songId);
-    remove.exec();
+    if (!remove.exec()) {
+        m_db.rollback();
+        result.error = remove.lastError().text();
+        return result;
+    }
     QSqlQuery clear(m_db);
     clear.prepare(QStringLiteral("UPDATE songs SET cache_path='' WHERE id=?"));
     clear.addBindValue(songId);
-    clear.exec();
-
-    if (!path.isEmpty()) {
-        const QString relative = QDir(cacheDir()).relativeFilePath(path);
-        if (!QFileInfo(path).isRelative() && !relative.startsWith(QStringLiteral(".."))) {
-            QFile::remove(path);
-            QFile::remove(LyricsLoader::sidecarPathFor(path));
-            LyricsLoader::invalidate(path);
-        }
+    if (!clear.exec() || !m_db.commit()) {
+        m_db.rollback();
+        result.error = clear.lastError().text();
+        return result;
     }
     for (Song &song : m_songs) {
         if (song.id == songId) {
@@ -2200,6 +2239,8 @@ void LibraryService::invalidateSongCache(qint64 songId)
     }
     emit cacheChanged();
     emit libraryChanged();
+    result.ok = true;
+    return result;
 }
 
 CacheClearResult LibraryService::clearCache(const QSet<qint64> &protectedSongIds)
@@ -2689,19 +2730,51 @@ bool LibraryService::setSongDownloaded(qint64 songId, const QString &path)
 
 bool LibraryService::removeSongDownload(qint64 songId)
 {
-    if (!m_db.isOpen() || songId <= 0)
-        return false;
+    return removeSongDownloadDetailed(songId).ok;
+}
+
+LibraryService::FileRemovalResult LibraryService::removeSongDownloadDetailed(qint64 songId)
+{
+    FileRemovalResult result;
+    if (!m_db.isOpen() || songId <= 0) {
+        result.error = QStringLiteral("数据库未打开或歌曲无效");
+        return result;
+    }
     const Song downloadedSong = songById(songId);
     const QString path = downloadPathFor(songId);
+    result.path = path;
+    if (!path.isEmpty() && QFileInfo::exists(path)) {
+        if (!QFile::remove(path)) {
+            result.error = QStringLiteral("无法删除文件，文件可能正在使用、只读或权限不足：%1")
+                               .arg(QDir::toNativeSeparators(path));
+            return result;
+        }
+    } else {
+        result.fileWasMissing = true;
+    }
+
+    QString sidecarError;
+    if (!path.isEmpty()) {
+        const QString sidecar = LyricsLoader::sidecarPathFor(path);
+        if (QFileInfo::exists(sidecar) && !QFile::remove(sidecar))
+            sidecarError = QStringLiteral("音频已删除，但歌词文件删除失败：%1")
+                               .arg(QDir::toNativeSeparators(sidecar));
+        LyricsLoader::invalidate(path);
+    }
+
+    if (!m_db.transaction()) {
+        result.error = QStringLiteral("文件已删除，但无法开始数据库事务：%1")
+                           .arg(m_db.lastError().text());
+        return result;
+    }
     QSqlQuery q(m_db);
     q.prepare(QStringLiteral("UPDATE songs SET download_path='' WHERE id=? AND source>0"));
     q.addBindValue(songId);
-    if (!q.exec() || q.numRowsAffected() != 1)
-        return false;
-    if (!path.isEmpty()) {
-        QFile::remove(path);
-        QFile::remove(LyricsLoader::sidecarPathFor(path));
-        LyricsLoader::invalidate(path);
+    if (!q.exec() || q.numRowsAffected() != 1 || !m_db.commit()) {
+        m_db.rollback();
+        result.error = QStringLiteral("文件已删除，但数据库状态更新失败：%1")
+                           .arg(q.lastError().text());
+        return result;
     }
     if (downloadedSong.hasRemoteIdentity()
         && !removeDownloadRecord(downloadDir(), downloadedSong.source,
@@ -2716,7 +2789,9 @@ bool LibraryService::removeSongDownload(qint64 songId)
         }
     }
     emit libraryChanged();
-    return true;
+    result.ok = true;
+    result.error = sidecarError;
+    return result;
 }
 
 void LibraryService::evictCacheIfNeeded()
@@ -2745,24 +2820,14 @@ void LibraryService::evictCacheIfNeeded()
         if (removeCount <= 0 && removeBytes <= 0)
             break;
         const qint64 fileBytes = QFileInfo(v.second).size();
-        QFile::remove(v.second);
-        QSqlQuery del(m_db);
-        del.prepare(QStringLiteral("DELETE FROM song_cache WHERE song_id=?"));
-        del.addBindValue(v.first);
-        del.exec();
-        QSqlQuery clear(m_db);
-        clear.prepare(QStringLiteral("UPDATE songs SET cache_path='' WHERE id=?"));
-        clear.addBindValue(v.first);
-        clear.exec();
+        const FileRemovalResult removed = removeSongCacheDetailed(v.first);
+        if (!removed.ok) {
+            qWarning() << "Failed to evict managed playback cache:" << removed.error;
+            continue;
+        }
         --removeCount;
         removeBytes -= fileBytes;
     }
-    for (Song &s : m_songs) {
-        for (const auto &v : victims)
-            if (s.id == v.first)
-                s.cachePath.clear();
-    }
-    emit cacheChanged();
 }
 
 } // namespace core

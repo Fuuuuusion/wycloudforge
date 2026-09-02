@@ -22,6 +22,15 @@ SongListPage::SongListPage(QWidget *parent)
     layout->setContentsMargins(28, 24, 28, 24);
     layout->setSpacing(18);
 
+    auto *back = new QPushButton(QStringLiteral("返回"), this);
+    back->setFixedSize(68, 32);
+    back->setCursor(Qt::PointingHandCursor);
+    back->setStyleSheet(QStringLiteral(
+        "QPushButton{border:none;background:#1B1B24;color:#C8C8D0;border-radius:16px;}"
+        "QPushButton:hover{background:#3A2024;color:#EC4141;}"));
+    layout->addWidget(back, 0, Qt::AlignLeft);
+    connect(back, &QPushButton::clicked, this, &SongListPage::backRequested);
+
     auto *header = new QWidget(this);
     auto *headerLayout = new QHBoxLayout(header);
     headerLayout->setContentsMargins(0, 0, 0, 0);
@@ -96,6 +105,7 @@ void SongListPage::showContent(const QList<core::Song> &songs, const QString &ti
     m_playingId = playingId;
     m_headerCoverPath = headerCoverPath;
     m_mergeSources = mergeSources;
+    m_removable = removable;
     m_title->setText(title);
     m_meta->setText(meta);
     if (!m_headerCoverPath.isEmpty() && QFileInfo::exists(m_headerCoverPath)) {
@@ -178,6 +188,7 @@ void SongListPage::setPlaylistContext(int playlistId)
 {
     m_playlistContext = playlistId;
     m_playbackQueueContext = false;
+    m_readOnlyContext = false;
     // QToolButton 仍持有旧菜单指针时直接 delete 可能触发 QtWidgets 访问冲突。
     // 先解除绑定，再延迟销毁旧菜单，避免刷新歌单详情时使用悬空指针。
     if (QMenu *oldMenu = m_moreBtn->menu()) {
@@ -208,6 +219,7 @@ void SongListPage::setPlaybackQueueContext()
 {
     m_playlistContext = -1;
     m_playbackQueueContext = true;
+    m_readOnlyContext = false;
     if (QMenu *oldMenu = m_moreBtn->menu()) {
         m_moreBtn->setMenu(nullptr);
         oldMenu->deleteLater();
@@ -226,12 +238,41 @@ void SongListPage::setPlaybackQueueContext()
 void SongListPage::setReadOnlyContext()
 {
     setPlaylistContext(-1);
+    m_readOnlyContext = true;
     m_view->setRemovable(false);
 }
 
 void SongListPage::setPlaylistMenuItems(const QList<QPair<int, QString>> &items)
 {
     m_view->setPlaylistMenuItems(items);
+}
+
+SongListPage::NavigationState SongListPage::navigationState() const
+{
+    NavigationState state;
+    state.songs = m_songs;
+    state.title = m_title->text();
+    state.meta = m_meta->text();
+    state.playingId = m_playingId;
+    state.removable = m_removable;
+    state.headerCoverPath = m_headerCoverPath;
+    state.mergeSources = m_mergeSources;
+    state.playlistContext = m_playlistContext;
+    state.playbackQueueContext = m_playbackQueueContext;
+    state.readOnlyContext = m_readOnlyContext;
+    return state;
+}
+
+void SongListPage::restoreNavigationState(const NavigationState &state)
+{
+    showContent(state.songs, state.title, state.meta, state.playingId,
+                state.removable, state.headerCoverPath, state.mergeSources);
+    if (state.playbackQueueContext)
+        setPlaybackQueueContext();
+    else if (state.readOnlyContext)
+        setReadOnlyContext();
+    else
+        setPlaylistContext(state.playlistContext);
 }
 
 } // namespace ui

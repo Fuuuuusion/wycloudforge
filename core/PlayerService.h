@@ -22,6 +22,14 @@ public:
 
     explicit PlayerService(QObject *parent = nullptr);
 
+    struct FileReleaseState
+    {
+        bool detached = false;
+        bool wasPlaying = false;
+        qint64 positionMs = 0;
+        qint64 songId = -1;
+    };
+
     void setSourceProvider(MusicSource *source) { m_source = source; }
     void setSourceRegistry(class MusicSourceRegistry *registry) { m_registry = registry; }
     void setLibrary(class LibraryService *library) { m_lib = library; }
@@ -36,6 +44,10 @@ public:
     void next();
     void prev();
     void seek(qint64 ms);
+    FileReleaseState releaseFileForRemoval(const QString &path);
+    void synchronizeSong(const Song &song);
+    void synchronizeSong(const Song &song, const FileReleaseState &resume);
+    bool removeSongById(qint64 songId);
 
     void setVolume(int volume);
     int volume() const;
@@ -69,6 +81,9 @@ private:
     bool retryInvalidCache();
     bool retryInvalidRemoteSource();
     void advanceAfterEndOfMedia();
+    void scheduleAdvanceAfterEndOfMedia();
+    void handleUnrecoverableError(const QString &message);
+    void applyPendingResume();
     void buildShuffleOrder();
     void alignShuffleToCurrent();
     void maybeCacheCurrent(qint64 positionMs);
@@ -95,6 +110,14 @@ private:
     bool m_cacheRetryAttempted = false;
     bool m_urlRetryAttempted = false;
     bool m_usingDownloadedSource = false;
+    bool m_skipDownloadedOnce = false;
+    bool m_internalStop = false;
+    bool m_wasPlaying = false;
+    bool m_playbackIntent = false;
+    qint64 m_pendingResumePositionMs = -1;
+    qint64 m_lastKnownPositionMs = 0;
+    QString m_loadedSongIdentity;
+    int m_consecutiveFailures = 0;
     QSet<qint64> m_coverSaveInFlight;
     int m_endOfMediaToken = -1;
 };

@@ -44,6 +44,14 @@ enum class SearchLoadState : int
     Cancelled
 };
 
+enum class SourceAccessState : int
+{
+    Unavailable = 0,
+    Guest,
+    Verifying,
+    Authenticated
+};
+
 struct SearchRequest
 {
     QString keywords;
@@ -132,5 +140,6 @@ Q_DECLARE_METATYPE(core::SearchCategory)
 Q_DECLARE_METATYPE(core::SearchScope)
 Q_DECLARE_METATYPE(core::SearchItemType)
 Q_DECLARE_METATYPE(core::SearchLoadState)
+Q_DECLARE_METATYPE(core::SourceAccessState)
 Q_DECLARE_METATYPE(core::SearchSuggestion)
 Q_DECLARE_METATYPE(core::HotSearchTerm)

@@ -30,6 +30,10 @@
     <file alias="icons/icon-download.svg">../design/prototype/assets/icon-download.svg</file>
     <file alias="icons/icon-check.svg">icons/icon-check.svg</file>
     <file alias="icons/icon-refresh.png">icons/icon-refresh.png</file>
+    <file alias="icons/download-local.png">icons/download-local.png</file>
+    <file alias="icons/download-queued.png">icons/download-queued.png</file>
+    <file alias="icons/download-active.png">icons/download-active.png</file>
+    <file alias="icons/download-complete.png">icons/download-complete.png</file>
     <file alias="icons/player-mode-loop.png">icons/player-mode-loop.png</file>
     <file alias="icons/player-mode-single.png">icons/player-mode-single.png</file>
     <file alias="icons/player-mode-shuffle.png">icons/player-mode-shuffle.png</file>

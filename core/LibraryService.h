@@ -41,6 +41,13 @@ class LibraryService : public QObject
 {
     Q_OBJECT
 public:
+    struct FileRemovalResult
+    {
+        bool ok = false;
+        QString path;
+        QString error;
+        bool fileWasMissing = false;
+    };
     explicit LibraryService(QObject *parent = nullptr);
     ~LibraryService() override;
 
@@ -84,6 +91,7 @@ public:
     bool isSongCached(qint64 songId) const;
     void setSongCached(qint64 songId, const QString &path, qint64 sizeBytes);
     void invalidateSongCache(qint64 songId);
+    FileRemovalResult removeSongCacheDetailed(qint64 songId);
     CacheClearResult clearCache(const QSet<qint64> &protectedSongIds = {});
     void cacheUsage(qint64 *bytes, int *count) const;
     CacheUsageBreakdown cacheUsageDetailed(const QSet<qint64> &protectedSongIds = {}) const;
@@ -95,6 +103,7 @@ public:
     bool isSongDownloaded(qint64 songId) const;
     bool setSongDownloaded(qint64 songId, const QString &path);
     bool removeSongDownload(qint64 songId);
+    FileRemovalResult removeSongDownloadDetailed(qint64 songId);
 
     static void setDatabasePathOverride(const QString &path);
 

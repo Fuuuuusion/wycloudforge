@@ -1105,14 +1105,22 @@ void SongListView::showSourcePicker(int row, const QRect &cellRect)
     for (int sourceIndex = 0; sourceIndex < 3; ++sourceIndex) {
         const core::SourceId source = sources[sourceIndex];
         bool available = false;
+        bool visible = true;
+        bool guest = false;
+        bool found = false;
         QString unavailableReason = QStringLiteral("无此来源版本");
         for (const SongSourceChoice &choice : choices) {
             if (choice.source != source)
                 continue;
+            found = true;
             available = choice.available;
+            visible = choice.visible;
+            guest = choice.guest;
             unavailableReason = choice.unavailableReason;
             break;
         }
+        if (found && !visible)
+            continue;
         if (source == activeSource)
             activeIndex = sourceIndex;
 
@@ -1123,7 +1131,10 @@ void SongListView::showSourcePicker(int row, const QRect &cellRect)
         button->setIconSize(QSize(34, 34));
         button->setCursor(available ? Qt::PointingHandCursor : Qt::ForbiddenCursor);
         button->setAccessibleName(sourceDisplayName(source));
-        button->setToolTip(available ? sourceDisplayName(source)
+        button->setToolTip(available
+                               ? QStringLiteral("%1%2").arg(
+                                     sourceDisplayName(source),
+                                     guest ? QStringLiteral(" · 游客试听") : QString())
                                      : QStringLiteral("%1 · %2")
                                            .arg(sourceDisplayName(source), unavailableReason));
         layout->addWidget(button);
@@ -1189,6 +1200,12 @@ bool SongListView::updateSong(const core::Song &song)
 QList<core::Song> SongListView::songs() const
 {
     return m_model->songs();
+}
+
+void SongListView::setSourceAccessStates(
+    const QHash<int, core::SourceAccessState> &states)
+{
+    m_model->setSourceAccessStates(states);
 }
 
 QList<core::Song> SongListView::memberSongsAt(int row) const

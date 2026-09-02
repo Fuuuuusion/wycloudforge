@@ -37,6 +37,7 @@ private slots:
     void downloadBackupRecoversLegacyOrphan();
     void localAvailabilityClassification();
     void stringRemoteIdentityPersists();
+    void cacheRemovalRejectsUnmanagedPath();
     void managedCacheClearPreservesUserData();
 
 private:
@@ -800,6 +801,44 @@ void PlaylistControllerTest::stringRemoteIdentityPersists()
     const Song playlistSong = m_controller->songsOf(playlistId).first();
     QCOMPARE(playlistSong.stableIdentity(), QStringLiteral("2:0039MnYb0qxYhV"));
     QCOMPARE(playlistSong.mediaRemoteId, qq.mediaRemoteId);
+}
+
+void PlaylistControllerTest::cacheRemovalRejectsUnmanagedPath()
+{
+    Song online = MusicSource::makeOnlineSong(
+        SourceId::Netease, QStringLiteral("netease"), QStringLiteral("unsafe-cache"),
+        QStringLiteral("越界缓存"), QStringLiteral("测试歌手"), {}, 180000, {});
+    const qint64 songId = m_library->upsertOnlineSong(online);
+    QVERIFY(songId > 0);
+
+    const QString unmanagedPath = m_dir->filePath(QStringLiteral("outside-cache.mp3"));
+    QFile unmanaged(unmanagedPath);
+    QVERIFY(unmanaged.open(QIODevice::WriteOnly));
+    QVERIFY(unmanaged.write("must survive") > 0);
+    unmanaged.close();
+
+    QSqlQuery insert(m_library->database());
+    insert.prepare(QStringLiteral(
+        "INSERT INTO song_cache(song_id,cache_path,size_bytes,last_used_ms) VALUES(?,?,?,?)"));
+    insert.addBindValue(songId);
+    insert.addBindValue(unmanagedPath);
+    insert.addBindValue(QFileInfo(unmanagedPath).size());
+    insert.addBindValue(1);
+    QVERIFY(insert.exec());
+    QSqlQuery update(m_library->database());
+    update.prepare(QStringLiteral("UPDATE songs SET cache_path=? WHERE id=?"));
+    update.addBindValue(unmanagedPath);
+    update.addBindValue(songId);
+    QVERIFY(update.exec());
+    m_library->reloadDatabase();
+
+    const LibraryService::FileRemovalResult result =
+        m_library->removeSongCacheDetailed(songId);
+    QVERIFY(!result.ok);
+    QVERIFY(result.error.contains(QStringLiteral("托管目录")));
+    QVERIFY(QFileInfo::exists(unmanagedPath));
+    QCOMPARE(QDir::cleanPath(m_library->songById(songId).cachePath),
+             QDir::cleanPath(unmanagedPath));
 }
 
 void PlaylistControllerTest::managedCacheClearPreservesUserData()

@@ -36,6 +36,7 @@ public:
     core::Song currentSong() const { return m_song; }
 
 signals:
+    void backRequested();
     void seekRequested(qint64 ms);
     void editLyricsRequested();
 

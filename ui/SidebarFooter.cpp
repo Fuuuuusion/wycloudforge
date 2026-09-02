@@ -5,8 +5,11 @@
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QImage>
+#include <QDateTime>
+#include <QPainter>
 #include <QPixmap>
 #include <QPushButton>
+#include <QTimer>
 
 namespace ui {
 namespace {
@@ -27,6 +30,78 @@ QIcon tintedIcon(const QString &resourcePath, const QColor &color)
     }
     return QIcon(QPixmap::fromImage(tinted));
 }
+
+class DownloadStatusButton final : public QPushButton
+{
+public:
+    enum Status { Empty, Queued, Downloading, Complete };
+
+    explicit DownloadStatusButton(QWidget *parent = nullptr)
+        : QPushButton(parent)
+    {
+        setObjectName(QStringLiteral("sidebarDownloadButton"));
+        setFixedSize(28, 28);
+        setCursor(Qt::PointingHandCursor);
+        setFocusPolicy(Qt::StrongFocus);
+        setToolTip(QStringLiteral("下载管理"));
+        setAccessibleName(QStringLiteral("下载管理"));
+        m_timer.setInterval(40);
+        connect(&m_timer, &QTimer::timeout, this, [this] { update(); });
+    }
+
+    void setStatus(Status status)
+    {
+        if (m_status == status)
+            return;
+        m_status = status;
+        if (status == Downloading)
+            m_timer.start();
+        else
+            m_timer.stop();
+        update();
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override
+    {
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        if (underMouse() || isDown()) {
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(QColor(isDown() ? QStringLiteral("#24242E")
+                                             : QStringLiteral("#1B1B24")));
+            painter.drawRoundedRect(rect(), 6, 6);
+        }
+        const QColor color(QStringLiteral("#B8B8C4"));
+        if (m_status != Downloading) {
+            const QString path = m_status == Queued ? QStringLiteral(":/icons/download-queued.png")
+                : m_status == Complete ? QStringLiteral(":/icons/download-complete.png")
+                                       : QStringLiteral(":/icons/download-local.png");
+            const QIcon icon = tintedIcon(path, color);
+            icon.paint(&painter, QRect(5, 5, 18, 18));
+        } else {
+            painter.setPen(QPen(color, 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            const qreal phase = (QDateTime::currentMSecsSinceEpoch() % 900) / 900.0;
+            const qreal y = -3.0 + phase * 24.0;
+            painter.save();
+            painter.setClipRect(QRectF(4, 3, 20, 17));
+            painter.drawLine(QPointF(14, y - 5), QPointF(14, y + 4));
+            painter.drawLine(QPointF(10.5, y + 0.5), QPointF(14, y + 4));
+            painter.drawLine(QPointF(17.5, y + 0.5), QPointF(14, y + 4));
+            painter.restore();
+            painter.drawLine(QPointF(7, 21), QPointF(21, 21));
+        }
+        if (hasFocus()) {
+            painter.setPen(QPen(QColor(QStringLiteral("#6E6E7A")), 1));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawRoundedRect(rect().adjusted(2, 2, -2, -2), 5, 5);
+        }
+    }
+
+private:
+    Status m_status = Empty;
+    QTimer m_timer;
+};
 
 } // namespace
 
@@ -59,10 +134,23 @@ SidebarFooter::SidebarFooter(QWidget *parent)
         "QPushButton#sidebarRefreshButton:pressed{background:#24242E;}"
         "QPushButton#sidebarRefreshButton:disabled{background:transparent;}"));
     layout->addWidget(m_refreshButton, 0, Qt::AlignLeft | Qt::AlignBottom);
+
+    m_downloadButton = new DownloadStatusButton(this);
+    layout->addWidget(m_downloadButton, 0, Qt::AlignLeft | Qt::AlignBottom);
     layout->addStretch(1);
 
     connect(m_settingsButton, &QPushButton::clicked, this, &SidebarFooter::settingsClicked);
     connect(m_refreshButton, &QPushButton::clicked, this, &SidebarFooter::refreshClicked);
+    connect(m_downloadButton, &QPushButton::clicked, this, &SidebarFooter::downloadClicked);
+}
+
+void SidebarFooter::setDownloadStatus(bool downloading, bool queued, bool hasDownloads)
+{
+    auto *button = static_cast<DownloadStatusButton *>(m_downloadButton);
+    button->setStatus(downloading ? DownloadStatusButton::Downloading
+                      : queued ? DownloadStatusButton::Queued
+                      : hasDownloads ? DownloadStatusButton::Complete
+                                     : DownloadStatusButton::Empty);
 }
 
 } // namespace ui

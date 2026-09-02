@@ -12,6 +12,7 @@
 #include "core/SettingsService.h"
 
 #include "ui/SideBar.h"
+#include "ui/SongListPage.h"
 
 #include <QJsonArray>
 #include <QHash>
@@ -31,7 +32,7 @@ class RecommendPage;
 class SearchPage;
 class SelfPlaylistsPage;
 class SideBar;
-class SongListPage;
+class SidebarFooter;
 class TitleBar;
 }
 
@@ -51,7 +52,20 @@ protected:
     void changeEvent(QEvent *event) override;
 
 private:
+    struct RouteEntry
+    {
+        int pageId = -1;
+        ui::SongListPage::NavigationState songListState;
+        bool hasSongListState = false;
+        int playlistContext = -1;
+        QString cloudPlaylistContext;
+    };
+
     void showPage(int pageId);
+    void navigateBack();
+    RouteEntry captureCurrentRoute() const;
+    void pushCurrentRoute();
+    void prepareSongListNavigation();
     void openPlaybackQueue();
     void openPlaylist(int playlistId);
     void openArtist(const QString &artist);
@@ -106,9 +120,11 @@ private:
     void handleBatchCreatePlaylist(const QList<core::Song> &songs);
     void refreshSongListStates();
     void refreshDownloadVisualStates();
+    void refreshDownloadPage();
     void refreshFromSidebar();
     void finishSidebarRefresh(const QString &message);
     void resetManagedCacheViews();
+    void refreshSourceAccessStates();
     bool focusIsEditable() const;
 
     core::LibraryService m_library{ this };
@@ -135,18 +151,24 @@ private:
     ui::DownloadPage *m_downloadPage = nullptr;
     QStackedWidget *m_stack = nullptr;
     QPushButton *m_sidebarRefreshButton = nullptr;
+    ui::SidebarFooter *m_sidebarFooter = nullptr;
 
     qint64 m_currentSongId = -1;
     int m_playlistContext = -1;
     QString m_cloudPlaylistContext;
     int m_lastPage = 0;
+    QList<RouteEntry> m_navigationHistory;
+    bool m_navigatingBack = false;
     QString m_searchQuery;
     bool m_restoredLastSong = false;
     bool m_apiReady = false;
     bool m_qqApiReady = false;
+    bool m_neteaseSessionVerifying = false;
+    bool m_qqSessionVerifying = false;
     bool m_qqApiStarting = false;
     bool m_qqSearchExecutionPending = false;
     bool m_sidebarRefreshInProgress = false;
+    QHash<int, core::SourceAccessState> m_sourceAccessStates;
     quint64 m_onlineDetailGeneration = 0;
     quint64 m_onlineCoverGeneration = 0;
     QHash<int, quint64> m_cloudPlaylistGenerations;

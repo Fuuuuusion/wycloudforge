@@ -171,6 +171,7 @@ MainWindow::MainWindow(QWidget *parent)
         refreshSidebar();
         refreshLibraryViews();
         refreshAllPages();
+        refreshDownloadPage();
         if (m_currentSongId > 0) {
             const core::Song current = m_library.songById(m_currentSongId);
             if (current.id > 0)
@@ -236,6 +237,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_search->setSourceProvider(&m_apiClient, &m_library);
     m_search->setSourceRegistry(&m_sourceRegistry);
     m_search->setOnlineSourceEnabled(core::SourceId::QqMusic, false);
+    refreshSourceAccessStates();
     m_playing->setSourceProvider(&m_apiClient);
     m_playing->setSourceRegistry(&m_sourceRegistry);
     m_playing->setLibrary(&m_library);
@@ -275,10 +277,13 @@ MainWindow::MainWindow(QWidget *parent)
     sideLayout->addWidget(m_sideBar, 1);
 
     auto *settingsFooter = new ui::SidebarFooter(sidebarShell);
+    m_sidebarFooter = settingsFooter;
     m_sidebarRefreshButton = settingsFooter->refreshButton();
     sideLayout->addWidget(settingsFooter);
     connect(settingsFooter, &ui::SidebarFooter::refreshClicked,
             this, &MainWindow::refreshFromSidebar);
+    connect(settingsFooter, &ui::SidebarFooter::downloadClicked,
+            this, [this] { showPage(7); });
 
     auto *rightColumn = new QWidget(central);
     rightColumn->setObjectName(QStringLiteral("rightColumn"));
@@ -336,7 +341,7 @@ MainWindow::MainWindow(QWidget *parent)
         ensureQqSearchSource();
     });
     connect(m_titleBar, &ui::TitleBar::searchDismissed, this, [this] {
-        showPage(m_lastPage);
+        navigateBack();
     });
     connect(m_titleBar, &ui::TitleBar::searchNavigationRequested,
             m_search, &ui::SearchPage::moveSearchAssistantSelection);
@@ -345,7 +350,10 @@ MainWindow::MainWindow(QWidget *parent)
             m_titleBar, &ui::TitleBar::setSearchPlaceholder);
 
     // ---------- 侧边栏 ----------
-    connect(m_sideBar, &ui::SideBar::pageRequested, this, &MainWindow::showPage);
+    connect(m_sideBar, &ui::SideBar::pageRequested, this, [this](int pageId) {
+        m_navigationHistory.clear();
+        showPage(pageId);
+    });
     connect(m_sideBar, &ui::SideBar::playlistSelected, this, &MainWindow::openPlaylist);
     connect(m_sideBar, &ui::SideBar::cloudPlaylistSelected, this,
             [this](int sourceId, const QString &remoteId, const QString &name) {
@@ -410,11 +418,20 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_playerBar, &ui::PlayerBar::lyricsClicked, this, [this] { showPage(5); });
     connect(m_playerBar, &ui::PlayerBar::playlistClicked, this, &MainWindow::openPlaybackQueue);
 
-    connect(m_downloadPage, &ui::DownloadPage::backRequested, this, [this] { showPage(m_lastPage); });
+    connect(m_downloadPage, &ui::DownloadPage::backRequested, this, &MainWindow::navigateBack);
+    connect(m_search, &ui::SearchPage::backRequested, this, &MainWindow::navigateBack);
+    connect(m_songListPage, &ui::SongListPage::backRequested, this, &MainWindow::navigateBack);
+    connect(m_playing, &ui::PlayingPage::backRequested, this, &MainWindow::navigateBack);
     connect(m_downloadPage, &ui::DownloadPage::cancelRequested, &m_downloads, &core::DownloadService::cancel);
     connect(m_downloadPage, &ui::DownloadPage::retryRequested, &m_downloads, &core::DownloadService::retry);
+    connect(m_downloadPage, &ui::DownloadPage::deleteRequested, this, [this](qint64 songId) {
+        const core::Song song = m_library.songById(songId);
+        if (song.id > 0)
+            handleSongDelete(song);
+        refreshDownloadPage();
+    });
     connect(&m_downloads, &core::DownloadService::tasksChanged, this, [this] {
-        m_downloadPage->setTasks(m_downloads.tasks());
+        refreshDownloadPage();
         refreshDownloadVisualStates();
     });
 
@@ -458,6 +475,7 @@ MainWindow::MainWindow(QWidget *parent)
             m_qqApiReady = false;
             m_recommend->setSourceAvailable(core::SourceId::QqMusic, false);
             m_search->setOnlineSourceEnabled(core::SourceId::QqMusic, false);
+            refreshSourceAccessStates();
         });
     });
     connect(m_recommend, &ui::RecommendPage::refreshStateChanged, this,
@@ -684,6 +702,7 @@ MainWindow::MainWindow(QWidget *parent)
         [this] {
             m_apiReady = true;
             m_recommend->setSourceAvailable(core::SourceId::Netease, true);
+            m_search->setOnlineSourceEnabled(core::SourceId::Netease, true);
             m_apiClient.setBaseUrl(m_apiService.apiBase());
             restoreOnlineSession();
             // 先让首屏和数据库恢复后的本地列表稳定显示，再分批补充历史在线歌曲封面。
@@ -695,6 +714,8 @@ MainWindow::MainWindow(QWidget *parent)
         [this](const QString &) {
             m_apiReady = false;
             m_recommend->setSourceAvailable(core::SourceId::Netease, false);
+            m_search->setOnlineSourceEnabled(core::SourceId::Netease, false);
+            refreshSourceAccessStates();
             m_recommend->refresh();
         });
 
@@ -713,6 +734,7 @@ MainWindow::MainWindow(QWidget *parent)
                 m_qqApiReady = false;
                 m_recommend->setSourceAvailable(core::SourceId::QqMusic, false);
                 m_search->setOnlineSourceEnabled(core::SourceId::QqMusic, false);
+                refreshSourceAccessStates();
             });
         });
     }
@@ -720,6 +742,11 @@ MainWindow::MainWindow(QWidget *parent)
 
 void MainWindow::showPage(int pageId)
 {
+    if (pageId < 0 || pageId >= m_stack->count())
+        return;
+    const int currentPage = m_stack->currentIndex();
+    if (!m_navigatingBack && currentPage >= 0 && currentPage != pageId)
+        pushCurrentRoute();
     if (pageId >= 0 && pageId != 4)
         ++m_onlineDetailGeneration;
     const bool clearPlaylistSelection = pageId >= 0 && pageId != 4 && pageId != 5
@@ -734,15 +761,64 @@ void MainWindow::showPage(int pageId)
     }
     if (pageId == 5 || pageId == 7 || (pageId == 6 && m_stack->currentIndex() != 6))
         m_lastPage = m_stack->currentIndex();
-    if (pageId >= 0 && pageId < m_stack->count())
-        m_stack->setCurrentIndex(pageId);
+    m_stack->setCurrentIndex(pageId);
     if (pageId == 1)
         m_favorites->setSongs(m_playlists.songsOf(m_playlists.favoritePlaylistId()), m_currentSongId);
     if (pageId == 3)
         refreshAllPages();
     if (pageId == 7)
-        m_downloadPage->setTasks(m_downloads.tasks());
+        refreshDownloadPage();
     m_sideBar->setActivePage(pageId);
+}
+
+void MainWindow::navigateBack()
+{
+    if (m_navigationHistory.isEmpty())
+        return;
+    const RouteEntry destination = m_navigationHistory.takeLast();
+    m_navigatingBack = true;
+    m_playlistContext = destination.playlistContext;
+    m_cloudPlaylistContext = destination.cloudPlaylistContext;
+    if (destination.pageId == 4 && destination.hasSongListState) {
+        m_songListPage->restoreNavigationState(destination.songListState);
+        refreshSidebar();
+    }
+    showPage(destination.pageId);
+    m_navigatingBack = false;
+}
+
+MainWindow::RouteEntry MainWindow::captureCurrentRoute() const
+{
+    RouteEntry route;
+    route.pageId = m_stack ? m_stack->currentIndex() : -1;
+    route.playlistContext = m_playlistContext;
+    route.cloudPlaylistContext = m_cloudPlaylistContext;
+    if (route.pageId == 4 && m_songListPage) {
+        route.songListState = m_songListPage->navigationState();
+        route.hasSongListState = true;
+    }
+    return route;
+}
+
+void MainWindow::pushCurrentRoute()
+{
+    const RouteEntry route = captureCurrentRoute();
+    if (route.pageId < 0)
+        return;
+    if (!m_navigationHistory.isEmpty()
+        && m_navigationHistory.constLast().pageId == route.pageId
+        && route.pageId != 4) {
+        return;
+    }
+    m_navigationHistory.append(route);
+    if (m_navigationHistory.size() > 32)
+        m_navigationHistory.removeFirst();
+}
+
+void MainWindow::prepareSongListNavigation()
+{
+    if (!m_navigatingBack && m_stack && m_stack->currentIndex() == 4)
+        pushCurrentRoute();
 }
 
 void MainWindow::openPlaybackQueue()
@@ -759,6 +835,7 @@ void MainWindow::openPlaybackQueue()
         .arg(queue.size())
         .arg(totalSec / 60)
         .arg(totalSec % 60, 2, 10, QLatin1Char('0'));
+    prepareSongListNavigation();
     m_playlistContext = -1;
     m_cloudPlaylistContext.clear();
     refreshSidebar();
@@ -789,6 +866,7 @@ void MainWindow::openPlaylist(int playlistId)
         showPage(3);
         return;
     }
+    prepareSongListNavigation();
     m_playlistContext = playlistId;
     m_cloudPlaylistContext.clear();
     refreshSidebar();
@@ -812,6 +890,7 @@ void MainWindow::openPlaylist(int playlistId)
 void MainWindow::openArtist(const QString &artist)
 {
     ++m_onlineDetailGeneration;
+    prepareSongListNavigation();
     m_cloudPlaylistContext.clear();
     refreshSidebar();
     QList<core::Song> songs;
@@ -826,6 +905,7 @@ void MainWindow::openArtist(const QString &artist)
 void MainWindow::openLocalArtist(const QString &artist)
 {
     ++m_onlineDetailGeneration;
+    prepareSongListNavigation();
     m_cloudPlaylistContext.clear();
     refreshSidebar();
     QList<core::Song> songs;
@@ -840,6 +920,7 @@ void MainWindow::openLocalArtist(const QString &artist)
 void MainWindow::openAlbum(const QString &album, const QString &artist)
 {
     ++m_onlineDetailGeneration;
+    prepareSongListNavigation();
     m_cloudPlaylistContext.clear();
     refreshSidebar();
     QList<core::Song> songs;
@@ -855,6 +936,7 @@ void MainWindow::openAlbum(const QString &album, const QString &artist)
 void MainWindow::openLocalAlbum(const QString &album, const QString &artist)
 {
     ++m_onlineDetailGeneration;
+    prepareSongListNavigation();
     m_cloudPlaylistContext.clear();
     refreshSidebar();
     QList<core::Song> songs;
@@ -870,16 +952,17 @@ void MainWindow::openLocalAlbum(const QString &album, const QString &artist)
 void MainWindow::openOnlinePlaylist(core::SourceId sourceId, const QString &remoteId,
                                     const QString &name, bool cloudContext)
 {
-    m_playlistContext = -1;
-    m_cloudPlaylistContext = cloudContext
-        ? QStringLiteral("%1:%2").arg(int(sourceId)).arg(remoteId) : QString();
-    refreshSidebar();
     core::MusicSource *source = m_sourceRegistry.source(sourceId);
     if (!source || remoteId.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("在线歌单"),
                                  QStringLiteral("对应音乐来源当前不可用"));
         return;
     }
+    prepareSongListNavigation();
+    m_playlistContext = -1;
+    m_cloudPlaylistContext = cloudContext
+        ? QStringLiteral("%1:%2").arg(int(sourceId)).arg(remoteId) : QString();
+    refreshSidebar();
     const quint64 generation = ++m_onlineDetailGeneration;
     const QPointer<MainWindow> guard(this);
     auto showTracks = [guard, source, remoteId, name, generation](const QString &coverPath) {
@@ -946,15 +1029,16 @@ void MainWindow::openOnlinePlaylist(core::SourceId sourceId, const QString &remo
 void MainWindow::openOnlineArtist(core::SourceId sourceId, const QString &remoteId,
                                   const QString &name)
 {
-    m_playlistContext = -1;
-    m_cloudPlaylistContext.clear();
-    refreshSidebar();
     core::MusicSource *source = m_sourceRegistry.source(sourceId);
     if (!source || remoteId.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("在线歌手"),
                                  QStringLiteral("对应音乐来源当前不可用"));
         return;
     }
+    prepareSongListNavigation();
+    m_playlistContext = -1;
+    m_cloudPlaylistContext.clear();
+    refreshSidebar();
     const quint64 generation = ++m_onlineDetailGeneration;
     const QPointer<MainWindow> guard(this);
     source->artistSongs(remoteId, [guard, source, sourceId, name, generation](const QJsonArray &array) {
@@ -987,15 +1071,16 @@ void MainWindow::openOnlineArtist(core::SourceId sourceId, const QString &remote
 void MainWindow::openOnlineAlbum(core::SourceId sourceId, const QString &remoteId,
                                  const QString &name)
 {
-    m_playlistContext = -1;
-    m_cloudPlaylistContext.clear();
-    refreshSidebar();
     core::MusicSource *source = m_sourceRegistry.source(sourceId);
     if (!source || remoteId.isEmpty()) {
         QMessageBox::information(this, QStringLiteral("在线专辑"),
                                  QStringLiteral("对应音乐来源当前不可用"));
         return;
     }
+    prepareSongListNavigation();
+    m_playlistContext = -1;
+    m_cloudPlaylistContext.clear();
+    refreshSidebar();
     const quint64 generation = ++m_onlineDetailGeneration;
     const QPointer<MainWindow> guard(this);
     source->albumDetail(remoteId, [guard, source, sourceId, name, generation](const QJsonObject &object) {
@@ -1202,6 +1287,7 @@ void MainWindow::openAccount()
         m_recommend->refresh();
         restoreOnlineSession();
         restoreQqSession();
+        refreshSourceAccessStates();
     });
     dlg.exec();
 }
@@ -1210,17 +1296,24 @@ void MainWindow::restoreQqSession()
 {
     const QString credential = core::SettingsService::qqCookie();
     if (credential.isEmpty()) {
+        m_qqSessionVerifying = false;
         m_qqClient.setCookie(QString());
         removeCloudPlaylists(core::SourceId::QqMusic);
         m_accountPanel->refresh();
+        refreshSourceAccessStates();
         return;
     }
     m_qqClient.setCookie(credential);
+    m_qqSessionVerifying = true;
+    refreshSourceAccessStates();
     m_qqClient.validateCredential(credential, QStringLiteral("saved"),
         [this](const QJsonObject &profile) {
+            m_qqSessionVerifying = false;
             const QString userId = profile.value(QStringLiteral("userId")).toVariant().toString();
-            if (userId.isEmpty())
+            if (userId.isEmpty()) {
+                refreshSourceAccessStates();
                 return;
+            }
             core::SettingsService::setQqUserId(userId);
             core::SettingsService::setQqNickname(profile.value(QStringLiteral("nickname")).toString());
             const QString avatarUrl = profile.value(QStringLiteral("avatarUrl")).toString();
@@ -1239,9 +1332,12 @@ void MainWindow::restoreQqSession()
                 m_accountPanel->refresh();
             });
             m_accountPanel->refresh();
+            refreshSourceAccessStates();
         }, [this](const QString &) {
             // 网络或上游错误不视为凭据过期；保留本地账号，等待下次验证。
+            m_qqSessionVerifying = false;
             m_accountPanel->refresh();
+            refreshSourceAccessStates();
         });
 }
 
@@ -1639,7 +1735,7 @@ void MainWindow::refreshFromSidebar()
         else
             m_search->performSearch(query);
     } else if (currentPage == 7) {
-        m_downloadPage->setTasks(m_downloads.tasks());
+        refreshDownloadPage();
     }
 
     const auto refreshRecommendations = [this] {
@@ -1653,21 +1749,28 @@ void MainWindow::refreshFromSidebar()
             m_recommend->setSourceAvailable(core::SourceId::QqMusic, true);
             m_search->setOnlineSourceEnabled(core::SourceId::QqMusic, true);
             m_qqClient.setBaseUrl(m_qqApiService.apiBase());
+            refreshSourceAccessStates();
             refreshRecommendations();
         }, [this](const QString &message) {
             m_qqApiReady = false;
             m_recommend->setSourceAvailable(core::SourceId::QqMusic, false);
+            m_search->setOnlineSourceEnabled(core::SourceId::QqMusic, false);
+            refreshSourceAccessStates();
             finishSidebarRefresh(QStringLiteral("QQ 音乐刷新失败：%1").arg(message));
         });
     } else {
         m_apiService.ensureRunning([this, refreshRecommendations] {
             m_apiReady = true;
             m_recommend->setSourceAvailable(core::SourceId::Netease, true);
+            m_search->setOnlineSourceEnabled(core::SourceId::Netease, true);
             m_apiClient.setBaseUrl(m_apiService.apiBase());
+            refreshSourceAccessStates();
             refreshRecommendations();
         }, [this](const QString &message) {
             m_apiReady = false;
             m_recommend->setSourceAvailable(core::SourceId::Netease, false);
+            m_search->setOnlineSourceEnabled(core::SourceId::Netease, false);
+            refreshSourceAccessStates();
             finishSidebarRefresh(QStringLiteral("网易云刷新失败：%1").arg(message));
         });
     }
@@ -1715,6 +1818,7 @@ void MainWindow::restoreOnlineSession()
     const qint64 savedUid = core::SettingsService::onlineUid();
     const QString cookie = core::SettingsService::onlineCookie();
     if (savedUid <= 0 || cookie.isEmpty()) {
+        m_neteaseSessionVerifying = false;
         // uid 与 cookie 必须成对有效，不能只凭本地 uid 显示“已登录”。
         if (savedUid > 0 || !cookie.isEmpty()) {
             core::SettingsService::setOnlineCookie(QString());
@@ -1726,10 +1830,14 @@ void MainWindow::restoreOnlineSession()
         removeCloudPlaylists(core::SourceId::Netease);
         m_accountPanel->refresh();
         m_recommend->refresh();
+        refreshSourceAccessStates();
         return;
     }
 
+    m_neteaseSessionVerifying = true;
+    refreshSourceAccessStates();
     m_apiClient.loginStatus([this](const QJsonObject &obj) {
+        m_neteaseSessionVerifying = false;
         const QJsonObject data = obj.value(QStringLiteral("data")).toObject();
         QJsonObject profile = data.value(QStringLiteral("profile")).toObject();
         if (profile.isEmpty())
@@ -1756,11 +1864,41 @@ void MainWindow::restoreOnlineSession()
         }
         m_accountPanel->refresh();
         m_recommend->refresh();
+        refreshSourceAccessStates();
     }, [this](const QString &) {
         // 服务暂时不可用时保留本地登录信息，并让推荐页回退到磁盘缓存。
+        m_neteaseSessionVerifying = false;
         m_accountPanel->refresh();
         m_recommend->refresh();
+        refreshSourceAccessStates();
     });
+}
+
+void MainWindow::refreshSourceAccessStates()
+{
+    QHash<int, core::SourceAccessState> states;
+    states.insert(int(core::SourceId::Local), core::SourceAccessState::Authenticated);
+    states.insert(int(core::SourceId::Netease),
+                  !m_apiReady ? core::SourceAccessState::Unavailable
+                  : m_neteaseSessionVerifying ? core::SourceAccessState::Verifying
+                  : (core::SettingsService::onlineUid() > 0
+                     && !core::SettingsService::onlineCookie().isEmpty())
+                      ? core::SourceAccessState::Authenticated
+                      : core::SourceAccessState::Guest);
+    states.insert(int(core::SourceId::QqMusic),
+                  !m_qqApiReady ? core::SourceAccessState::Unavailable
+                  : m_qqSessionVerifying ? core::SourceAccessState::Verifying
+                  : (!core::SettingsService::qqUserId().isEmpty()
+                     && !core::SettingsService::qqCookie().isEmpty())
+                      ? core::SourceAccessState::Authenticated
+                      : core::SourceAccessState::Guest);
+    if (states == m_sourceAccessStates)
+        return;
+    m_sourceAccessStates = states;
+    if (m_search)
+        m_search->setSourceAccessStates(states);
+    for (ui::SongListView *view : findChildren<ui::SongListView *>())
+        view->setSourceAccessStates(states);
 }
 
 void MainWindow::onCurrentSongChanged(const core::Song &song, int index)
@@ -1947,6 +2085,7 @@ void MainWindow::setupShortcuts()
         core::SettingsService::setVolume(m_player.volume());
     });
     add(QKeySequence(Qt::Key_L), [this] { showPage(5); });
+    add(QKeySequence(Qt::Key_Escape), [this] { navigateBack(); });
     add(QKeySequence(QStringLiteral("Ctrl+O")), [this] { addMusicFolder(); });
     add(QKeySequence(Qt::Key_F5), [this] { m_library.startScan(); });
     auto *searchShortcut = new QShortcut(QKeySequence(QStringLiteral("Ctrl+K")), this);
@@ -1965,6 +2104,7 @@ void MainWindow::ensureQqSearchSource()
         m_recommend->setSourceAvailable(core::SourceId::QqMusic, true);
         m_search->setOnlineSourceEnabled(core::SourceId::QqMusic, true);
         m_qqClient.setBaseUrl(m_qqApiService.apiBase());
+        refreshSourceAccessStates();
         refreshSearchAfterQqReady();
     }, [this](const QString &) {
         m_qqApiStarting = false;
@@ -1972,6 +2112,7 @@ void MainWindow::ensureQqSearchSource()
         m_recommend->setSourceAvailable(core::SourceId::QqMusic, false);
         m_qqSearchExecutionPending = false;
         m_search->setOnlineSourceEnabled(core::SourceId::QqMusic, false);
+        refreshSourceAccessStates();
     });
 }
 
@@ -2051,7 +2192,6 @@ void MainWindow::connectSongListActions()
                 ? QStringLiteral("已加入 %1 首下载任务，跳过 %2 首").arg(pending.size()).arg(skipped)
                 : QStringLiteral("已加入 %1 首下载任务").arg(pending.size());
             QToolTip::showText(QCursor::pos(), message, this, QRect(), 2600);
-            showPage(7);
         });
         connect(view, &ui::SongListView::batchDeleteRequested, this,
                 [this](const QList<core::Song> &songs) {
@@ -2112,7 +2252,8 @@ void MainWindow::handleSongDownload(const core::Song &song)
     if (!stored.isOnline() || stored.id <= 0 || stored.isDownloaded())
         return;
     if (m_downloads.enqueue(stored) > 0)
-        showPage(7);
+        QToolTip::showText(QCursor::pos(), QStringLiteral("已加入下载队列"),
+                           this, QRect(), 1800);
 }
 
 bool MainWindow::handleSongDelete(const core::Song &song, bool batch)
@@ -2138,24 +2279,54 @@ bool MainWindow::handleSongDelete(const core::Song &song, bool batch)
     const bool wasCurrent = song.id == m_currentSongId;
     bool ok = false;
     if (!song.isOnline()) {
+        core::PlayerService::FileReleaseState release;
+        if (deleteLocalFile && QFileInfo::exists(song.filePath)) {
+            release = m_player.releaseFileForRemoval(song.filePath);
+            if (!QFile::remove(song.filePath)) {
+                if (release.detached)
+                    m_player.synchronizeSong(song, release);
+                if (!batch)
+                    QMessageBox::warning(this, QStringLiteral("删除失败"),
+                                         QStringLiteral("无法删除本地文件，文件可能正在使用、只读或权限不足。"));
+                return false;
+            }
+        }
+        m_player.removeSongById(song.id);
         m_library.removeSong(song.id);
         ok = m_library.songById(song.id).id <= 0;
-        if (deleteLocalFile && QFileInfo::exists(song.filePath))
-            ok = QFile::remove(song.filePath) && ok;
     } else if (song.isDownloaded()) {
-        const QString path = song.downloadPath;
-        ok = m_library.removeSongDownload(song.id);
-        if (ok && !path.isEmpty() && QFileInfo::exists(path))
-            ok = false;
+        const auto release = m_player.releaseFileForRemoval(song.downloadPath);
+        const core::LibraryService::FileRemovalResult result =
+            m_library.removeSongDownloadDetailed(song.id);
+        ok = result.ok;
+        const core::Song updated = m_library.songById(song.id);
+        if (release.detached && updated.id > 0)
+            m_player.synchronizeSong(updated, release);
+        else if (updated.id > 0)
+            m_player.synchronizeSong(updated);
+        if (!ok && !batch)
+            QMessageBox::warning(this, QStringLiteral("删除下载失败"), result.error);
     } else if (song.isCached()) {
-        m_library.invalidateSongCache(song.id);
-        ok = !m_library.songById(song.id).isCached();
+        const auto release = m_player.releaseFileForRemoval(song.cachePath);
+        const core::LibraryService::FileRemovalResult result =
+            m_library.removeSongCacheDetailed(song.id);
+        ok = result.ok;
+        const core::Song updated = m_library.songById(song.id);
+        if (release.detached && updated.id > 0)
+            m_player.synchronizeSong(updated, release);
+        else if (updated.id > 0)
+            m_player.synchronizeSong(updated);
+        if (!ok && !batch)
+            QMessageBox::warning(this, QStringLiteral("删除缓存失败"), result.error);
     } else {
+        m_player.removeSongById(song.id);
         m_library.removeSong(song.id);
         ok = m_library.songById(song.id).id <= 0;
     }
-    if (ok && wasCurrent && !m_player.playlist().isEmpty())
-        m_player.next();
+    if (ok && wasCurrent && m_player.playlist().isEmpty())
+        m_currentSongId = -1;
+    if (ok)
+        refreshDownloadPage();
     return ok;
 }
 
@@ -2261,6 +2432,30 @@ void MainWindow::refreshDownloadVisualStates()
         m_playerBar->setDownloadActive(activeIdentities.contains(current.selectionIdentity()));
     }
     m_activeDownloadSongIds = activeSongIds;
+}
+
+void MainWindow::refreshDownloadPage()
+{
+    const QList<core::DownloadService::Task> tasks = m_downloads.tasks();
+    m_downloadPage->setTasks(tasks);
+    QList<core::Song> downloaded;
+    for (const core::Song &song : m_library.allSongs()) {
+        if (song.isDownloaded())
+            downloaded.append(song);
+    }
+    std::sort(downloaded.begin(), downloaded.end(), [](const core::Song &a,
+                                                       const core::Song &b) {
+        return QString::localeAwareCompare(a.title, b.title) < 0;
+    });
+    m_downloadPage->setDownloadedSongs(downloaded);
+    bool downloading = false;
+    bool queued = false;
+    for (const core::DownloadService::Task &task : tasks) {
+        downloading = downloading || task.state == core::DownloadService::Downloading;
+        queued = queued || task.state == core::DownloadService::Queued;
+    }
+    if (m_sidebarFooter)
+        m_sidebarFooter->setDownloadStatus(downloading, queued, !downloaded.isEmpty());
 }
 
 bool MainWindow::focusIsEditable() const

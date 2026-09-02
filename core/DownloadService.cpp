@@ -87,10 +87,12 @@ void DownloadService::cancel(qint64 taskId)
 void DownloadService::retry(qint64 taskId)
 {
     Task *task = taskFor(taskId);
-    if (!task || m_activeTaskId > 0 || (task->state != Failed && task->state != Canceled))
+    if (!task || (task->state != Failed && task->state != Canceled))
         return;
     task->state = Queued;
     task->percent = 0;
+    task->receivedBytes = 0;
+    task->totalBytes = 0;
     task->error.clear();
     m_queue.append(taskId);
     emit taskUpdated(*task);
@@ -122,6 +124,8 @@ void DownloadService::startNext()
     m_urlRetryCount = 0;
     task->state = Downloading;
     task->percent = 0;
+    task->receivedBytes = 0;
+    task->totalBytes = 0;
     emit taskUpdated(*task);
     resolveUrl(taskId);
 }
@@ -182,12 +186,16 @@ void DownloadService::beginTransfer(qint64 taskId, const QUrl &url)
         url, path,
         [this, taskId](qint64 received, qint64 total) {
             Task *current = taskFor(taskId);
-            if (!current || taskId != m_activeTaskId || total <= 0)
+            if (!current || taskId != m_activeTaskId)
                 return;
-            const int percent = qBound(0, int((received * 100) / total), 100);
-            if (percent == current->percent)
+            const int percent = total > 0
+                ? qBound(0, int((received * 100) / total), 100) : current->percent;
+            if (percent == current->percent && received == current->receivedBytes
+                && total == current->totalBytes)
                 return;
             current->percent = percent;
+            current->receivedBytes = qMax<qint64>(0, received);
+            current->totalBytes = qMax<qint64>(0, total);
             emit taskUpdated(*current);
         },
         [this, taskId, path](const MusicSource::DownloadResult &result) {

@@ -26,6 +26,8 @@ public:
         Song song;
         State state = Queued;
         int percent = 0;
+        qint64 receivedBytes = 0;
+        qint64 totalBytes = 0;
         QString error;
     };
 

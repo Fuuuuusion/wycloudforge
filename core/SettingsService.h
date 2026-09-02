@@ -80,6 +80,9 @@ public:
     // 头像来源:0 网易云 / 1 QQ音乐 / 2 本地上传
     static int avatarSource(int fallback = 0);
     static void setAvatarSource(int source);
+    // 当前账号文字来源:0 网易云 / 1 QQ音乐。与自定义头像来源分离。
+    static int accountDisplaySource(int fallback = -1);
+    static void setAccountDisplaySource(int source);
     static QString avatarUploadPath();
     static void setAvatarUploadPath(const QString &path);
 

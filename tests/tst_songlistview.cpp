@@ -11,10 +11,12 @@
 #include "ui/AccountSettingsButton.h"
 #include "ui/SideBar.h"
 #include "ui/SidebarFooter.h"
+#include "ui/DownloadPage.h"
 #include "ui/SourceIcons.h"
 #include "ui/TitleBar.h"
 #include "core/NeteaseApiClient.h"
 #include "core/QqMusicSource.h"
+#include "core/SearchAggregator.h"
 #include "core/SettingsService.h"
 
 #include <QAbstractItemModel>
@@ -122,6 +124,11 @@ private slots:
     void manualRecommendRefreshUsesPlatformTopListsAndFeedback();
     void recommendedPlaylistsScrollAtNarrowWidths();
     void accountActionIsExplicitAndPreservesSignal();
+    void qqOnlyAccountFallsBackToQqIdentity();
+    void downloadPageKeepsFixedRowsAndByteProgress();
+    void songListNavigationStateRestoresDetailContext();
+    void guestSourcesHideBehindAuthenticatedVariant();
+    void playerMetadataRefreshPreservesProgress();
     void layoutComponentsFollowConfirmedGeometry();
     void singleClickPlaysContentOnly();
     void playbackActivityTracksRealState();
@@ -654,6 +661,79 @@ void SongListViewTest::playingProgressDragCommitsOnceWithoutPositionOverwrite()
     QVERIFY(!progress->isDragging());
     const qint64 requested = seekSpy.takeFirst().at(0).toLongLong();
     QVERIFY(requested > 70000 && requested < 85000);
+}
+
+void SongListViewTest::guestSourcesHideBehindAuthenticatedVariant()
+{
+    Song netease = MusicSource::makeOnlineSong(
+        SourceId::Netease, QStringLiteral("netease"), QStringLiteral("n-guest"),
+        QStringLiteral("同曲"), QStringLiteral("歌手"), QStringLiteral("专辑"),
+        200000, {});
+    Song qq = MusicSource::makeOnlineSong(
+        SourceId::QqMusic, QStringLiteral("qqmusic"), QStringLiteral("q-auth"),
+        QStringLiteral("同曲"), QStringLiteral("歌手"), QStringLiteral("专辑"),
+        201000, {});
+    const QList<SearchResultGroup> groups =
+        SearchAggregator::aggregateSongsPreservingOrder({ netease, qq });
+    QCOMPARE(groups.size(), 1);
+
+    SongListModel model;
+    model.setSourceAccessStates({
+        { int(SourceId::Netease), SourceAccessState::Guest },
+        { int(SourceId::QqMusic), SourceAccessState::Authenticated },
+    });
+    model.setSearchResultGroups(groups);
+    const QList<SongSourceChoice> choices = model.sourceChoicesAt(0);
+    QCOMPARE(choices.size(), 2);
+    for (const SongSourceChoice &choice : choices) {
+        if (choice.source == SourceId::Netease) {
+            QVERIFY(choice.guest);
+            QVERIFY(!choice.visible);
+        } else if (choice.source == SourceId::QqMusic) {
+            QVERIFY(!choice.guest);
+            QVERIFY(choice.visible);
+        }
+    }
+    QCOMPARE(model.activeSourceAt(0), SourceId::QqMusic);
+
+    model.setSourceAccessStates({
+        { int(SourceId::Netease), SourceAccessState::Guest },
+        { int(SourceId::QqMusic), SourceAccessState::Guest },
+    });
+    for (const SongSourceChoice &choice : model.sourceChoicesAt(0))
+        QVERIFY(choice.visible);
+
+    model.setSourceAccessStates({
+        { int(SourceId::Netease), SourceAccessState::Unavailable },
+        { int(SourceId::QqMusic), SourceAccessState::Guest },
+    });
+    for (const SongSourceChoice &choice : model.sourceChoicesAt(0)) {
+        if (choice.source == SourceId::Netease) {
+            QVERIFY(!choice.available);
+            QVERIFY(choice.unavailableReason.contains(QStringLiteral("不可用")));
+        } else if (choice.source == SourceId::QqMusic) {
+            QVERIFY(choice.available);
+        }
+    }
+}
+
+void SongListViewTest::playerMetadataRefreshPreservesProgress()
+{
+    Song song;
+    song.id = 906;
+    song.filePath = QStringLiteral("C:/music/same-song.mp3");
+    song.title = QStringLiteral("原标题");
+    song.durationMs = 100000;
+
+    PlayerBar bar;
+    bar.setSong(song, false);
+    bar.setPosition(42000);
+    auto *progress = bar.findChild<ProgressSlider *>(QStringLiteral("playerProgress"));
+    QVERIFY(progress);
+    const int before = progress->value();
+    song.title = QStringLiteral("更新标题");
+    bar.setSong(song, true);
+    QCOMPARE(progress->value(), before);
 }
 
 void SongListViewTest::lyricPreviewWaitsForIdleDelay()
@@ -1202,6 +1282,10 @@ void SongListViewTest::sourcePickerRequiresSecondClickAndKeepsGroupIdentity()
 
     SongListView view;
     view.resize(1200, 320);
+    view.setSourceAccessStates({
+        { int(SourceId::Netease), SourceAccessState::Authenticated },
+        { int(SourceId::QqMusic), SourceAccessState::Authenticated }
+    });
     view.setSearchResultGroups({ group });
     view.show();
     QApplication::processEvents();
@@ -1422,15 +1506,20 @@ void SongListViewTest::sidebarFooterKeepsConfirmedGeometryAndRefreshIcon()
 
     auto *settings = footer.settingsButton();
     auto *refresh = footer.refreshButton();
+    auto *download = footer.downloadButton();
     QVERIFY(settings);
     QVERIFY(refresh);
+    QVERIFY(download);
     QCOMPARE(settings->size(), QSize(28, 28));
     QCOMPARE(refresh->size(), QSize(28, 28));
+    QCOMPARE(download->size(), QSize(28, 28));
     QCOMPARE(refresh->iconSize(), QSize(18, 18));
     QCOMPARE(settings->geometry().left(), 18);
     QCOMPARE(settings->geometry().bottom(), footer.height() - 18 - 1);
     QCOMPARE(refresh->geometry().left() - settings->geometry().right() - 1, 12);
     QCOMPARE(refresh->geometry().bottom(), settings->geometry().bottom());
+    QCOMPARE(download->geometry().left() - refresh->geometry().right() - 1, 12);
+    QCOMPARE(download->geometry().bottom(), settings->geometry().bottom());
 
     const QImage icon = refresh->icon().pixmap(refresh->iconSize()).toImage();
     QVERIFY(!icon.isNull());
@@ -1451,8 +1540,11 @@ void SongListViewTest::sidebarFooterKeepsConfirmedGeometryAndRefreshIcon()
     QCOMPARE(strongestPixel.blue(), 196);
 
     QSignalSpy refreshSpy(&footer, &SidebarFooter::refreshClicked);
+    QSignalSpy downloadSpy(&footer, &SidebarFooter::downloadClicked);
     refresh->click();
+    download->click();
     QCOMPARE(refreshSpy.count(), 1);
+    QCOMPARE(downloadSpy.count(), 1);
 }
 
 void SongListViewTest::manualRecommendRefreshUsesPlatformTopListsAndFeedback()
@@ -1616,6 +1708,94 @@ void SongListViewTest::accountActionIsExplicitAndPreservesSignal()
     QSignalSpy accountSpy(&panel, &AccountPanel::accountClicked);
     button->click();
     QCOMPARE(accountSpy.count(), 1);
+}
+
+void SongListViewTest::qqOnlyAccountFallsBackToQqIdentity()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, dir.path());
+    QSettings().clear();
+    SettingsService::setOnlineUid(0);
+    SettingsService::setQqUserId(QStringLiteral("wx-qq-user"));
+    SettingsService::setQqNickname(QStringLiteral("微信登录的 QQ 账号"));
+    SettingsService::setAccountDisplaySource(0);
+
+    AccountPanel panel;
+    auto *button = panel.findChild<QPushButton *>(QStringLiteral("accountActionButton"));
+    QVERIFY(button);
+    QCOMPARE(button->text(), QStringLiteral("微信登录的 QQ 账号"));
+    QCOMPARE(SettingsService::accountDisplaySource(), 1);
+}
+
+void SongListViewTest::downloadPageKeepsFixedRowsAndByteProgress()
+{
+    DownloadPage page;
+    page.resize(1200, 620);
+    QList<DownloadService::Task> tasks;
+    for (int i = 0; i < 100; ++i) {
+        DownloadService::Task task;
+        task.id = i + 1;
+        task.song.id = i + 1;
+        task.song.title = QStringLiteral("下载歌曲 %1").arg(i + 1);
+        task.song.artist = QStringLiteral("歌手");
+        task.song.album = QStringLiteral("专辑");
+        task.state = i == 0 ? DownloadService::Downloading : DownloadService::Queued;
+        task.receivedBytes = i == 0 ? 512 * 1024 : 0;
+        task.totalBytes = i == 0 ? 1024 * 1024 : 0;
+        task.percent = i == 0 ? 50 : 0;
+        tasks.append(task);
+    }
+    page.setTasks(tasks);
+    page.show();
+    QApplication::processEvents();
+
+    const QList<QWidget *> rows =
+        page.findChildren<QWidget *>(QStringLiteral("downloadTaskRow"));
+    QCOMPARE(rows.size(), 100);
+    for (QWidget *row : rows)
+        QCOMPARE(row->height(), 76);
+    auto *scroll = page.findChild<QScrollArea *>(QStringLiteral("downloadTaskScroll"));
+    QVERIFY(scroll);
+    QVERIFY(scroll->verticalScrollBar()->maximum() > 0);
+    bool foundProgress = false;
+    for (QLabel *label : rows.first()->findChildren<QLabel *>()) {
+        if (label->text().contains(QStringLiteral("512.0 KB / 1.0 MB"))) {
+            foundProgress = true;
+            break;
+        }
+    }
+    QVERIFY(foundProgress);
+}
+
+void SongListViewTest::songListNavigationStateRestoresDetailContext()
+{
+    Song first;
+    first.id = 7001;
+    first.title = QStringLiteral("原歌单歌曲");
+    first.filePath = QStringLiteral("C:/music/original.mp3");
+    Song replacement = first;
+    replacement.id = 7002;
+    replacement.title = QStringLiteral("后续详情歌曲");
+
+    SongListPage page;
+    page.showContent({ first }, QStringLiteral("原歌单"), QStringLiteral("1 首"),
+                     first.id, true, QString(), true);
+    page.setPlaylistContext(88);
+    const SongListPage::NavigationState saved = page.navigationState();
+    page.showContent({ replacement }, QStringLiteral("歌手详情"), QStringLiteral("歌手 · 1 首"),
+                     replacement.id, false);
+    page.setReadOnlyContext();
+    page.restoreNavigationState(saved);
+
+    const SongListPage::NavigationState restored = page.navigationState();
+    QCOMPARE(restored.title, QStringLiteral("原歌单"));
+    QCOMPARE(restored.playlistContext, 88);
+    QVERIFY(!restored.readOnlyContext);
+    QVERIFY(restored.mergeSources);
+    QCOMPARE(page.currentSongs().size(), 1);
+    QCOMPARE(page.currentSongs().first().id, first.id);
 }
 
 void SongListViewTest::layoutComponentsFollowConfirmedGeometry()
