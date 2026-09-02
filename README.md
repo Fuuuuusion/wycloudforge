@@ -1,6 +1,7 @@
 # 仿网易云播放器(NeteaseClone)
 
-基于 Qt 6 / C++17 的本地音乐播放器,固定深色主题 + 播放器,布局参考网易云音乐。完全离线:本地音乐库 + 播放 + 歌词 + 歌单 + 搜索。
+基于 Qt 6 / C++17 的本地音乐播放器,固定深色主题 + 播放器,布局参考网易云音乐。
+本地音乐库、播放、歌词和歌单可以完全离线使用；搜索、扫码登录和在线歌曲需要本地在线服务及网络连接。
 
 ## 功能
 
@@ -21,6 +22,7 @@
 - Qt 6.11.1(MinGW 64 位,含 Multimedia / Svg / Sql)
 - CMake 3.21+ 与 Ninja(Qt 安装器自带)
 - vcpkg + `taglib:x64-mingw-dynamic`
+- 开发/源码构建需要 Node.js 20+；便携发行包会内置 Node.js,目标机无需另行安装
 
 ## 构建
 
@@ -57,10 +59,26 @@ ctest --test-dir build --output-on-failure
 ## 打包
 
 ```powershell
-.\scripts\package.ps1 -BuildDir %TEMP%\netease_build -OutputDir dist
+.\scripts\package.ps1 -BuildDir "$env:TEMP\netease_build" -OutputDir dist
 ```
 
-产物为免安装目录 `dist\`,可直接拷贝到其他机器运行。
+上面的命令只生成 Qt 运行目录,适合本机已有在线服务的开发预览。给另一台机器使用时,使用包含在线服务的便携打包命令:
+
+```powershell
+.\scripts\package-portable.ps1 -BuildDir "$env:TEMP\netease_build" -OutputDir dist
+```
+
+该命令会生成一个带时间戳的目录和同名 `.zip`,包含:
+
+- `NeteaseClone.exe` 及 Qt、FFmpeg、TagLib 运行库;
+- 内置 Node.js 运行时;
+- 网易云 API `NeteaseCloudMusicApi@4.32.0`;
+- QQ 音乐包装服务及 `@sansenjian/qq-music-api@2.6.0`;
+- `启动仿网易云播放器.cmd` 和目标机运行说明。
+
+目标机只需解压 ZIP,双击启动脚本即可。程序会从自身目录自动发现两个服务,并在 `127.0.0.1:3000` / `127.0.0.1:3200` 启动；首次使用需在目标机重新扫码登录。不要复制旧电脑的 DPAPI 登录凭据。
+
+便携包是免安装目录,不包含用户音乐、数据库、缓存、下载文件或账号凭据。若要迁移这些数据,必须先在旧电脑正常退出应用,再按 [docs/HANDOFF.md](docs/HANDOFF.md) 中的数据迁移说明复制。
 
 ## 开发辅助参数
 

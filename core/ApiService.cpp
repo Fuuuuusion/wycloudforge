@@ -8,6 +8,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QProcessEnvironment>
 #include <QTimer>
 #include <QUrl>
 
@@ -65,6 +66,8 @@ QString ApiService::detectApiDir()
 {
     const QStringList candidates = {
         qEnvironmentVariable("NET_EASE_API_DIR"),
+        QDir(QCoreApplication::applicationDirPath())
+            .filePath(QStringLiteral("本地部署/netease-api/node_modules/NeteaseCloudMusicApi")),
         QDir::currentPath() + QStringLiteral("/本地部署/netease-api/node_modules/NeteaseCloudMusicApi"),
         QDir::homePath() + QStringLiteral("/Documents/ChatGPT/仿网易云播放器/本地部署/netease-api/node_modules/NeteaseCloudMusicApi")
     };
@@ -79,6 +82,10 @@ QString ApiService::detectNode()
 {
     if (!qEnvironmentVariable("NODE").isEmpty())
         return qEnvironmentVariable("NODE");
+    const QString bundled = QDir(QCoreApplication::applicationDirPath())
+        .filePath(QStringLiteral("runtime/node/node.exe"));
+    if (QFileInfo::exists(bundled))
+        return bundled;
     return QStringLiteral("node");
 }
 
@@ -133,6 +140,10 @@ void ApiService::start()
     m_process->setProgram(m_pendingNode);
     m_process->setArguments({ QDir(dir).filePath(QStringLiteral("app.js")) });
     m_process->setWorkingDirectory(dir);
+    QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+    environment.insert(QStringLiteral("PORT"),
+                       QString::number(QUrl(apiBase()).port(3000)));
+    m_process->setProcessEnvironment(environment);
 #ifdef Q_OS_WIN
     m_process->setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments *args) {
         args->flags |= CREATE_NO_WINDOW;

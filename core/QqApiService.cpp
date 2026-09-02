@@ -53,6 +53,7 @@ QString QqApiService::detectApiDir()
 {
     const QStringList candidates = {
         qEnvironmentVariable("QQ_MUSIC_API_DIR"),
+        QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("本地部署/qq-api")),
         QDir::currentPath() + QStringLiteral("/本地部署/qq-api"),
         QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(QStringLiteral("../../本地部署/qq-api")),
         QDir::homePath() + QStringLiteral("/Documents/ChatGPT/仿网易云播放器/本地部署/qq-api")
@@ -66,7 +67,13 @@ QString QqApiService::detectApiDir()
 
 QString QqApiService::detectNode()
 {
-    return qEnvironmentVariable("NODE", QStringLiteral("node"));
+    if (!qEnvironmentVariable("NODE").isEmpty())
+        return qEnvironmentVariable("NODE");
+    const QString bundled = QDir(QCoreApplication::applicationDirPath())
+        .filePath(QStringLiteral("runtime/node/node.exe"));
+    if (QFileInfo::exists(bundled))
+        return bundled;
+    return QStringLiteral("node");
 }
 
 void QqApiService::checkHealth(std::function<void(bool, const QString &)> done)
