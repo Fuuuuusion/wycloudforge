@@ -1,6 +1,9 @@
 #include "ui/SidebarFooter.h"
 
+#include "ui/ThemeManager.h"
+
 #include "ui/AccountSettingsButton.h"
+#include "ui/SvgIcon.h"
 
 #include <QHBoxLayout>
 #include <QIcon>
@@ -68,11 +71,11 @@ protected:
         painter.setRenderHint(QPainter::Antialiasing);
         if (underMouse() || isDown()) {
             painter.setPen(Qt::NoPen);
-            painter.setBrush(QColor(isDown() ? QStringLiteral("#24242E")
-                                             : QStringLiteral("#1B1B24")));
+            painter.setBrush(themeColor(isDown() ? ThemeColor::SurfacePressed
+                                                 : ThemeColor::SurfaceAlt));
             painter.drawRoundedRect(rect(), 6, 6);
         }
-        const QColor color(QStringLiteral("#B8B8C4"));
+        const QColor color = themeColor(ThemeColor::Focus);
         if (m_status != Downloading) {
             const QString path = m_status == Queued ? QStringLiteral(":/icons/download-queued.png")
                 : m_status == Complete ? QStringLiteral(":/icons/download-complete.png")
@@ -92,7 +95,7 @@ protected:
             painter.drawLine(QPointF(7, 21), QPointF(21, 21));
         }
         if (hasFocus()) {
-            painter.setPen(QPen(QColor(QStringLiteral("#6E6E7A")), 1));
+            painter.setPen(QPen(themeColor(ThemeColor::TextTertiary), 1));
             painter.setBrush(Qt::NoBrush);
             painter.drawRoundedRect(rect().adjusted(2, 2, -2, -2), 5, 5);
         }
@@ -122,16 +125,15 @@ SidebarFooter::SidebarFooter(QWidget *parent)
     m_refreshButton->setObjectName(QStringLiteral("sidebarRefreshButton"));
     m_refreshButton->setFixedSize(28, 28);
     m_refreshButton->setIconSize(QSize(18, 18));
-    m_refreshButton->setIcon(tintedIcon(QStringLiteral(":/icons/icon-refresh.png"),
-                                        QColor(QStringLiteral("#B8B8C4"))));
+    m_refreshButton->setIcon(makeThemedRasterIcon(QStringLiteral(":/icons/icon-refresh.png")));
     m_refreshButton->setCursor(Qt::PointingHandCursor);
     m_refreshButton->setToolTip(QStringLiteral("刷新当前页面和推荐内容"));
     m_refreshButton->setAccessibleName(QStringLiteral("刷新当前页面和推荐内容"));
     m_refreshButton->setFocusPolicy(Qt::StrongFocus);
-    m_refreshButton->setStyleSheet(QStringLiteral(
+    setThemedStyleSheet(m_refreshButton, QStringLiteral(
         "QPushButton#sidebarRefreshButton{background:transparent;border:none;border-radius:6px;padding:0;}"
-        "QPushButton#sidebarRefreshButton:hover{background:#1B1B24;}"
-        "QPushButton#sidebarRefreshButton:pressed{background:#24242E;}"
+        "QPushButton#sidebarRefreshButton:hover{background:@surfaceAlt;}"
+        "QPushButton#sidebarRefreshButton:pressed{background:@surfacePressed;}"
         "QPushButton#sidebarRefreshButton:disabled{background:transparent;}"));
     layout->addWidget(m_refreshButton, 0, Qt::AlignLeft | Qt::AlignBottom);
 

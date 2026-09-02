@@ -4,6 +4,7 @@
 #include <QSet>
 
 class QCheckBox;
+class QComboBox;
 class QLabel;
 class QLineEdit;
 class QListWidget;
@@ -43,6 +44,7 @@ private:
     void updateCacheStats();
 
     QListWidget *m_folderList = nullptr;
+    QComboBox *m_themeCombo = nullptr;
     QSlider *m_fontSlider = nullptr;
     QLabel *m_fontValue = nullptr;
     QLineEdit *m_apiBaseEdit = nullptr;

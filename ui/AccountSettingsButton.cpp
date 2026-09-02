@@ -1,4 +1,5 @@
 #include "AccountSettingsButton.h"
+#include "ui/ThemeManager.h"
 
 #include <QEasingCurve>
 #include <QEnterEvent>
@@ -53,10 +54,10 @@ void AccountSettingsButton::paintEvent(QPaintEvent *)
 {
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
-    QColor track = blendColor(QColor(0xB8, 0xB8, 0xC4),
-                              QColor(0xE8, 0xE8, 0xE8), m_progress);
+    QColor track = blendColor(themeColor(ThemeColor::Focus),
+                              themeColor(ThemeColor::TextPrimary), m_progress);
     if (!isEnabled())
-        track = QColor(0x6E, 0x6E, 0x7A);
+        track = themeColor(ThemeColor::TextTertiary);
     constexpr qreal left = 6.0;
     constexpr qreal right = 22.0;
     constexpr qreal ys[] = { 8.0, 14.0, 20.0 };

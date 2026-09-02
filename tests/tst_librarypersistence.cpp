@@ -1034,4 +1034,4 @@ void PlaylistControllerTest::managedCacheClearPreservesUserData()
 }
 
 QTEST_MAIN(PlaylistControllerTest)
-#include "tst_playlistcontroller.moc"
+#include "tst_librarypersistence.moc"

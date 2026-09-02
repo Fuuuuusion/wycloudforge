@@ -1,4 +1,5 @@
 #include "LyricWidget.h"
+#include "ui/ThemeManager.h"
 
 #include <QMouseEvent>
 #include <QPainter>
@@ -6,8 +7,6 @@
 
 namespace ui {
 namespace {
-const QColor kIdle(0x8F, 0x8F, 0x9C);
-const QColor kActive(0xEC, 0x41, 0x41);
 const qreal kLineRatio = 2.2; // 歌词行间距系数(越大间距越宽)
 }
 
@@ -107,7 +106,7 @@ void LyricWidget::paintEvent(QPaintEvent *)
     p.setRenderHint(QPainter::TextAntialiasing);
 
     if (m_lines.isEmpty()) {
-        p.setPen(QColor(0x99, 0x99, 0x99));
+        p.setPen(themeColor(ThemeColor::TextSecondary));
         p.drawText(rect(), Qt::AlignCenter, QStringLiteral("暂无歌词"));
         return;
     }
@@ -124,7 +123,8 @@ void LyricWidget::paintEvent(QPaintEvent *)
             continue;
         const bool active = (i == m_current);
         p.setFont(active ? activeFont : idleFont);
-        p.setPen(active ? kActive : kIdle);
+        p.setPen(active ? themeColor(ThemeColor::Accent)
+                        : themeColor(ThemeColor::TextSecondary));
         const QRectF r(0, y, width(), lh);
         p.drawText(r, Qt::AlignCenter, m_lines[i].text);
         if (i == m_current && !m_secondary.isEmpty()) {
@@ -132,7 +132,7 @@ void LyricWidget::paintEvent(QPaintEvent *)
                 if (sub.timeMs == m_lines[i].timeMs) {
                     QFont subFont(QStringLiteral("Microsoft YaHei UI"), m_fontSize - 4);
                     p.setFont(subFont);
-                    p.setPen(QColor(0x9A, 0x9A, 0xA5));
+                    p.setPen(themeColor(ThemeColor::TextSecondary));
                     p.drawText(QRectF(0, y + lh * 0.52, width(), lh * 0.5),
                                Qt::AlignCenter, sub.text);
                     break;

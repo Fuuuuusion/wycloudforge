@@ -1,5 +1,7 @@
 #include "AccountDialog.h"
 
+#include "ui/ThemeManager.h"
+
 #include "core/MusicSource.h"
 #include "core/CredentialStore.h"
 #include "core/QqApiService.h"
@@ -31,7 +33,7 @@ QPixmap accountAvatar(const QString &path, const QString &nickname, int size)
     p.setClipPath(clip);
     if (src.isNull()) {
         p.setPen(Qt::NoPen);
-        p.setBrush(QColor(0xEC, 0x41, 0x41));
+        p.setBrush(themeColor(ThemeColor::Accent));
         p.drawEllipse(0, 0, size, size);
         p.setPen(Qt::white);
         QFont f(QStringLiteral("Microsoft YaHei UI"), qMax(9, size / 4), QFont::Bold);
@@ -124,9 +126,9 @@ AccountDialog::AccountDialog(core::MusicSource *netease, core::QqMusicSource *qq
     layout->addWidget(qqRow);
 
     auto *closeBtn = new QPushButton(QStringLiteral("关闭"), this);
-    closeBtn->setStyleSheet(QStringLiteral(
-        "QPushButton{border:none;border-radius:14px;background:#1B1B24;color:#E8E8E8;padding:7px 22px;}"
-        "QPushButton:hover{background:#2A2A36;}"));
+    setThemedStyleSheet(closeBtn, QStringLiteral(
+        "QPushButton{border:none;border-radius:14px;background:@surfaceAlt;color:@textPrimary;padding:7px 22px;}"
+        "QPushButton:hover{background:@surfaceHover;}"));
     connect(closeBtn, &QPushButton::clicked, this, &QDialog::accept);
     layout->addWidget(closeBtn, 0, Qt::AlignHCenter);
 }

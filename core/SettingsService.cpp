@@ -85,6 +85,16 @@ void SettingsService::setLyricFontSize(int size)
     s.setValue(QStringLiteral("player/lyricFontSize"), size);
 }
 
+int SettingsService::themeMode(int fallback)
+{
+    return QSettings().value(QStringLiteral("ui/themeMode"), fallback).toInt();
+}
+
+void SettingsService::setThemeMode(int mode)
+{
+    QSettings().setValue(QStringLiteral("ui/themeMode"), qBound(0, mode, 2));
+}
+
 QString SettingsService::lastSongPath()
 {
     if (s_hasOverrides)

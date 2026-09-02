@@ -1,5 +1,7 @@
 #include "LyricEditorDialog.h"
 
+#include "ui/ThemeManager.h"
+
 #include "core/LyricsLoader.h"
 
 #include <QDialogButtonBox>
@@ -26,7 +28,7 @@ LyricEditorDialog::LyricEditorDialog(const core::Song &song, QWidget *parent)
                                 ? QStringLiteral("当前在线歌曲没有可写入的本地音频文件")
                                 : QStringLiteral("保存后写入:%1").arg(savePath), this);
     hint->setWordWrap(true);
-    hint->setStyleSheet(QStringLiteral("color:#999;font-size:12px;"));
+    setThemedStyleSheet(hint, QStringLiteral("color:@textSecondary;font-size:12px;"));
     layout->addWidget(hint);
 
     m_edit = new QPlainTextEdit(this);

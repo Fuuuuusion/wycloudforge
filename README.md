@@ -1,11 +1,12 @@
 # 仿网易云播放器(NeteaseClone)
 
-基于 Qt 6 / C++17 的本地音乐播放器,固定深色主题 + 播放器,布局参考网易云音乐。
+基于 Qt 6 / C++17 的 Windows 本地与多来源音乐播放器，支持深色、浅色和跟随系统主题，布局参考网易云音乐。
 本地音乐库、播放、歌词和歌单可以完全离线使用；搜索、扫码登录和在线歌曲需要本地在线服务及网络连接。
 
 ## 功能
 
 - 无边框自绘窗口(原生拖动 / 最大化 / 贴边吸附)
+- 外观主题:跟随系统 / 深色 / 浅色,设置页即时切换并持久化;QSS、自绘控件和单色图标同步更新
 - 首页(横幅 / 最近播放 / 我的歌单 / 推荐歌手)、音乐库(歌曲 / 歌手 / 专辑)、歌单详情、正在播放(歌词页)、搜索
 - 本地音乐扫描(mp3 / flac / wav / m4a / aac),TagLib 元数据解析,内嵌封面提取与缓存
 - 播放内核:Qt Multimedia,支持列表循环 / 单曲循环 / 随机、播放队列与历史、记住上次歌曲与进度
@@ -33,29 +34,30 @@ git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
 C:\vcpkg\bootstrap-vcpkg.bat
 C:\vcpkg\vcpkg install taglib:x64-mingw-dynamic
 
-# 配置与编译
-cmake -S . -B build -G Ninja `
+# 配置与编译。若仓库路径含中文,先把仓库映射为 ASCII 盘符。
+subst W: (Get-Location).Path
+cmake -S W:\ -B W:\build-ascii -G Ninja `
   -DCMAKE_BUILD_TYPE=Release `
   -DCMAKE_PREFIX_PATH=C:/Qt/6.11.1/mingw_64 `
   -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake `
   -DVCPKG_TARGET_TRIPLET=x64-mingw-dynamic `
   -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
-cmake --build build
+cmake --build W:\build-ascii
 
 # 运行
-build\bin\NeteaseClone.exe
+W:\build-ascii\bin\NeteaseClone.exe
 ```
 
-> 注意:源码路径含中文时,MinGW 的 `moc` 无法在中文路径下生成文件,建议把 `build` 目录放到英文路径(如 `%TEMP%\netease_build`),源码目录保持原样即可。
+> 注意:MinGW/AutoMoc 的命令链也会读取源码路径。仓库路径含中文时，仅把构建目录放到英文路径仍可能失败；应在同一终端用 `subst` 映射仓库，并从映射盘配置和构建。
 
 ## 测试
 
 ```powershell
-cmake --build build
-ctest --test-dir build --output-on-failure
+cmake --build W:\build-ascii
+C:\Qt\Tools\CMake_64\bin\ctest.exe --test-dir W:\build-ascii --output-on-failure -j1
 ```
 
-单元测试覆盖:LRC 解析(含编码与 offset)、TagLib 标签 / 封面 / 内嵌歌词读取、歌单与收藏持久化、播放器状态机。
+Qt 回归覆盖:LRC、TagLib、曲库持久化、播放器、多来源、搜索服务/页面、共享 UI 控件和主题系统。测试职责详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
 ## 打包
 
@@ -94,21 +96,24 @@ ctest --test-dir build --output-on-failure
 
 ## 设计与主题
 
-- 设计令牌唯一事实来源:`design/tokens.json`
-- HTML 高保真原型(可在浏览器直接打开修改):`design/prototype/index.html`
-- 固定深色背景,全局无 1px 分隔线,分区使用固定色块
-- 底部播放器为固定深色面板(不可拖动),播放/进度/模式/音量等控件齐全
-- 图标全部为自绘 SVG,替换 `design/prototype/assets/` 或 `resources/icons/` 即可
-- Qt 主题由 `resources/theme.qss` 与设计令牌对应
+- 运行时颜色事实来源:`ui/ThemeManager.cpp`
+- 全局样式模板:`resources/theme.qss`;使用语义令牌,不直接写主题十六进制颜色
+- 设计评审令牌镜像:`design/tokens.json`
+- 生产图标统一位于 `resources/icons/` 和 `resources/source-icons/`,由 `resources.qrc` 收口
+- 界面不使用极光背景、毛玻璃、模糊、渐变、阴影或页面切换动效
+- 底部播放器固定铺满内容区底部,保留播放、进度、模式、音量、歌词和队列控件
 
 ## 架构
 
 ```
-app/    入口与主窗口(无边框窗口、页面接线)
-core/   与 UI 无关的核心:TagReader、LrcParser、LibraryService、PlayerService、
-        PlaylistController、SearchService、SettingsService
-ui/     自绘控件与页面:TitleBar、SideBar、PlayerBar、SongListView、LyricWidget、
-        DiscoverPage、LibraryPage、SongListPage、PlayingPage、SearchPage
-design/ 设计令牌与 HTML 原型
-tests/  QtTest 单元测试
+app/      入口、单实例、命令行参数、主窗口组装与页面接线
+core/     歌曲模型、SQLite、播放/下载、搜索聚合、平台来源、凭据与设置
+ui/       页面、对话框、列表模型/视图、自绘控件与 ThemeManager
+resources/运行时 QSS、图标和来源 Logo
+本地部署/ 网易云服务与 QQ 包装服务
+design/   当前语义颜色和布局参数文档
+tests/    core、页面、共享 UI 和主题 QtTest 回归
+scripts/  正式目录与完整便携包脚本
 ```
+
+完整职责、数据流、已清理冗余和仍需渐进拆分的热点见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。

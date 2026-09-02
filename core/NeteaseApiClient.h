@@ -44,9 +44,6 @@ public:
     using MusicSource::albumDetail;
     using MusicSource::artistDetail;
     using MusicSource::artistSongs;
-    using MusicSource::comments;
-    using MusicSource::like;
-    using MusicSource::likeList;
     using MusicSource::lyric;
     using MusicSource::playlistDetail;
     using MusicSource::playlistTracks;
@@ -85,18 +82,13 @@ public:
     void playlistDetail(const QString &id, OkFn ok, ErrFn err = {}) override;
     void playlistTracks(const QString &id, JsonArrayFn ok, ErrFn err = {}) override;
     void topPlaylists(const QString &cat, int offset, JsonArrayFn ok, ErrFn err = {}) override;
-    void topLists(JsonArrayFn ok, ErrFn err = {}) override;
     void recommendSongs(JsonArrayFn ok, ErrFn err = {}) override;
-    void personalFm(JsonArrayFn ok, ErrFn err = {}) override;
-    void comments(const QString &id, int offset, int limit, OkFn ok, ErrFn err = {}) override;
     void qrKey(StringFn ok, ErrFn err = {}) override;
     void qrCreate(const QString &key, StringFn ok, ErrFn err = {}) override;
     void qrCheck(const QString &key, OkFn ok, ErrFn err = {}) override;
     void loginStatus(OkFn ok, ErrFn err = {}) override;
     void logout(OkFn ok, ErrFn err = {}) override;
     void userPlaylists(const QString &uid, JsonArrayFn ok, ErrFn err = {}) override;
-    void like(const QString &id, bool like, OkFn ok, ErrFn err = {}) override;
-    void likeList(const QString &uid, JsonArrayFn ok, ErrFn err = {}) override;
     void downloadToFile(const QUrl &url, const QString &filePath, BoolFn done) override;
     DownloadId downloadToFileWithProgress(const QUrl &url, const QString &filePath,
                                           DownloadProgressFn progress,

@@ -1,22 +1,25 @@
 set(NETECLONE_TESTS
     tst_lrcparser
     tst_tagreader
-    tst_playlistcontroller
+    tst_librarypersistence
     tst_playerservice
     tst_multisourcesupport
     tst_searchservice
     tst_searchpage
-    tst_songlistview
+    tst_uiwidgets
+    tst_thememanager
 )
 
 get_filename_component(NETECLONE_QT_BIN_DIR "${Qt6_DIR}/../../../bin" ABSOLUTE)
 
 foreach(test_name ${NETECLONE_TESTS})
     add_executable(${test_name} ${test_name}.cpp)
-    if(test_name STREQUAL "tst_songlistview")
+    if(test_name STREQUAL "tst_uiwidgets" OR test_name STREQUAL "tst_thememanager"
+       OR test_name STREQUAL "tst_searchpage")
         target_sources(${test_name} PRIVATE ${CMAKE_SOURCE_DIR}/resources/resources.qrc)
     endif()
-    if(test_name STREQUAL "tst_songlistview" OR test_name STREQUAL "tst_searchpage")
+    if(test_name STREQUAL "tst_uiwidgets" OR test_name STREQUAL "tst_thememanager"
+       OR test_name STREQUAL "tst_searchpage")
         target_link_libraries(${test_name} PRIVATE neteclone_ui Qt6::Test)
     else()
         target_link_libraries(${test_name} PRIVATE neteclone_core Qt6::Test)
@@ -32,7 +35,7 @@ foreach(test_name ${NETECLONE_TESTS})
             "PATH=path_list_prepend:${NETECLONE_QT_BIN_DIR}"
             "PATH=path_list_prepend:${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin")
         set(test_runtime_environment "QT_QPA_PLATFORM=windows")
-        if(test_name STREQUAL "tst_songlistview")
+        if(test_name STREQUAL "tst_uiwidgets")
             list(APPEND test_runtime_environment "QT_SCALE_FACTOR=1.5")
         endif()
         set_tests_properties(${test_name} PROPERTIES

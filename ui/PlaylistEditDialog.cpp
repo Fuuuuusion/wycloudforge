@@ -1,5 +1,7 @@
 #include "PlaylistEditDialog.h"
 
+#include "ui/ThemeManager.h"
+
 #include "core/PlaylistController.h"
 #include "ui/CoverProvider.h"
 
@@ -85,9 +87,9 @@ PlaylistEditDialog::PlaylistEditDialog(core::PlaylistController *playlists, int 
     btnRow->addStretch(1);
     auto *cancel = new QPushButton(QStringLiteral("取消"), this);
     auto *save = new QPushButton(QStringLiteral("保存"), this);
-    save->setStyleSheet(QStringLiteral(
-        "QPushButton{border:none;border-radius:14px;background:#EC4141;color:white;padding:7px 22px;}"
-        "QPushButton:hover{background:#FF5A5A;}"));
+    setThemedStyleSheet(save, QStringLiteral(
+        "QPushButton{border:none;border-radius:14px;background:@accent;color:@textOnAccent;padding:7px 22px;}"
+        "QPushButton:hover{background:@accentHover;}"));
     connect(cancel, &QPushButton::clicked, this, &QDialog::reject);
     connect(save, &QPushButton::clicked, this, &QDialog::accept);
     btnRow->addWidget(cancel);

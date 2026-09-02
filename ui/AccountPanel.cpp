@@ -1,5 +1,7 @@
 #include "AccountPanel.h"
 
+#include "ui/ThemeManager.h"
+
 #include "core/SettingsService.h"
 
 #include <QLabel>
@@ -31,7 +33,7 @@ QPixmap letterAvatar(const QString &letter, int size)
     QPainter p(&pm);
     p.setRenderHint(QPainter::Antialiasing);
     p.setPen(Qt::NoPen);
-    p.setBrush(QColor(0xEC, 0x41, 0x41));
+    p.setBrush(themeColor(ThemeColor::Accent));
     p.drawEllipse(0, 0, size, size);
     p.setPen(Qt::white);
     QFont f(QStringLiteral("Microsoft YaHei UI"), qMax(9, size / 4), QFont::Bold);
@@ -53,7 +55,7 @@ AccountPanel::AccountPanel(QWidget *parent)
     m_avatar->setIconSize(QSize(120, 120));
     m_avatar->setFlat(true);
     m_avatar->setCursor(Qt::PointingHandCursor);
-    m_avatar->setStyleSheet(QStringLiteral(
+    setThemedStyleSheet(m_avatar, QStringLiteral(
         "QPushButton{background:transparent;border:none;padding:0;}"));
     m_avatar->setAccessibleName(QStringLiteral("打开账号中心"));
 
@@ -65,10 +67,10 @@ AccountPanel::AccountPanel(QWidget *parent)
     m_accountButton->setToolTip(QStringLiteral("登录网易云或 QQ音乐"));
     m_accountButton->setMinimumWidth(0);
     m_accountButton->setFixedHeight(38);
-    m_accountButton->setStyleSheet(QStringLiteral(
-        "QPushButton{background:transparent;border:none;color:#E8E8E8;font-size:14px;"
+    setThemedStyleSheet(m_accountButton, QStringLiteral(
+        "QPushButton{background:transparent;border:none;color:@textPrimary;font-size:14px;"
         "padding:4px;text-align:center;}"
-        "QPushButton:hover{color:#EC4141;}"));
+        "QPushButton:hover{color:@accent;}"));
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(12, 12, 12, 12);

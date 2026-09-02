@@ -2041,13 +2041,6 @@ QString LibraryService::songCoverCachePath(const Song &song) const
     return coverCacheDir() + QStringLiteral("/song_%1_%2.jpg").arg(song.source).arg(key);
 }
 
-QString LibraryService::playlistCoverCachePath(qint64 playlistId) const
-{
-    if (playlistId <= 0)
-        return {};
-    return playlistCoverCachePath(SourceId::Netease, QString::number(playlistId));
-}
-
 QString LibraryService::playlistCoverCachePath(SourceId sourceId,
                                                 const QString &playlistRemoteId) const
 {

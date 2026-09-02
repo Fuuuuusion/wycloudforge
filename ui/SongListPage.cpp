@@ -1,5 +1,7 @@
 #include "SongListPage.h"
 
+#include "ui/ThemeManager.h"
+
 #include "core/LibraryService.h"
 #include "core/SearchAggregator.h"
 #include "ui/CoverProvider.h"
@@ -25,9 +27,9 @@ SongListPage::SongListPage(QWidget *parent)
     auto *back = new QPushButton(QStringLiteral("返回"), this);
     back->setFixedSize(68, 32);
     back->setCursor(Qt::PointingHandCursor);
-    back->setStyleSheet(QStringLiteral(
-        "QPushButton{border:none;background:#1B1B24;color:#C8C8D0;border-radius:16px;}"
-        "QPushButton:hover{background:#3A2024;color:#EC4141;}"));
+    setThemedStyleSheet(back, QStringLiteral(
+        "QPushButton{border:none;background:@surfaceAlt;color:@textSecondary;border-radius:16px;}"
+        "QPushButton:hover{background:@accentSoft;color:@accent;}"));
     layout->addWidget(back, 0, Qt::AlignLeft);
     connect(back, &QPushButton::clicked, this, &SongListPage::backRequested);
 
@@ -45,17 +47,17 @@ SongListPage::SongListPage(QWidget *parent)
     infoLayout->setContentsMargins(0, 0, 0, 0);
     infoLayout->setSpacing(8);
     m_title = new QLabel(info);
-    m_title->setStyleSheet(QStringLiteral("font-size:24px;font-weight:700;color:#E8E8E8;"));
+    setThemedStyleSheet(m_title, QStringLiteral("font-size:24px;font-weight:700;color:@textPrimary;"));
     m_meta = new QLabel(info);
-    m_meta->setStyleSheet(QStringLiteral("font-size:13px;color:#6E6E7A;"));
+    setThemedStyleSheet(m_meta, QStringLiteral("font-size:13px;color:@textTertiary;"));
     auto *actions = new QHBoxLayout;
     actions->setContentsMargins(0, 6, 0, 0);
     actions->setSpacing(12);
     auto *playAll = new QPushButton(QStringLiteral("播放全部"), info);
     playAll->setCursor(Qt::PointingHandCursor);
-    playAll->setStyleSheet(QStringLiteral(
-        "QPushButton{background:#EC4141;color:white;border:none;border-radius:18px;padding:8px 22px;font-size:13px;}"
-        "QPushButton:hover{background:#F04A4A;}"));
+    setThemedStyleSheet(playAll, QStringLiteral(
+        "QPushButton{background:@accent;color:@textOnAccent;border:none;border-radius:18px;padding:8px 22px;font-size:13px;}"
+        "QPushButton:hover{background:@accentHover;}"));
     connect(playAll, &QPushButton::clicked, this, [this] {
         const QList<core::Song> songs = m_view->songs();
         if (!songs.isEmpty())
@@ -67,10 +69,10 @@ SongListPage::SongListPage(QWidget *parent)
     m_moreBtn->setObjectName(QStringLiteral("songListMoreButton"));
     m_moreBtn->setText(QStringLiteral("···"));
     m_moreBtn->setCursor(Qt::PointingHandCursor);
-    m_moreBtn->setStyleSheet(QStringLiteral(
-        "QToolButton{background:#1B1B24;border:none;border-radius:18px;"
-        "padding:4px 14px;color:#C8C8D0;font-size:15px;}"
-        "QToolButton:hover{background:#3A2024;color:#FF5A5A;}"));
+    setThemedStyleSheet(m_moreBtn, QStringLiteral(
+        "QToolButton{background:@surfaceAlt;border:none;border-radius:18px;"
+        "padding:4px 14px;color:@textSecondary;font-size:15px;}"
+        "QToolButton:hover{background:@accentSoft;color:@accentHover;}"));
     m_moreBtn->hide();
     actions->addWidget(m_moreBtn);
     actions->addStretch(1);

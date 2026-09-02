@@ -1,5 +1,7 @@
 #include "SearchPage.h"
 
+#include "ui/ThemeManager.h"
+
 #include "core/SearchCache.h"
 #include "core/SearchService.h"
 #include "ui/SongListView.h"
@@ -38,10 +40,10 @@ QPushButton *makeResultRow(const QString &text, const QString &sub, QWidget *par
     auto *btn = new QPushButton(parent);
     btn->setObjectName(QStringLiteral("searchResultRow"));
     btn->setCursor(Qt::PointingHandCursor);
-    btn->setStyleSheet(QStringLiteral(
-        "QPushButton{background:#1B1B24;border:none;border-radius:6px;"
-        "padding:12px 14px;text-align:left;color:#E8E8E8;}"
-        "QPushButton:hover{background:#2A2A36;}"));
+    setThemedStyleSheet(btn, QStringLiteral(
+        "QPushButton{background:@surfaceAlt;border:none;border-radius:6px;"
+        "padding:12px 14px;text-align:left;color:@textPrimary;}"
+        "QPushButton:hover{background:@surfaceHover;}"));
     btn->setText(sub.isEmpty() ? text : QStringLiteral("%1    %2").arg(text, sub));
     return btn;
 }
@@ -108,9 +110,9 @@ SearchPage::SearchPage(QWidget *parent)
     auto *back = new QPushButton(QStringLiteral("返回"), this);
     back->setFixedSize(68, 32);
     back->setCursor(Qt::PointingHandCursor);
-    back->setStyleSheet(QStringLiteral(
-        "QPushButton{border:none;background:#1B1B24;color:#C8C8D0;border-radius:16px;}"
-        "QPushButton:hover{background:#3A2024;color:#EC4141;}"));
+    setThemedStyleSheet(back, QStringLiteral(
+        "QPushButton{border:none;background:@surfaceAlt;color:@textSecondary;border-radius:16px;}"
+        "QPushButton:hover{background:@accentSoft;color:@accent;}"));
     m_title = new QLabel(QStringLiteral("搜索"), this);
     m_title->setProperty("class", "pageTitle");
     titleRow->addWidget(back);
@@ -163,11 +165,11 @@ SearchPage::SearchPage(QWidget *parent)
         auto *btn = new QPushButton(names[i], tabRow);
         btn->setCheckable(true);
         btn->setCursor(Qt::PointingHandCursor);
-        btn->setStyleSheet(QStringLiteral(
-            "QPushButton{border:none;background:#0E0E14;color:#9A9AA5;font-size:14px;"
+        setThemedStyleSheet(btn, QStringLiteral(
+            "QPushButton{border:none;background:@pageBackground;color:@textSecondary;font-size:14px;"
             "padding:7px 16px;border-radius:999px;}"
-            "QPushButton:hover{background:#1B1B24;color:#E8E8E8;}"
-            "QPushButton:checked{background:#3A2024;color:#EC4141;font-weight:600;}"));
+            "QPushButton:hover{background:@surfaceAlt;color:@textPrimary;}"
+            "QPushButton:checked{background:@accentSoft;color:@accent;font-weight:600;}"));
         group->addButton(btn, i);
         tabLayout->addWidget(btn);
     }
@@ -184,7 +186,7 @@ SearchPage::SearchPage(QWidget *parent)
     onlineLayout->setContentsMargins(0, 0, 0, 0);
     onlineLayout->setSpacing(6);
     m_onlineHeader = new QLabel(onlinePage);
-    m_onlineHeader->setStyleSheet(QStringLiteral("color:#6E6E7A;font-size:12px;"));
+    setThemedStyleSheet(m_onlineHeader, QStringLiteral("color:@textTertiary;font-size:12px;"));
     m_onlineHeader->hide();
     auto *retryRow = new QWidget(onlinePage);
     auto *retryLayout = new QHBoxLayout(retryRow);
@@ -247,8 +249,8 @@ SearchPage::SearchPage(QWidget *parent)
     genericScroll->setWidget(genericContent);
     genericOuter->addWidget(genericScroll, 1);
     m_genericSongsHeader = new QLabel(QStringLiteral("单曲"), genericPage);
-    m_genericSongsHeader->setStyleSheet(QStringLiteral(
-        "color:#E8E8E8;font-size:14px;font-weight:600;"));
+    setThemedStyleSheet(m_genericSongsHeader, QStringLiteral(
+        "color:@textPrimary;font-size:14px;font-weight:600;"));
     m_genericSongList = new SongListView(genericPage);
     m_genericSongsHeader->hide();
     m_genericSongList->hide();
@@ -293,15 +295,15 @@ SearchPage::SearchPage(QWidget *parent)
         headerLayout->setContentsMargins(0, 0, 0, 0);
         headerLayout->setSpacing(8);
         auto *label = new QLabel(title, header);
-        label->setStyleSheet(QStringLiteral(
-            "color:#E8E8E8;font-size:15px;font-weight:600;background:transparent;"));
+        setThemedStyleSheet(label, QStringLiteral(
+            "color:@textPrimary;font-size:15px;font-weight:600;background:transparent;"));
         *retryButton = new QPushButton(QStringLiteral("重试"), header);
         (*retryButton)->setObjectName(retryObjectName);
         (*retryButton)->setCursor(Qt::PointingHandCursor);
-        (*retryButton)->setStyleSheet(QStringLiteral(
-            "QPushButton{border:none;background:transparent;color:#EC4141;padding:2px 4px;}"
-            "QPushButton:hover{background:transparent;color:#FF6B6B;text-decoration:underline;}"
-            "QPushButton:pressed{background:transparent;color:#C93636;}"));
+        setThemedStyleSheet(*retryButton, QStringLiteral(
+            "QPushButton{border:none;background:transparent;color:@accent;padding:2px 4px;}"
+            "QPushButton:hover{background:transparent;color:@accentHover;text-decoration:underline;}"
+            "QPushButton:pressed{background:transparent;color:@accentPressed;}"));
         (*retryButton)->hide();
         *list = new QListWidget(column);
         (*list)->setObjectName(objectName);
@@ -333,11 +335,11 @@ SearchPage::SearchPage(QWidget *parent)
         list->setSelectionMode(QAbstractItemView::NoSelection);
         list->setFocusPolicy(Qt::NoFocus);
         list->setMouseTracking(true);
-        list->setStyleSheet(QStringLiteral(
+        setThemedStyleSheet(list, QStringLiteral(
             "QListWidget{background:transparent;border:none;}"
-            "QListWidget::item{padding:7px 2px;color:#E8E8E8;background:transparent;}"
-            "QListWidget::item:hover{background:transparent;color:#F04A4A;}"
-            "QListWidget::item:selected{background:transparent;color:#EC4141;}"));
+            "QListWidget::item{padding:7px 2px;color:@textPrimary;background:transparent;}"
+            "QListWidget::item:hover{background:transparent;color:@accentHover;}"
+            "QListWidget::item:selected{background:transparent;color:@accent;}"));
     }
     assistantLayout->addWidget(assistantTop);
     assistantLayout->addWidget(m_discoveryPanel, 1);
@@ -808,12 +810,12 @@ void SearchPage::renderAssistant()
                 }
                 auto *item = new QListWidgetItem(status, target);
                 item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
-                item->setForeground(QColor(QStringLiteral("#6E6E7A")));
+                item->setForeground(themeColor(ThemeColor::TextTertiary));
             } else if (!m_hotErrors.value(int(source)).isEmpty()) {
                 auto *item = new QListWidgetItem(
                     QStringLiteral("刷新失败 · %1").arg(m_hotErrors.value(int(source))), target);
                 item->setFlags(item->flags() & ~Qt::ItemIsEnabled);
-                item->setForeground(QColor(QStringLiteral("#6E6E7A")));
+                item->setForeground(themeColor(ThemeColor::TextTertiary));
             }
         }
         m_historyList->setVisible(!history.isEmpty());
@@ -1390,7 +1392,7 @@ void SearchPage::renderGenericResults()
     };
     auto addSection = [this](const QString &title) {
         auto *label = new QLabel(title, m_genericLayout->parentWidget());
-        label->setStyleSheet(QStringLiteral("color:#E8E8E8;font-size:14px;font-weight:600;"));
+        setThemedStyleSheet(label, QStringLiteral("color:@textPrimary;font-size:14px;font-weight:600;"));
         m_genericLayout->addWidget(label);
     };
     auto addItem = [this, &activate](const core::SearchResultItem &item,
@@ -1443,7 +1445,7 @@ void SearchPage::renderGenericResults()
     if (rendered == 0 && m_genericSongs.isEmpty()) {
         auto *empty = new QLabel(QStringLiteral("当前范围和分类暂无结果"),
                                  m_genericLayout->parentWidget());
-        empty->setStyleSheet(QStringLiteral("color:#6E6E7A;"));
+        setThemedStyleSheet(empty, QStringLiteral("color:@textTertiary;"));
         m_genericLayout->addWidget(empty);
     }
     m_genericLayout->addStretch(1);

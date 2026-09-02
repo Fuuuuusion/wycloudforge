@@ -3,12 +3,11 @@
 #include "core/LibraryService.h"
 #include "core/SearchCache.h"
 #include "core/SettingsService.h"
+#include "ui/ThemeManager.h"
 
 #include <QApplication>
 #include <QDir>
-#include <QFile>
 #include <QLockFile>
-#include <QPalette>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QtCore/qtenvironmentvariables.h>
@@ -99,30 +98,11 @@ int main(int argc, char *argv[])
         return 0;
     }
 
-    // Fusion 样式:与 QSS 完全兼容,避免 Windows 原生样式导致的"灰框"回退
-    app.setStyle(QStringLiteral("Fusion"));
-    QPalette pal;
-    pal.setColor(QPalette::Window, QColor(0x0E, 0x0E, 0x14));
-    pal.setColor(QPalette::WindowText, QColor(0xE8, 0xE8, 0xE8));
-    pal.setColor(QPalette::Base, QColor(0x16, 0x16, 0x1E));
-    pal.setColor(QPalette::AlternateBase, QColor(0x1B, 0x1B, 0x24));
-    pal.setColor(QPalette::Text, QColor(0xE8, 0xE8, 0xE8));
-    pal.setColor(QPalette::Button, QColor(0x1B, 0x1B, 0x24));
-    pal.setColor(QPalette::ButtonText, QColor(0xE8, 0xE8, 0xE8));
-    pal.setColor(QPalette::Highlight, QColor(0xEC, 0x41, 0x41));
-    pal.setColor(QPalette::HighlightedText, QColor(0xFF, 0xFF, 0xFF));
-    pal.setColor(QPalette::ToolTipBase, QColor(0x1B, 0x1B, 0x24));
-    pal.setColor(QPalette::ToolTipText, QColor(0xE8, 0xE8, 0xE8));
-    pal.setColor(QPalette::PlaceholderText, QColor(0x6E, 0x6E, 0x7A));
-    pal.setColor(QPalette::Disabled, QPalette::Text, QColor(0x55, 0x55, 0x5F));
-    app.setPalette(pal);
+    // Fusion + 语义化主题，避免 Windows 原生样式灰框并支持即时切换。
+    ui::ThemeManager::instance().initialize(&app);
 
     QFont font(QStringLiteral("Microsoft YaHei UI"), 9);
     app.setFont(font);
-
-    QFile qss(QStringLiteral(":/theme.qss"));
-    if (qss.open(QIODevice::ReadOnly | QIODevice::Text))
-        app.setStyleSheet(QString::fromUtf8(qss.readAll()));
 
     QStringList folders = isolatedTestRun ? QStringList()
                                           : core::SettingsService::musicFolders();

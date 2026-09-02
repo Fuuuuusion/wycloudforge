@@ -79,7 +79,6 @@ public:
     void setSongCoverPath(qint64 songId, const QString &path);
     QString songCoverCachePath(const Song &song) const;
     QString playlistCoverCachePath(SourceId sourceId, const QString &playlistRemoteId) const;
-    QString playlistCoverCachePath(qint64 playlistId) const;
     QString lyricCachePathFor(const Song &song) const;
     void setSongLyricPath(qint64 songId, const QString &path);
 

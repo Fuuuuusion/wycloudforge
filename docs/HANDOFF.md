@@ -641,3 +641,32 @@ a4dcb21  SongListModel 改多列表 + 登录补齐uid/昵称 + QPointer防闪退
 - 正式候选包包含 38 个文件、90,644,497 字节；构建与候选 EXE SHA-256 均为 `A438CCAE9FB1C8FAE709486919EE3BE3BF2C614B2A69B983FD0103666A277040`，候选包隔离 smoke 退出码 0。新便携 ZIP 解压后为 3925 个文件、219,927,811 字节，两个内置服务分别在随机端口 HTTP 200 探活成功。
 - 新便携包：`dist\NeteaseClone-portable-20260902-141106.zip`，大小 89,501,051 字节，SHA-256 `290A86DD05F346953C02B84546A5F69465F988301E4C972BBA5D6E4D41CDC794`。
 - 已将候选包切换为快捷方式固定目标 `dist\NeteaseClone\NeteaseClone.exe`，上一正式版本保留在 `dist\NeteaseClone.previous-20260902-account-download-player`。桌面 `仿网易云播放器.lnk` 已显式重写并复核目标、工作目录和正式 EXE 哈希一致。
+
+## 仓库清理与深浅主题系统（2026-09-02）
+
+- 新增 `ui/ThemeManager.*`，支持“跟随系统 / 深色 / 浅色”三种模式并通过 `SettingsService` 持久化。全局 QSS 改用语义令牌，所有动态内联样式通过 `setThemedStyleSheet()` 注册，自绘控件统一读取 `ThemeColor`；现有单色 SVG/PNG 使用动态 `QIconEngine`，切换主题后无需重建按钮即可同步换色。
+- 设置页新增主题下拉框并即时应用。深色继续使用 `#0E0E14` 页面背景；浅色使用 `#F7F7FA` 页面背景、白色表面和深色文字。两套主题均保持既有红色强调色、无毛玻璃、无模糊、无渐变、无阴影和无页面切换动效。
+- 主窗口旧 `AuroraBackground` 更名并收敛为只绘制主题底色的 `ThemeSurface`。`resources/theme.qss` 和 UI 自绘颜色均已语义化；除 `ThemeManager.cpp` 中两套调色板外，生产 `app/ui/resources` 不再保存主题十六进制颜色。
+- 删除确认无入口的 `DiscoverPage`、`OnlinePage`、`CommentsDialog`；删除 `MusicSource` 中无消费者的榜单、私人 FM、评论和点赞旧接口及平台实现；删除旧 `playlistCoverCachePath(qint64)` 兼容入口、未引用 Logo/状态图标和与当前产品冲突的 HTML/CSS/JS 极光原型。生产图标已全部收口到 `resources/icons/`，QRC 不再依赖 `design/prototype`。
+- `design/tokens.json` 已改为深浅语义令牌镜像；新增 `docs/ARCHITECTURE.md`，记录真实目录职责、运行时链路、已移除冗余和仍需渐进拆分的热点。`MainWindow`、`LibraryService`、`SearchPage`、`SongListView`、`PlayerBar` 虽然偏大但仍有实际职责，本轮没有为降低行数做高风险重写。
+- 测试按真实职责重命名：`tst_playlistcontroller` 改为 `tst_librarypersistence`，`tst_songlistview` 改为 `tst_uiwidgets`；新增 `tst_thememanager`，覆盖三种模式持久化、系统模式解析、QSS 令牌完整替换、根表面、自定义内联样式、现有图标换色和设置页即时切换。
+
+### 本轮编译/测试失败与避错记录
+
+- `ThemeSurface` 重命名后的首次构建命令直接访问 `W:\build-ascii`，但新工具进程没有继承 `W:` 映射，PowerShell报告路径不存在。根因是 `subst` 映射不保证跨执行单元可见，不是源码错误；可行方案是在每个构建/CTest 执行单元先以 `(Get-Location).Path` 重新建立 `W:`。
+- 第一次用 `git mv` 重命名测试文件时无法创建 `.git/index.lock`。根因是当前沙箱对 `.git` 只读，不是仓库锁残留；改用工作区内普通精确文件移动，最终由 Git 自动识别重命名。
+- 测试重命名后的首次真实构建在 AutoMoc 报 `tst_librarypersistence.cpp` 没有包含同名 `.moc`。根因是文件移动后仍保留 `tst_playlistcontroller.moc`；改为 `tst_librarypersistence.moc` 后编译通过。
+- 第一次直接运行 `ctest` 时 PowerShell PATH 中没有该命令；改用 `C:\Qt\Tools\CMake_64\bin\ctest.exe` 绝对路径。随后一次仍因该执行单元缺少 `W:` 失败；固定为“同一命令先映射 W:，再调用绝对 ctest”后正常运行。
+- `tst_uiwidgets` 改名后的首轮为 42 通过、3 失败：刷新图标仍断言旧固定 `#B8B8C4`；播放器像素仍断言固定深色；推荐缓存测试把文件写入受限用户 CacheLocation。修复为断言当前语义色、由 `ThemeManager` 渲染测试 QSS，并显式覆盖独立临时推荐缓存目录；没有放宽生产布局或颜色要求，重跑通过。
+- 搜索页缓存降级测试在受限环境仍使用默认 CacheLocation，导致网易云缓存回退状态为 `Failed`。测试改为显式 `SearchCache` 临时根目录并补齐测试 QRC 后通过；这是测试隔离缺失，不是搜索生产逻辑回归。
+- 当前沙箱完整 Qt CTest 为 8/9：其余八项全部通过，唯一失败 `tst_multisourcesupport` 的两个 DPAPI 用例固定返回 Windows 错误 2；详细报告为 9 通过、2 失败。该边界与此前受限用户配置文件环境一致。完整桌面复跑审批两次都因审批服务自身 `stream disconnected before completion` 而未启动，不能据此声称 9/9；待用户再次明确授权后原样复跑，禁止跳过 DPAPI 或削弱断言。
+- 便携包网易云随机端口首次探活在 30 秒内未就绪，因为 `app.js` 启动前的匿名配置/版本检查尝试外网连接并被沙箱拒绝；继续等待后服务正常监听并返回 HTTP 200。QQ 服务立即返回 HTTP 200 和稳定签名 `wycloudforge-qq-wrapper`。该现象是受限网络启动延迟，不是 ZIP 缺文件；临时 Node 进程已按精确 PID 终止。
+- `windeployqt` 继续只警告可选 `dxcompiler.dll/dxil.dll` 缺失，本应用不依赖 Direct3D 12，对当前 FFmpeg/Qt Widgets 发布不构成阻断。
+
+### 当前验证与发布状态
+
+- `W:\build-ascii` 所有目标编译链接成功。QQ Node 契约 12/12 通过；沙箱 Qt CTest 为 8/9，唯一失败是受限环境中的两个 DPAPI 用例。审批服务恢复后在完整桌面环境原样复跑，Qt CTest 最终 9/9 全部通过，总计 45.21 秒，包含 DPAPI、播放器、多来源、搜索、UI 与主题回归；没有跳过用例或放宽断言。
+- 构建包在空音乐目录、独立 SQLite、独立 QSettings 和独立下载目录完成深色、浅色各一张 1280×800 截图 smoke，退出码均为 0；便携解压包另完成浅色 940×600 smoke，退出码 0。目视确认两套主题和紧凑布局无裁切、无视觉效果残留。
+- 正式候选为 38 个文件，构建 EXE 与候选 EXE SHA-256 均为 `CA675A8FB927DE81DBC93AA6E79E7CDF3F00324C26719D367BC6E9FB0924708C`，候选隔离 smoke 退出码 0。候选已切换到 `dist\NeteaseClone`，上一正式版本保留在 `dist\NeteaseClone.previous-20260902-theme-system`。
+- 新便携包：`dist\NeteaseClone-portable-20260902-180357.zip`，大小 89,477,842 bytes，SHA-256 `539E63A2F55FE355B4AC5BE39D0E78265C72F9869F11ABCEB4BAA24158038E64`。解压后 3925 个文件、219,854,764 bytes，关键文件和两个本地服务均已验证。
+- 审批服务恢复后已显式重写并回读桌面 `仿网易云播放器.lnk`，目标为 `dist\NeteaseClone\NeteaseClone.exe`，工作目录为同一正式发布目录；正式主题版本已启动供预览。提交与推送紧随本记录执行，受保护的 `db-backups/`、`ui-repro-data/` 和 `ui-repro.sqlite*` 不纳入版本控制，并行 UI worktree 不受影响。

@@ -1,13 +1,8 @@
 #include "ProgressSlider.h"
+#include "ui/ThemeManager.h"
 
 #include <QMouseEvent>
 #include <QPainter>
-
-namespace {
-const QColor kTrack(0x2A, 0x2A, 0x36);
-const QColor kFill(0xEC, 0x41, 0x41);
-const QColor kHandleBorder(0xEC, 0x41, 0x41);
-}
 
 ProgressSlider::ProgressSlider(QWidget *parent)
     : QWidget(parent)
@@ -59,15 +54,15 @@ void ProgressSlider::paintEvent(QPaintEvent *)
     const qreal fillEnd = left + (right - left) * ratio;
 
     p.setPen(Qt::NoPen);
-    p.setBrush(kTrack);
+    p.setBrush(themeColor(ui::ThemeColor::ProgressTrack));
     p.drawRoundedRect(QRectF(left, y - trackHeight / 2.0, right - left, trackHeight), 2, 2);
-    p.setBrush(kFill);
+    p.setBrush(themeColor(ui::ThemeColor::Accent));
     p.drawRoundedRect(QRectF(left, y - trackHeight / 2.0, qMax<qreal>(0, fillEnd - left), trackHeight), 2, 2);
 
     if (m_showHandle && (m_hover || m_dragging)) {
         const int handleR = m_dragging ? 7 : 6;
-        p.setBrush(Qt::white);
-        p.setPen(QPen(kHandleBorder, 2));
+        p.setBrush(themeColor(ui::ThemeColor::TextOnAccent));
+        p.setPen(QPen(themeColor(ui::ThemeColor::Accent), 2));
         p.drawEllipse(QPointF(fillEnd, y), handleR, handleR);
     }
 }

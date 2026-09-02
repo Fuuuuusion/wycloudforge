@@ -682,31 +682,10 @@ void NeteaseApiClient::topPlaylists(const QString &cat, int offset, JsonArrayFn 
     get(QStringLiteral("/top/playlist"), q, [ok](const QJsonObject &obj) { ok(obj.value(QStringLiteral("playlists")).toArray()); }, err);
 }
 
-void NeteaseApiClient::topLists(JsonArrayFn ok, ErrFn err)
-{
-    get(QStringLiteral("/toplist"), QUrlQuery(),
-        [ok](const QJsonObject &obj) { ok(obj.value(QStringLiteral("list")).toArray()); }, err);
-}
-
 void NeteaseApiClient::recommendSongs(JsonArrayFn ok, ErrFn err)
 {
     get(QStringLiteral("/recommend/songs"), QUrlQuery(),
         [ok](const QJsonObject &obj) { ok(obj.value(QStringLiteral("data")).toObject().value(QStringLiteral("dailySongs")).toArray()); }, err);
-}
-
-void NeteaseApiClient::personalFm(JsonArrayFn ok, ErrFn err)
-{
-    get(QStringLiteral("/personal_fm"), QUrlQuery(),
-        [ok](const QJsonObject &obj) { ok(obj.value(QStringLiteral("data")).toArray()); }, err);
-}
-
-void NeteaseApiClient::comments(const QString &id, int offset, int limit, OkFn ok, ErrFn err)
-{
-    QUrlQuery q;
-    q.addQueryItem(QStringLiteral("id"), id);
-    q.addQueryItem(QStringLiteral("offset"), QString::number(offset));
-    q.addQueryItem(QStringLiteral("limit"), QString::number(limit));
-    get(QStringLiteral("/comment/music"), q, ok, err);
 }
 
 void NeteaseApiClient::qrKey(StringFn ok, ErrFn err)
@@ -755,21 +734,6 @@ void NeteaseApiClient::userPlaylists(const QString &uid, JsonArrayFn ok, ErrFn e
     q.addQueryItem(QStringLiteral("uid"), uid);
     q.addQueryItem(QStringLiteral("limit"), QStringLiteral("50"));
     get(QStringLiteral("/user/playlist"), q, [ok](const QJsonObject &obj) { ok(obj.value(QStringLiteral("playlist")).toArray()); }, err);
-}
-
-void NeteaseApiClient::like(const QString &id, bool like, OkFn ok, ErrFn err)
-{
-    QUrlQuery q;
-    q.addQueryItem(QStringLiteral("id"), id);
-    q.addQueryItem(QStringLiteral("like"), like ? QStringLiteral("true") : QStringLiteral("false"));
-    get(QStringLiteral("/like"), q, ok, err);
-}
-
-void NeteaseApiClient::likeList(const QString &uid, JsonArrayFn ok, ErrFn err)
-{
-    QUrlQuery q;
-    q.addQueryItem(QStringLiteral("uid"), uid);
-    get(QStringLiteral("/likelist"), q, [ok](const QJsonObject &obj) { ok(obj.value(QStringLiteral("ids")).toArray()); }, err);
 }
 
 void NeteaseApiClient::downloadToFile(const QUrl &url, const QString &filePath, BoolFn done)

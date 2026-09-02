@@ -13,6 +13,7 @@
 #include "ui/SidebarFooter.h"
 #include "ui/DownloadPage.h"
 #include "ui/SourceIcons.h"
+#include "ui/ThemeManager.h"
 #include "ui/TitleBar.h"
 #include "core/NeteaseApiClient.h"
 #include "core/QqMusicSource.h"
@@ -91,6 +92,7 @@ class SongListViewTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void initTestCase();
     void batchEntryAndStableSelection();
     void rowUpdatePreservesModelAndBatchSelection();
     void favoriteActionKeepsPlaySignalSeparate();
@@ -134,7 +136,21 @@ private slots:
     void playbackActivityTracksRealState();
     void fullCoverPlaylistCardKeepsVisibleGeometry();
     void newPlaylistCardKeepsClickContract();
+
+private:
+    QTemporaryDir m_settingsDir;
 };
+
+void SongListViewTest::initTestCase()
+{
+    QVERIFY(m_settingsDir.isValid());
+    QCoreApplication::setOrganizationName(QStringLiteral("NeteaseCloneUiTest"));
+    QCoreApplication::setApplicationName(QStringLiteral("NeteaseCloneUiTest"));
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, m_settingsDir.path());
+    SettingsService::setThemeMode(int(ThemeMode::Dark));
+    ThemeManager::instance().initialize(qApp);
+}
 
 void SongListViewTest::batchEntryAndStableSelection()
 {
@@ -611,7 +627,7 @@ void SongListViewTest::playerUtilityButtonsKeepTransparentBackground()
     PlayerBar bar;
     QFile theme(QStringLiteral(":/theme.qss"));
     QVERIFY(theme.open(QIODevice::ReadOnly));
-    bar.setStyleSheet(QString::fromUtf8(theme.readAll()));
+    bar.setStyleSheet(ThemeManager::instance().renderStyleSheet(QString::fromUtf8(theme.readAll())));
     bar.resize(1200, 204);
     bar.show();
     QApplication::processEvents();
@@ -860,7 +876,7 @@ void SongListViewTest::playerBarVisualRefinementUsesResourcesAndTooltips()
     PlayerBar bar;
     QFile theme(QStringLiteral(":/theme.qss"));
     QVERIFY(theme.open(QIODevice::ReadOnly));
-    bar.setStyleSheet(QString::fromUtf8(theme.readAll()));
+    bar.setStyleSheet(ThemeManager::instance().renderStyleSheet(QString::fromUtf8(theme.readAll())));
     bar.resize(1200, 204);
     bar.setSong(song, false);
     bar.show();
@@ -938,7 +954,7 @@ void SongListViewTest::songRowActionIconsStayVerticallyCentered()
 
     SongListView view;
     view.resize(1000, 260);
-    view.setStyleSheet(QStringLiteral("QTableView{background:#0E0E14;}"));
+    setThemedStyleSheet(&view, QStringLiteral("QTableView{background:@pageBackground;}"));
     view.setSongs({ song });
     view.show();
     QApplication::processEvents();
@@ -1011,7 +1027,7 @@ void SongListViewTest::highlightedSearchTextKeepsRedGlyphsWithoutBackground()
 
     SongListView view;
     view.resize(1000, 260);
-    view.setStyleSheet(QStringLiteral("QTableView{background:#0E0E14;}"));
+    setThemedStyleSheet(&view, QStringLiteral("QTableView{background:@pageBackground;}"));
     view.setSongs({ song });
     view.setHighlightQuery(QStringLiteral("Target"));
     view.show();
@@ -1054,7 +1070,7 @@ void SongListViewTest::rowHoverKeepsBackgroundClear()
 
     SongListView view;
     view.resize(1000, 240);
-    view.setStyleSheet(QStringLiteral("QTableView{background:#0E0E14;}"));
+    setThemedStyleSheet(&view, QStringLiteral("QTableView{background:@pageBackground;}"));
     view.setSongs({ song });
     view.show();
     QApplication::processEvents();
@@ -1535,9 +1551,7 @@ void SongListViewTest::sidebarFooterKeepsConfirmedGeometryAndRefreshIcon()
         }
     }
     QVERIFY(strongestAlpha > 0);
-    QCOMPARE(strongestPixel.red(), 184);
-    QCOMPARE(strongestPixel.green(), 184);
-    QCOMPARE(strongestPixel.blue(), 196);
+    QCOMPARE(strongestPixel.rgb(), themeColor(ThemeColor::TextSecondary).rgb());
 
     QSignalSpy refreshSpy(&footer, &SidebarFooter::refreshClicked);
     QSignalSpy downloadSpy(&footer, &SidebarFooter::downloadClicked);
@@ -1621,29 +1635,18 @@ void SongListViewTest::manualRecommendRefreshUsesPlatformTopListsAndFeedback()
 
 void SongListViewTest::recommendedPlaylistsScrollAtNarrowWidths()
 {
-    struct EnvironmentGuard
+    struct CachePathGuard
     {
-        explicit EnvironmentGuard(const char *key, const QByteArray &value)
-            : name(key), existed(qEnvironmentVariableIsSet(key)), previous(qgetenv(key))
+        ~CachePathGuard()
         {
-            qputenv(name.constData(), value);
+            SettingsService::setRecommendCachePathOverride(QString());
         }
-        ~EnvironmentGuard()
-        {
-            if (existed)
-                qputenv(name.constData(), previous);
-            else
-                qunsetenv(name.constData());
-        }
-        QByteArray name;
-        bool existed = false;
-        QByteArray previous;
-    };
+    } cachePathGuard;
 
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
-    EnvironmentGuard appData("APPDATA", dir.path().toUtf8());
-    EnvironmentGuard localAppData("LOCALAPPDATA", dir.path().toUtf8());
+    SettingsService::setRecommendCachePathOverride(
+        dir.filePath(QStringLiteral("recommend.json")));
     const QString cachePath = SettingsService::recommendCachePath();
     QVERIFY(QDir().mkpath(QFileInfo(cachePath).absolutePath()));
     QJsonArray playlists;
@@ -1837,7 +1840,7 @@ void SongListViewTest::layoutComponentsFollowConfirmedGeometry()
     PlayerBar player;
     QFile theme(QStringLiteral(":/theme.qss"));
     QVERIFY(theme.open(QIODevice::ReadOnly));
-    player.setStyleSheet(QString::fromUtf8(theme.readAll()));
+    player.setStyleSheet(ThemeManager::instance().renderStyleSheet(QString::fromUtf8(theme.readAll())));
     QCOMPARE(player.height(), 204);
     player.resize(1200, 204);
     player.show();
@@ -1854,7 +1857,8 @@ void SongListViewTest::layoutComponentsFollowConfirmedGeometry()
     QVERIFY(actionBox->isVisible());
     QVERIFY(centerBox->isVisible());
     QVERIFY(rightBox->isVisible());
-    QCOMPARE(player.grab().toImage().pixelColor(2, 2), QColor(QStringLiteral("#0E0E14")));
+    QCOMPARE(player.grab().toImage().pixelColor(2, 2),
+             themeColor(ThemeColor::PageBackground));
 
     player.resize(700, 204);
     QApplication::processEvents();
@@ -1985,4 +1989,4 @@ void SongListViewTest::newPlaylistCardKeepsClickContract()
 }
 
 QTEST_MAIN(SongListViewTest)
-#include "tst_songlistview.moc"
+#include "tst_uiwidgets.moc"

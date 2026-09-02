@@ -6,8 +6,10 @@
 #include "core/LibraryService.h"
 #include "core/NeteaseApiClient.h"
 #include "ui/CoverProvider.h"
+#include "ui/ThemeManager.h"
 
 #include <QCheckBox>
+#include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDesktopServices>
 #include <QDir>
@@ -51,15 +53,36 @@ SettingsDialog::SettingsDialog(core::ApiService *apiService, core::NeteaseApiCli
     layout->setContentsMargins(20, 18, 20, 14);
     layout->setSpacing(14);
 
+    auto *appearanceTitle = new QLabel(QStringLiteral("外观"), this);
+    appearanceTitle->setProperty("class", "settingsSectionTitle");
+    layout->addWidget(appearanceTitle);
+    auto *themeRow = new QHBoxLayout;
+    themeRow->setSpacing(8);
+    themeRow->addWidget(new QLabel(QStringLiteral("主题模式"), this));
+    m_themeCombo = new QComboBox(this);
+    m_themeCombo->setObjectName(QStringLiteral("themeModeCombo"));
+    m_themeCombo->setAccessibleName(QStringLiteral("主题模式"));
+    m_themeCombo->addItem(QStringLiteral("跟随系统"), int(ThemeMode::FollowSystem));
+    m_themeCombo->addItem(QStringLiteral("深色"), int(ThemeMode::Dark));
+    m_themeCombo->addItem(QStringLiteral("浅色"), int(ThemeMode::Light));
+    const int themeIndex = m_themeCombo->findData(int(ThemeManager::instance().mode()));
+    m_themeCombo->setCurrentIndex(themeIndex >= 0 ? themeIndex : 1);
+    themeRow->addWidget(m_themeCombo, 1);
+    layout->addLayout(themeRow);
+    connect(m_themeCombo, &QComboBox::activated, this, [this](int index) {
+        ThemeManager::instance().setMode(
+            static_cast<ThemeMode>(m_themeCombo->itemData(index).toInt()));
+    });
+
     auto *folderTitle = new QLabel(QStringLiteral("音乐文件夹"), this);
-    folderTitle->setStyleSheet(QStringLiteral("font-weight:600;font-size:14px;"));
+    folderTitle->setProperty("class", "settingsSectionTitle");
     layout->addWidget(folderTitle);
 
     m_folderList = new QListWidget(this);
-    m_folderList->setStyleSheet(QStringLiteral(
-        "QListWidget{background:#16161E;border:none;border-radius:6px;}"
+    setThemedStyleSheet(m_folderList, QStringLiteral(
+        "QListWidget{background:@surface;border:none;border-radius:6px;}"
         "QListWidget::item{padding:8px;border-radius:4px;}"
-        "QListWidget::item:selected{background:#3A2024;color:#FF5A5A;}"));
+        "QListWidget::item:selected{background:@accentSoft;color:@accentHover;}"));
     layout->addWidget(m_folderList);
 
     auto *folderBtns = new QHBoxLayout;
@@ -106,15 +129,15 @@ SettingsDialog::SettingsDialog(core::ApiService *apiService, core::NeteaseApiCli
 
     // ---------- 在线服务 ----------
     auto *onlineTitle = new QLabel(QStringLiteral("在线服务"), this);
-    onlineTitle->setStyleSheet(QStringLiteral("font-weight:600;font-size:14px;"));
+    onlineTitle->setProperty("class", "settingsSectionTitle");
     layout->addWidget(onlineTitle);
 
     auto *apiRow = new QHBoxLayout;
     apiRow->setSpacing(8);
     apiRow->addWidget(new QLabel(QStringLiteral("API 地址"), this));
     m_apiBaseEdit = new QLineEdit(core::SettingsService::onlineApiBase(), this);
-    m_apiBaseEdit->setStyleSheet(QStringLiteral(
-        "QLineEdit{background:#1B1B24;border:none;border-radius:6px;padding:6px 10px;color:#E8E8E8;}"));
+    setThemedStyleSheet(m_apiBaseEdit, QStringLiteral(
+        "QLineEdit{background:@surfaceAlt;border:none;border-radius:6px;padding:6px 10px;color:@textPrimary;}"));
     apiRow->addWidget(m_apiBaseEdit, 1);
     layout->addLayout(apiRow);
 
@@ -126,7 +149,7 @@ SettingsDialog::SettingsDialog(core::ApiService *apiService, core::NeteaseApiCli
     layout->addLayout(autoRow);
 
     m_onlineStatus = new QLabel(QStringLiteral("状态:未知"), this);
-    m_onlineStatus->setStyleSheet(QStringLiteral("color:#9A9AA5;font-size:12px;"));
+    setThemedStyleSheet(m_onlineStatus, QStringLiteral("color:@textSecondary;font-size:12px;"));
     layout->addWidget(m_onlineStatus);
     auto *startBtn = new QPushButton(QStringLiteral("启动服务"), this);
     auto *stopBtn = new QPushButton(QStringLiteral("停止服务"), this);
@@ -151,7 +174,7 @@ SettingsDialog::SettingsDialog(core::ApiService *apiService, core::NeteaseApiCli
     }
 
     m_loginLabel = new QLabel(this);
-    m_loginLabel->setStyleSheet(QStringLiteral("color:#9A9AA5;font-size:12px;"));
+    setThemedStyleSheet(m_loginLabel, QStringLiteral("color:@textSecondary;font-size:12px;"));
     layout->addWidget(m_loginLabel);
     auto *logoutBtn = new QPushButton(QStringLiteral("退出登录"), this);
     layout->addWidget(logoutBtn, 0, Qt::AlignLeft);
@@ -180,7 +203,7 @@ SettingsDialog::SettingsDialog(core::ApiService *apiService, core::NeteaseApiCli
     layout->addLayout(cacheRow);
 
     m_cacheStats = new QLabel(this);
-    m_cacheStats->setStyleSheet(QStringLiteral("color:#9A9AA5;font-size:12px;"));
+    setThemedStyleSheet(m_cacheStats, QStringLiteral("color:@textSecondary;font-size:12px;"));
     m_cacheStats->setWordWrap(true);
     layout->addWidget(m_cacheStats);
     auto *clearBtn = new QPushButton(QStringLiteral("一键清空缓存"), this);
@@ -218,14 +241,14 @@ SettingsDialog::SettingsDialog(core::ApiService *apiService, core::NeteaseApiCli
     });
 
     auto *downloadTitle = new QLabel(QStringLiteral("永久下载"), this);
-    downloadTitle->setStyleSheet(QStringLiteral("font-weight:600;font-size:14px;"));
+    downloadTitle->setProperty("class", "settingsSectionTitle");
     layout->addWidget(downloadTitle);
     auto *downloadRow = new QHBoxLayout;
     downloadRow->setSpacing(8);
     downloadRow->addWidget(new QLabel(QStringLiteral("保存目录"), this));
     m_downloadDirEdit = new QLineEdit(core::SettingsService::onlineDownloadDir(), this);
-    m_downloadDirEdit->setStyleSheet(QStringLiteral(
-        "QLineEdit{background:#1B1B24;border:none;border-radius:6px;padding:6px 10px;color:#E8E8E8;}"));
+    setThemedStyleSheet(m_downloadDirEdit, QStringLiteral(
+        "QLineEdit{background:@surfaceAlt;border:none;border-radius:6px;padding:6px 10px;color:@textPrimary;}"));
     auto *chooseDownloadDir = new QPushButton(QStringLiteral("选择"), this);
     downloadRow->addWidget(m_downloadDirEdit, 1);
     downloadRow->addWidget(chooseDownloadDir);
@@ -239,13 +262,13 @@ SettingsDialog::SettingsDialog(core::ApiService *apiService, core::NeteaseApiCli
 
     // ---------- 本地数据库 ----------
     auto *databaseTitle = new QLabel(QStringLiteral("本地数据库"), this);
-    databaseTitle->setStyleSheet(QStringLiteral("font-weight:600;font-size:14px;"));
+    databaseTitle->setProperty("class", "settingsSectionTitle");
     layout->addWidget(databaseTitle);
     auto *databasePath = new QLabel(
         m_library ? QStringLiteral("数据库文件：%1").arg(QDir::toNativeSeparators(m_library->databasePath()))
                   : QStringLiteral("数据库不可用"), this);
     databasePath->setWordWrap(true);
-    databasePath->setStyleSheet(QStringLiteral("color:#9A9AA5;font-size:12px;"));
+    setThemedStyleSheet(databasePath, QStringLiteral("color:@textSecondary;font-size:12px;"));
     layout->addWidget(databasePath);
     auto *databaseBtns = new QHBoxLayout;
     auto *openDatabaseBtn = new QPushButton(QStringLiteral("打开数据库目录"), this);

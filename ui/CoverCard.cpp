@@ -1,4 +1,5 @@
 #include "CoverCard.h"
+#include "ui/ThemeManager.h"
 
 #include <QMouseEvent>
 #include <QPainter>
@@ -7,10 +8,6 @@
 
 namespace ui {
 namespace {
-const QColor kText(0xE8, 0xE8, 0xE8);
-const QColor kSub(0x6E, 0x6E, 0x7A);
-const QColor kPrimary(0xEC, 0x41, 0x41);
-
 QColor blendedColor(const QColor &from, const QColor &to, qreal progress)
 {
     const qreal t = qBound<qreal>(0.0, progress, 1.0);
@@ -92,7 +89,7 @@ void CoverCard::paintEvent(QPaintEvent *)
         clip.addRoundedRect(cardRect, 8, 8);
         p.setClipPath(clip);
         p.setPen(Qt::NoPen);
-        p.setBrush(QColor(QStringLiteral("#1B1B24")));
+        p.setBrush(themeColor(ThemeColor::SurfaceAlt));
         p.drawRoundedRect(cardRect, 8, 8);
         if (!m_newPlaylistCard && !m_cover.isNull())
             p.drawPixmap(cardRect.toRect(), m_cover);
@@ -100,9 +97,9 @@ void CoverCard::paintEvent(QPaintEvent *)
         p.setClipping(false);
         const QRectF titlePlate(8, cardRect.bottom() - 31, cardRect.width() - 16, 23);
         p.setPen(Qt::NoPen);
-        p.setBrush(QColor(QStringLiteral("#16161E")));
+        p.setBrush(themeColor(ThemeColor::Surface));
         p.drawRoundedRect(titlePlate, 6, 6);
-        p.setPen(kText);
+        p.setPen(themeColor(ThemeColor::TextPrimary));
         p.drawText(titlePlate.adjusted(8, 0, -8, 0), Qt::AlignLeft | Qt::AlignVCenter,
                    p.fontMetrics().elidedText(m_name, Qt::ElideRight,
                                               int(titlePlate.width()) - 16));
@@ -113,7 +110,7 @@ void CoverCard::paintEvent(QPaintEvent *)
             const QRectF plusCircle(cardRect.right() - circleSize - 8.0, cardRect.top() + 8.0,
                                     circleSize, circleSize);
             p.setPen(Qt::NoPen);
-            p.setBrush(QColor(QStringLiteral("#24242E")));
+            p.setBrush(themeColor(ThemeColor::SurfacePressed));
             p.drawEllipse(plusCircle);
 
             qreal plusScale;
@@ -125,8 +122,8 @@ void CoverCard::paintEvent(QPaintEvent *)
                 plusScale = 0.9;
             const qreal lineLength = (10.0 + 4.0 * progress) * plusScale;
             const QPointF center = plusCircle.center();
-            p.setPen(QPen(blendedColor(QColor(QStringLiteral("#9A9AA5")),
-                                      QColor(QStringLiteral("#F04A4A")), progress),
+            p.setPen(QPen(blendedColor(themeColor(ThemeColor::TextSecondary),
+                                      themeColor(ThemeColor::AccentHover), progress),
                           1.8, Qt::SolidLine, Qt::RoundCap));
             p.drawLine(QPointF(center.x() - lineLength / 2.0, center.y()),
                        QPointF(center.x() + lineLength / 2.0, center.y()));
@@ -161,7 +158,7 @@ void CoverCard::paintEvent(QPaintEvent *)
         const int r = 32;
         QRectF btn(coverRect.right() - r - 8, coverRect.bottom() - r - 8, r, r);
         p.setPen(Qt::NoPen);
-        p.setBrush(kPrimary);
+        p.setBrush(themeColor(ThemeColor::Accent));
         p.drawEllipse(btn);
         QPainterPath tri;
         tri.moveTo(btn.left() + 11, btn.top() + 9);
@@ -174,12 +171,14 @@ void CoverCard::paintEvent(QPaintEvent *)
     p.setClipping(false);
 
     QRectF textRect(0, m_coverSize + 8, m_cardWidth, 16);
-    p.setPen(m_hover ? QPen(kPrimary, 1) : QPen(kText, 1));
+    p.setPen(m_hover ? QPen(themeColor(ThemeColor::Accent), 1)
+                     : QPen(themeColor(ThemeColor::TextPrimary), 1));
     p.drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter,
                p.fontMetrics().elidedText(m_name, Qt::ElideRight, m_cardWidth));
     if (!m_sub.isEmpty()) {
         QRectF subRect(0, m_coverSize + 25, m_cardWidth, 14);
-        p.setPen(m_hover ? QPen(kPrimary, 1) : QPen(kSub, 1));
+        p.setPen(m_hover ? QPen(themeColor(ThemeColor::Accent), 1)
+                         : QPen(themeColor(ThemeColor::TextTertiary), 1));
         QFont f = p.font();
         f.setPointSizeF(f.pointSizeF() - 0.5);
         p.setFont(f);

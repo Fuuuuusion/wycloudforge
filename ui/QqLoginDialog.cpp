@@ -1,5 +1,7 @@
 #include "QqLoginDialog.h"
 
+#include "ui/ThemeManager.h"
+
 #include "core/CredentialStore.h"
 #include "core/QqMusicSource.h"
 #include "core/SettingsService.h"
@@ -49,7 +51,7 @@ QqLoginDialog::QqLoginDialog(core::QqMusicSource *source, QWidget *parent)
     m_statusLabel = new QLabel(QStringLiteral("正在启动 QQ 音乐登录…"), this);
     m_statusLabel->setAlignment(Qt::AlignCenter);
     m_statusLabel->setWordWrap(true);
-    m_statusLabel->setStyleSheet(QStringLiteral("color:#9A9AA5;font-size:12px;"));
+    setThemedStyleSheet(m_statusLabel, QStringLiteral("color:@textSecondary;font-size:12px;"));
     layout->addWidget(m_statusLabel);
 
     m_refreshButton = new QPushButton(QStringLiteral("刷新二维码"), this);

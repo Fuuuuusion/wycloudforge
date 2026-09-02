@@ -1,4 +1,6 @@
 add_library(neteclone_ui STATIC
+    ThemeManager.h
+    ThemeManager.cpp
     TitleBar.h
     TitleBar.cpp
     SideBar.h
@@ -7,8 +9,8 @@ add_library(neteclone_ui STATIC
     ProgressSlider.cpp
     PlayerBar.h
     PlayerBar.cpp
-    AuroraBackground.h
-    AuroraBackground.cpp
+    ThemeSurface.h
+    ThemeSurface.cpp
     CoverProvider.h
     CoverProvider.cpp
     SongListModel.h
@@ -18,8 +20,6 @@ add_library(neteclone_ui STATIC
     SongListView.cpp
     CoverCard.h
     CoverCard.cpp
-    DiscoverPage.h
-    DiscoverPage.cpp
     LibraryPage.h
     LibraryPage.cpp
     SongListPage.h
@@ -32,14 +32,10 @@ add_library(neteclone_ui STATIC
     PlayingPage.cpp
     SearchPage.h
     SearchPage.cpp
-    OnlinePage.h
-    OnlinePage.cpp
     LoginDialog.h
     LoginDialog.cpp
     QqLoginDialog.h
     QqLoginDialog.cpp
-    CommentsDialog.h
-    CommentsDialog.cpp
     SettingsDialog.h
     SettingsDialog.cpp
     LyricEditorDialog.h

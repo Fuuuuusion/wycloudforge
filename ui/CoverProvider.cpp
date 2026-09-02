@@ -1,4 +1,5 @@
 #include "CoverProvider.h"
+#include "ui/ThemeManager.h"
 
 #include <QFileInfo>
 #include <QImageReader>
@@ -40,7 +41,7 @@ QPixmap CoverProvider::placeholder(const QString &seed, int size, qreal radius)
     QPainter p(&pm);
     p.setRenderHint(QPainter::Antialiasing);
     p.setPen(Qt::NoPen);
-    p.setBrush(QColor(0xEC, 0x41, 0x41));
+    p.setBrush(themeColor(ThemeColor::Accent));
     p.drawRoundedRect(0, 0, size, size, radius, radius);
     p.setPen(Qt::white);
     QFont f(QStringLiteral("Microsoft YaHei UI"), qMax(10, size / 3), QFont::Bold);

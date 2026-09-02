@@ -3,6 +3,7 @@
 #include "CoverProvider.h"
 #include "ProgressSlider.h"
 #include "ui/SvgIcon.h"
+#include "ui/ThemeManager.h"
 
 #include <QEvent>
 #include <QFileInfo>
@@ -190,21 +191,21 @@ protected:
         painter.setRenderHint(QPainter::Antialiasing);
 
         if (hasFocus() && m_showFocusRing) {
-            painter.setPen(QPen(QColor(QStringLiteral("#6E6E7A")), 1.5));
+            painter.setPen(QPen(themeColor(ThemeColor::TextTertiary), 1.5));
             painter.setBrush(Qt::NoBrush);
             painter.drawRoundedRect(QRectF(rect()).adjusted(3, 3, -3, -3), 7, 7);
         }
 
         QColor color;
         if (!isEnabled())
-            color = QColor(QStringLiteral("#6E6E7A"));
+            color = themeColor(ThemeColor::TextTertiary);
         else if (isDown())
-            color = QColor(QStringLiteral("#D63838"));
+            color = themeColor(ThemeColor::AccentPressed);
         else if (m_favorite)
-            color = QColor(QStringLiteral("#EC4141"));
+            color = themeColor(ThemeColor::Accent);
         else
-            color = blendedColor(QColor(QStringLiteral("#9A9AA5")),
-                                 QColor(QStringLiteral("#F04A4A")), hoverProgress());
+            color = blendedColor(themeColor(ThemeColor::TextSecondary),
+                                 themeColor(ThemeColor::AccentHover), hoverProgress());
 
         qreal scale = 1.0 + 0.06 * hoverProgress();
         if (isDown())
@@ -376,7 +377,7 @@ protected:
 
         if (hasFocus() && m_showFocusRing) {
             painter.setOpacity(1.0);
-            painter.setPen(QPen(QColor(QStringLiteral("#6E6E7A")), 1.5));
+            painter.setPen(QPen(themeColor(ThemeColor::TextTertiary), 1.5));
             painter.setBrush(Qt::NoBrush);
             painter.drawRoundedRect(QRectF(rect()).adjusted(3, 3, -3, -3), 7, 7);
         }
@@ -422,14 +423,14 @@ private:
         painter.setOpacity(opacity);
         const qreal hover = hoverProgress();
         const QColor color = !isEnabled() && state != Loading
-            ? QColor(QStringLiteral("#6E6E7A"))
-            : isDown() ? QColor(QStringLiteral("#D63838"))
-            : blendedColor(QColor(QStringLiteral("#9A9AA5")),
-                           QColor(QStringLiteral("#F04A4A")), hover);
+            ? themeColor(ThemeColor::TextTertiary)
+            : isDown() ? themeColor(ThemeColor::AccentPressed)
+            : blendedColor(themeColor(ThemeColor::TextSecondary),
+                           themeColor(ThemeColor::AccentHover), hover);
         const QPointF center = QRectF(rect()).center();
 
         if (state == Loading) {
-            painter.setPen(QPen(QColor(QStringLiteral("#F04A4A")), 1.8,
+            painter.setPen(QPen(themeColor(ThemeColor::AccentHover), 1.8,
                                 Qt::SolidLine, Qt::RoundCap));
             painter.drawArc(QRectF(center.x() - 8, center.y() - 8, 16, 16),
                             (90 - m_loadingAngle) * 16, -270 * 16);
@@ -536,15 +537,15 @@ protected:
         const qreal hover = isEnabled() ? hoverProgress() : 0.0;
         const qreal press = isEnabled() ? pressProgress() : 0.0;
 
-        QColor background(QStringLiteral("#2A2A36"));
+        QColor background = themeColor(ThemeColor::SurfaceHover);
         background.setAlphaF(hover);
         painter.setPen(Qt::NoPen);
         painter.setBrush(background);
         painter.drawEllipse(QRectF(rect()).adjusted(1, 1, -1, -1));
 
-        const QColor color = !isEnabled() ? QColor(QStringLiteral("#6E6E7A"))
-            : blendedColor(QColor(QStringLiteral("#9A9AA5")),
-                           QColor(QStringLiteral("#E8E8E8")), hover);
+        const QColor color = !isEnabled() ? themeColor(ThemeColor::TextTertiary)
+            : blendedColor(themeColor(ThemeColor::TextSecondary),
+                           themeColor(ThemeColor::TextPrimary), hover);
         const QPixmap icon = tintedSvg(m_iconPath, color, devicePixelRatioF());
         const qreal scale = 1.0 - 0.08 * press;
         const qreal iconSize = 20.0 * scale;
@@ -555,7 +556,7 @@ protected:
                            icon, QRectF(icon.rect()));
 
         if (hasFocus() && m_showFocusRing) {
-            painter.setPen(QPen(QColor(QStringLiteral("#6E6E7A")), 1.5));
+            painter.setPen(QPen(themeColor(ThemeColor::TextTertiary), 1.5));
             painter.setBrush(Qt::NoBrush);
             painter.drawEllipse(QRectF(rect()).adjusted(3, 3, -3, -3));
         }
@@ -648,19 +649,19 @@ protected:
         painter.setRenderHint(QPainter::Antialiasing);
 
         if (hasFocus() && m_showFocusRing) {
-            QPen focusPen(QColor(QStringLiteral("#6E6E7A")), 2.0);
+            QPen focusPen(themeColor(ThemeColor::TextTertiary), 2.0);
             painter.setPen(focusPen);
             painter.setBrush(Qt::NoBrush);
             painter.drawEllipse(QRectF(rect()).adjusted(3, 3, -3, -3));
         }
 
-        QColor color(QStringLiteral("#D8D8E0"));
+        QColor color = themeColor(ThemeColor::TextPrimary);
         if (!isEnabled())
-            color = QColor(QStringLiteral("#6E6E7A"));
+            color = themeColor(ThemeColor::TextTertiary);
         else if (isDown())
-            color = QColor(QStringLiteral("#C8C8D0"));
+            color = themeColor(ThemeColor::TextSecondary);
         else if (underMouse())
-            color = QColor(QStringLiteral("#E8E8E8"));
+            color = themeColor(ThemeColor::TextPrimary);
         ensurePixmaps(color);
 
         if (m_animation.state() != QAbstractAnimation::Running) {
@@ -837,7 +838,7 @@ PlayerBar::PlayerBar(QWidget *parent)
         auto *btn = new QPushButton(this);
         btn->setProperty("class", "ctrlBtn");
         btn->setIcon(icon.endsWith(QStringLiteral(".png"), Qt::CaseInsensitive)
-                         ? QIcon(icon)
+                         ? makeThemedRasterIcon(icon)
                          : makeSvgIcon(icon, 20));
         btn->setIconSize(QSize(20, 20));
         btn->setFixedSize(30, 30);
@@ -1100,7 +1101,7 @@ void PlayerBar::setMode(int mode)
                                   ":/icons/player-mode-shuffle.png" };
     static const char *tips[] = { "列表循环", "单曲循环", "随机播放" };
     if (mode >= 0 && mode <= 2) {
-        m_modeBtn->setIcon(QIcon(QLatin1String(icons[mode])));
+        m_modeBtn->setIcon(makeThemedRasterIcon(QLatin1String(icons[mode])));
         m_modeBtn->setToolTip(QLatin1String(tips[mode]));
     }
 }

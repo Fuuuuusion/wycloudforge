@@ -1,11 +1,13 @@
 #include "MainWindow.h"
 
+#include "ui/ThemeManager.h"
+
 #include "core/LyricsLoader.h"
 #include "core/SearchAggregator.h"
 #include "core/SettingsService.h"
 #include "ui/AccountDialog.h"
 #include "ui/AccountPanel.h"
-#include "ui/AuroraBackground.h"
+#include "ui/ThemeSurface.h"
 #include "ui/CoverProvider.h"
 #include "ui/DownloadPage.h"
 #include "ui/FavoritesPage.h"
@@ -226,6 +228,20 @@ MainWindow::MainWindow(QWidget *parent)
     m_search = new ui::SearchPage(this);
     m_downloadPage = new ui::DownloadPage(this);
 
+    connect(&ui::ThemeManager::instance(), &ui::ThemeManager::themeChanged,
+            this, [this] {
+        ui::CoverProvider::clearCache();
+        if (m_libraryPage)
+            m_libraryPage->refreshCovers(&m_library);
+        if (m_songListPage)
+            m_songListPage->refreshCovers(&m_library);
+        if (m_playerBar)
+            m_playerBar->update();
+        if (m_playing)
+            m_playing->update();
+        update();
+    });
+
     m_sourceRegistry.registerSource(&m_apiClient);
     m_sourceRegistry.registerSource(&m_qqClient);
     m_player.setSourceProvider(&m_apiClient);
@@ -260,7 +276,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     connectSongListActions();
 
-    auto *central = new ui::AuroraBackground(this);
+    auto *central = new ui::ThemeSurface(this);
     auto *rootLayout = new QHBoxLayout(central);
     rootLayout->setContentsMargins(0, 0, 0, 0);
     rootLayout->setSpacing(0);
@@ -268,8 +284,8 @@ MainWindow::MainWindow(QWidget *parent)
     auto *sidebarShell = new QWidget(central);
     sidebarShell->setObjectName(QStringLiteral("sidebarShell"));
     sidebarShell->setFixedWidth(240);
-    sidebarShell->setStyleSheet(QStringLiteral(
-        "QWidget#sidebarShell{background:#0E0E14;border:none;}"));
+    ui::setThemedStyleSheet(sidebarShell, QStringLiteral(
+        "QWidget#sidebarShell{background:@pageBackground;border:none;}"));
     auto *sideLayout = new QVBoxLayout(sidebarShell);
     sideLayout->setContentsMargins(0, 0, 0, 0);
     sideLayout->setSpacing(0);
@@ -297,8 +313,8 @@ MainWindow::MainWindow(QWidget *parent)
     rootLayout->addWidget(sidebarShell);
     rootLayout->addWidget(rightColumn, 1);
     setCentralWidget(central);
-    rightColumn->setStyleSheet(QStringLiteral(
-        "QWidget#rightColumn{background:#0E0E14;border:none;}"));
+    ui::setThemedStyleSheet(rightColumn, QStringLiteral(
+        "QWidget#rightColumn{background:@pageBackground;border:none;}"));
 
     // ---------- 标题栏 ----------
     connect(m_titleBar, &ui::TitleBar::minimizeClicked, this, &QWidget::showMinimized);

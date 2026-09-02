@@ -373,15 +373,6 @@ void QqMusicSource::topPlaylists(const QString &, int offset, JsonArrayFn ok, Er
     }, std::move(err));
 }
 
-void QqMusicSource::topLists(JsonArrayFn ok, ErrFn err)
-{
-    post(QStringLiteral("/v1/toplists"), {}, [ok = std::move(ok)](const QJsonObject &data) {
-        const QJsonValue items = data.value(QStringLiteral("items"));
-        if (ok)
-            ok(items.isArray() ? items.toArray() : QJsonArray{});
-    }, std::move(err));
-}
-
 void QqMusicSource::recommendSongs(JsonArrayFn ok, ErrFn err)
 {
     post(QStringLiteral("/v1/recommend"), { { QStringLiteral("credential"), m_cookie } },
@@ -389,16 +380,6 @@ void QqMusicSource::recommendSongs(JsonArrayFn ok, ErrFn err)
         if (ok)
             ok(data.value(QStringLiteral("songs")).toArray());
     }, std::move(err));
-}
-
-void QqMusicSource::personalFm(JsonArrayFn ok, ErrFn err)
-{
-    recommendSongs(std::move(ok), std::move(err));
-}
-
-void QqMusicSource::comments(const QString &, int, int, OkFn, ErrFn err)
-{
-    unsupported(QStringLiteral("评论"), std::move(err));
 }
 
 void QqMusicSource::qrKey(StringFn ok, ErrFn err)
@@ -466,9 +447,6 @@ void QqMusicSource::userPlaylists(const QString &uid, JsonArrayFn ok, ErrFn err)
             ok(data.value(QStringLiteral("playlists")).toArray());
     }, std::move(err));
 }
-
-void QqMusicSource::like(const QString &, bool, OkFn, ErrFn err) { unsupported(QStringLiteral("云端收藏写入"), std::move(err)); }
-void QqMusicSource::likeList(const QString &, JsonArrayFn ok, ErrFn) { if (ok) ok({}); }
 
 void QqMusicSource::downloadToFile(const QUrl &url, const QString &filePath, BoolFn done)
 {

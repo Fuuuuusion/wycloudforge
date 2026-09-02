@@ -1,5 +1,7 @@
 #include "LibraryPage.h"
 
+#include "ui/ThemeManager.h"
+
 #include "core/LibraryService.h"
 #include "core/SearchService.h"
 #include "ui/CoverCard.h"
@@ -51,11 +53,11 @@ LibraryPage::LibraryPage(QWidget *parent)
         auto *btn = new QPushButton(names[i], tabRow);
         btn->setCheckable(true);
         btn->setCursor(Qt::PointingHandCursor);
-        btn->setStyleSheet(QStringLiteral(
-            "QPushButton{border:none;background:#0E0E14;color:#9A9AA5;font-size:14px;"
+        setThemedStyleSheet(btn, QStringLiteral(
+            "QPushButton{border:none;background:@pageBackground;color:@textSecondary;font-size:14px;"
             "padding:7px 16px;border-radius:999px;}"
-            "QPushButton:hover{background:#1B1B24;color:#E8E8E8;}"
-            "QPushButton:checked{background:#3A2024;color:#EC4141;font-weight:600;}"));
+            "QPushButton:hover{background:@surfaceAlt;color:@textPrimary;}"
+            "QPushButton:checked{background:@accentSoft;color:@accent;font-weight:600;}"));
         group->addButton(btn, i);
         tabLayout->addWidget(btn);
     }
@@ -75,11 +77,11 @@ LibraryPage::LibraryPage(QWidget *parent)
         auto *btn = new QPushButton(filters[i], filterRow);
         btn->setCheckable(true);
         btn->setCursor(Qt::PointingHandCursor);
-        btn->setStyleSheet(QStringLiteral(
-            "QPushButton{border:none;background:#1B1B24;color:#9A9AA5;"
+        setThemedStyleSheet(btn, QStringLiteral(
+            "QPushButton{border:none;background:@surfaceAlt;color:@textSecondary;"
             "font-size:12px;padding:4px 14px;border-radius:999px;}"
-            "QPushButton:hover{background:#2A2A36;color:#E8E8E8;}"
-            "QPushButton:checked{background:#3A2024;color:#EC4141;font-weight:600;}"));
+            "QPushButton:hover{background:@surfaceHover;color:@textPrimary;}"
+            "QPushButton:checked{background:@accentSoft;color:@accent;font-weight:600;}"));
         filterGroup->addButton(btn, i);
         filterLayout->addWidget(btn);
     }
@@ -158,10 +160,10 @@ QPushButton *LibraryPage::addTopButton(const QString &text, const QString &icon)
     btn->setIcon(QIcon(icon));
     btn->setIconSize(QSize(16, 16));
     btn->setCursor(Qt::PointingHandCursor);
-    btn->setStyleSheet(QStringLiteral(
-        "QPushButton{border:none;background:#1B1B24;color:#9A9AA5;"
+    setThemedStyleSheet(btn, QStringLiteral(
+        "QPushButton{border:none;background:@surfaceAlt;color:@textSecondary;"
         "padding:5px 14px;border-radius:999px;font-size:12px;}"
-        "QPushButton:hover{background:#3A2024;color:#EC4141;}"));
+        "QPushButton:hover{background:@accentSoft;color:@accent;}"));
     return btn;
 }
 

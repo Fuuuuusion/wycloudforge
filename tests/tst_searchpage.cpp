@@ -2,6 +2,7 @@
 #include "core/MusicSourceRegistry.h"
 #include "core/NeteaseApiClient.h"
 #include "core/QqMusicSource.h"
+#include "core/SearchCache.h"
 #include "core/SettingsService.h"
 #include "ui/SearchPage.h"
 
@@ -381,6 +382,11 @@ void SearchPageTest::fallsBackToCacheWithoutClearingHealthySource()
 {
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
+    struct SearchCacheGuard
+    {
+        ~SearchCacheGuard() { SearchCache::setDefaultRootPathOverride(QString()); }
+    } searchCacheGuard;
+    SearchCache::setDefaultRootPathOverride(dir.filePath(QStringLiteral("search-cache")));
     QCoreApplication::setOrganizationName(QStringLiteral("WyCloudForgeTests"));
     QCoreApplication::setApplicationName(QStringLiteral("SearchPageCache"));
     QSettings::setDefaultFormat(QSettings::IniFormat);

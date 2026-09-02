@@ -1,5 +1,7 @@
 #include "PlayingPage.h"
 
+#include "ui/ThemeManager.h"
+
 #include "ui/CoverProvider.h"
 #include "ui/LyricWidget.h"
 
@@ -28,17 +30,17 @@ PlayingPage::PlayingPage(QWidget *parent)
     m_cover->setPixmap(CoverProvider::placeholder(QStringLiteral("乐"), 320, 14));
 
     m_title = new QLabel(QStringLiteral("未在播放"), this);
-    m_title->setStyleSheet(QStringLiteral("font-size:18px;font-weight:700;color:#E8E8E8;"));
+    setThemedStyleSheet(m_title, QStringLiteral("font-size:18px;font-weight:700;color:@textPrimary;"));
     m_artist = new QLabel(this);
-    m_artist->setStyleSheet(QStringLiteral("font-size:13px;color:#9A9AA5;"));
+    setThemedStyleSheet(m_artist, QStringLiteral("font-size:13px;color:@textSecondary;"));
 
     m_lyric = new LyricWidget(this);
 
     m_editBtn = new QPushButton(QStringLiteral("编辑歌词"), this);
     m_editBtn->setCursor(Qt::PointingHandCursor);
-    m_editBtn->setStyleSheet(QStringLiteral(
-        "QPushButton{border:none;border-radius:15px;background:#1B1B24;color:#C8C8D0;padding:5px 16px;}"
-        "QPushButton:hover{background:#2A2A36;color:#FF5A5A;}"));
+    setThemedStyleSheet(m_editBtn, QStringLiteral(
+        "QPushButton{border:none;border-radius:15px;background:@surfaceAlt;color:@textSecondary;padding:5px 16px;}"
+        "QPushButton:hover{background:@surfaceHover;color:@accentHover;}"));
     connect(m_editBtn, &QPushButton::clicked, this, &PlayingPage::editLyricsRequested);
 
     m_modeGroup = new QButtonGroup(this);
@@ -51,11 +53,11 @@ PlayingPage::PlayingPage(QWidget *parent)
         auto *btn = new QPushButton(modes[i], this);
         btn->setCheckable(true);
         btn->setCursor(Qt::PointingHandCursor);
-        btn->setStyleSheet(QStringLiteral(
-            "QPushButton{border:none;background:#1B1B24;color:#9A9AA5;"
+        setThemedStyleSheet(btn, QStringLiteral(
+            "QPushButton{border:none;background:@surfaceAlt;color:@textSecondary;"
             "font-size:12px;padding:4px 14px;border-radius:999px;}"
-            "QPushButton:hover{background:#2A2A36;color:#E8E8E8;}"
-            "QPushButton:checked{background:#3A2024;color:#EC4141;font-weight:600;}"));
+            "QPushButton:hover{background:@surfaceHover;color:@textPrimary;}"
+            "QPushButton:checked{background:@accentSoft;color:@accent;font-weight:600;}"));
         m_modeGroup->addButton(btn, i);
         modeRow->addWidget(btn);
     }
@@ -86,9 +88,9 @@ PlayingPage::PlayingPage(QWidget *parent)
     auto *back = new QPushButton(QStringLiteral("返回"), left);
     back->setFixedSize(68, 32);
     back->setCursor(Qt::PointingHandCursor);
-    back->setStyleSheet(QStringLiteral(
-        "QPushButton{border:none;background:#1B1B24;color:#C8C8D0;border-radius:16px;}"
-        "QPushButton:hover{background:#3A2024;color:#EC4141;}"));
+    setThemedStyleSheet(back, QStringLiteral(
+        "QPushButton{border:none;background:@surfaceAlt;color:@textSecondary;border-radius:16px;}"
+        "QPushButton:hover{background:@accentSoft;color:@accent;}"));
     leftLayout->addWidget(back, 0, Qt::AlignLeft);
     leftLayout->addWidget(m_cover);
     leftLayout->addStretch(1);

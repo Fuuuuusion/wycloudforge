@@ -1,5 +1,7 @@
 #include "RecommendPage.h"
 
+#include "ui/ThemeManager.h"
+
 #include "core/LibraryService.h"
 #include "core/MusicSource.h"
 #include "core/MusicSourceRegistry.h"
@@ -87,7 +89,7 @@ RecommendPage::RecommendPage(QWidget *parent)
     topScroll->setMinimumHeight(92);
     topScroll->setMaximumHeight(280);
     topScroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    topScroll->setStyleSheet(QStringLiteral(
+    setThemedStyleSheet(topScroll, QStringLiteral(
         "QScrollArea#recommendTopScroll{background:transparent;border:none;}"
         "QScrollArea#recommendTopScroll>QWidget>QWidget{background:transparent;}"));
     auto *topHost = new QWidget(topScroll);
@@ -106,12 +108,12 @@ RecommendPage::RecommendPage(QWidget *parent)
                                           const QString &accessibleName) {
         button->setObjectName(objectName);
         button->setProperty("class", "sourceSwitch");
-        button->setStyleSheet(QString::fromLatin1(
+        setThemedStyleSheet(button, QString::fromLatin1(
             "QPushButton { border: none; border-radius: 8px; padding: 0; "
             "background-color: transparent; }"
-            "QPushButton:hover { background-color: #1B1B24; }"
-            "QPushButton:checked { background-color: #3A2024; border: 1px solid #EC4141; }"
-            "QPushButton:pressed { background-color: #24242E; }"));
+            "QPushButton:hover { background-color: @surfaceAlt; }"
+            "QPushButton:checked { background-color: @accentSoft; border: 1px solid @accent; }"
+            "QPushButton:pressed { background-color: @surfacePressed; }"));
         button->setCheckable(true);
         button->setFixedSize(40, 40);
         button->setIconSize(QSize(26, 26));
@@ -158,7 +160,7 @@ RecommendPage::RecommendPage(QWidget *parent)
     m_playlistScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_playlistScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_playlistScroll->setFixedHeight(184);
-    m_playlistScroll->setStyleSheet(QStringLiteral(
+    setThemedStyleSheet(m_playlistScroll, QStringLiteral(
         "QScrollArea#recommendedPlaylistScroll{background:transparent;border:none;}"
         "QScrollArea#recommendedPlaylistScroll>QWidget>QWidget{background:transparent;}"));
     m_playlistHost = new QWidget(m_playlistScroll);

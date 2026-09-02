@@ -24,6 +24,10 @@ public:
     static int lyricFontSize(int fallback = 18);
     static void setLyricFontSize(int size);
 
+    // 0=跟随系统 / 1=深色 / 2=浅色
+    static int themeMode(int fallback = 1);
+    static void setThemeMode(int mode);
+
     static QString lastSongPath();
     static qint64 lastSongPositionMs();
     static void saveLastSong(const QString &path, qint64 positionMs);

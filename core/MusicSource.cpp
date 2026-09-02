@@ -148,10 +148,7 @@ void MusicSource::artistDetail(qint64 id, OkFn ok, ErrFn err) { artistDetail(QSt
 void MusicSource::artistSongs(qint64 id, JsonArrayFn ok, ErrFn err) { artistSongs(QString::number(id), std::move(ok), std::move(err)); }
 void MusicSource::playlistDetail(qint64 id, OkFn ok, ErrFn err) { playlistDetail(QString::number(id), std::move(ok), std::move(err)); }
 void MusicSource::playlistTracks(qint64 id, JsonArrayFn ok, ErrFn err) { playlistTracks(QString::number(id), std::move(ok), std::move(err)); }
-void MusicSource::comments(qint64 id, int offset, int limit, OkFn ok, ErrFn err) { comments(QString::number(id), offset, limit, std::move(ok), std::move(err)); }
 void MusicSource::userPlaylists(qint64 uid, JsonArrayFn ok, ErrFn err) { userPlaylists(QString::number(uid), std::move(ok), std::move(err)); }
-void MusicSource::like(qint64 id, bool liked, OkFn ok, ErrFn err) { like(QString::number(id), liked, std::move(ok), std::move(err)); }
-void MusicSource::likeList(qint64 uid, JsonArrayFn ok, ErrFn err) { likeList(QString::number(uid), std::move(ok), std::move(err)); }
 
 Song MusicSource::makeOnlineSong(SourceId source, const QString &scheme, const QString &remoteId,
                                  const QString &title, const QString &artist, const QString &album,

@@ -1,5 +1,7 @@
 #include "SongListView.h"
 
+#include "ui/ThemeManager.h"
+
 #include "core/LibraryService.h"
 #include "core/SearchService.h"
 #include "ui/CoverProvider.h"
@@ -39,12 +41,12 @@
 namespace ui {
 namespace {
 
-const QColor kText(0xE8, 0xE8, 0xE8);
-const QColor kText2(0x9A, 0x9A, 0xA5);
-const QColor kText3(0x6E, 0x6E, 0x7A);
-const QColor kPrimary(0xEC, 0x41, 0x41);
-const QColor kPrimaryHover(0xF0, 0x4A, 0x4A);
-const QColor kPrimaryActive(0xD6, 0x38, 0x38);
+QColor textPrimaryColor() { return themeColor(ThemeColor::TextPrimary); }
+QColor textSecondaryColor() { return themeColor(ThemeColor::TextSecondary); }
+QColor textTertiaryColor() { return themeColor(ThemeColor::TextTertiary); }
+QColor accentColor() { return themeColor(ThemeColor::Accent); }
+QColor accentHoverColor() { return themeColor(ThemeColor::AccentHover); }
+QColor accentPressedColor() { return themeColor(ThemeColor::AccentPressed); }
 constexpr int kSongRowHeight = 112;
 constexpr int kTopSafeAreaHeight = 42;
 constexpr int kBottomSafeAreaHeight = 16;
@@ -74,7 +76,7 @@ QColor blendedColor(const QColor &from, const QColor &to, qreal progress)
 }
 QBrush activeTextBrush(const QRectF &)
 {
-    return QBrush(kPrimary);
+    return QBrush(accentColor());
 }
 
 QPixmap tintedIcon(const QString &path, int size, const QColor &color)
@@ -157,31 +159,31 @@ protected:
         const qreal hover = hoverProgress();
 
         painter.setPen(Qt::NoPen);
-        painter.setBrush(QColor(QStringLiteral("#1B1B24")));
+        painter.setBrush(themeColor(ThemeColor::SurfaceAlt));
         painter.drawRoundedRect(QRectF(rect()), 15, 15);
 
         const qreal panelWidth = 28.0 + 15.0 * hover;
         const QRectF iconPanel(width() - panelWidth, 0, panelWidth, height());
-        painter.setBrush(!isEnabled() ? QColor(QStringLiteral("#20202A"))
-                         : isDown() ? kPrimaryActive
-                         : blendedColor(QColor(QStringLiteral("#2A2A36")), kPrimaryHover, hover));
+        painter.setBrush(!isEnabled() ? themeColor(ThemeColor::SurfacePressed)
+                         : isDown() ? accentPressedColor()
+                         : blendedColor(themeColor(ThemeColor::SurfaceHover), accentHoverColor(), hover));
         painter.drawRoundedRect(iconPanel, 15, 15);
 
         painter.setFont(QFont(QStringLiteral("Microsoft YaHei UI"), 8));
-        painter.setPen(!isEnabled() ? kText3 : QColor(QStringLiteral("#C8C8D0")));
+        painter.setPen(!isEnabled() ? textTertiaryColor() : themeColor(ThemeColor::TextSecondary));
         const int textShift = qRound(2.0 * hover);
         painter.drawText(QRectF(8 - textShift, 0, width() - panelWidth - 6, height()),
                          Qt::AlignCenter, text());
 
-        const QColor iconColor = !isEnabled() ? kText3
-                                 : hover > 0.05 || isDown() ? Qt::white : kText2;
+        const QColor iconColor = !isEnabled() ? textTertiaryColor()
+                                 : hover > 0.05 || isDown() ? Qt::white : textSecondaryColor();
         const QPixmap icon = tintedIcon(QStringLiteral(":/icons/icon-trash.svg"), 15, iconColor);
         const QPointF iconCenter = iconPanel.center() + QPointF(0, 2.0 * hover);
         painter.drawPixmap(QRectF(iconCenter.x() - 7.5, iconCenter.y() - 7.5, 15, 15).toRect(),
                            icon);
 
         if (hasFocus() && m_showFocusRing) {
-            painter.setPen(QPen(kText3, 1.2));
+            painter.setPen(QPen(textTertiaryColor(), 1.2));
             painter.setBrush(Qt::NoBrush);
             painter.drawRoundedRect(QRectF(rect()).adjusted(2, 2, -2, -2), 13, 13);
         }
@@ -243,7 +245,7 @@ void drawHighlightedText(QPainter &p, const QRectF &rect, const QString &text, c
         const QString match = elided.mid(range.first, range.second - range.first);
         const int matchWidth = fm.horizontalAdvance(match);
         const QRectF matchRect(drawX, base.top(), matchWidth, base.height());
-        p.setPen(kPrimary);
+        p.setPen(accentColor());
         p.drawText(matchRect, Qt::AlignVCenter, match);
         drawX += matchWidth;
         textPosition = range.second;
@@ -351,9 +353,9 @@ public:
             if (batch) {
                 const QRectF box(rect.center().x() - 8, rect.center().y() - 8, 16, 16);
                 painter->setPen(QPen(index.data(SongListModel::SelectedRole).toBool()
-                                         ? kPrimary : QColor(0x6E, 0x6E, 0x7A), 1.2));
+                                         ? accentColor() : themeColor(ThemeColor::TextTertiary), 1.2));
                 painter->setBrush(index.data(SongListModel::SelectedRole).toBool()
-                                      ? kPrimary : Qt::NoBrush);
+                                      ? accentColor() : Qt::NoBrush);
                 painter->drawRoundedRect(box, 4, 4);
                 if (index.data(SongListModel::SelectedRole).toBool()) {
                     painter->setPen(QPen(Qt::white, 1.6));
@@ -371,7 +373,7 @@ public:
                 path.lineTo(c.x() + 5, c.y());
                 path.closeSubpath();
                 painter->setPen(Qt::NoPen);
-                painter->setBrush(kPrimary);
+                painter->setBrush(accentColor());
                 if (equalizer < 1.0) {
                     painter->save();
                     painter->setOpacity(1.0 - equalizer);
@@ -417,7 +419,7 @@ public:
             painter->setFont(m_titleFont);
             const QString titleText = combinedSongTitle(song);
             const QBrush titleBrush = active ? activeTextBrush(textRect)
-                                             : QBrush(song.missing ? kText3 : kText);
+                                             : QBrush(song.missing ? textTertiaryColor() : textPrimaryColor());
             drawHighlightedText(*painter, textRect, titleText, query, titleBrush, Qt::AlignLeft);
             painter->restore();
         } else if (col == 3) {
@@ -440,12 +442,12 @@ public:
             painter->setFont(m_baseFont);
             const QRectF textRect = rect.adjusted(10, 0, 0, 0);
             drawHighlightedText(*painter, textRect, song.album, query,
-                                active ? activeTextBrush(textRect) : QBrush(kText3), Qt::AlignLeft);
+                                active ? activeTextBrush(textRect) : QBrush(textTertiaryColor()), Qt::AlignLeft);
             painter->restore();
         } else if (col == 5) {
             painter->save();
             painter->setFont(m_baseFont);
-            painter->setPen(active ? QPen(activeTextBrush(rect), 1) : QPen(kText3, 1));
+            painter->setPen(active ? QPen(activeTextBrush(rect), 1) : QPen(textTertiaryColor(), 1));
             painter->drawText(rect.adjusted(0, 0, -12, 0), Qt::AlignRight | Qt::AlignVCenter,
                               formatDuration(song.durationMs));
             painter->restore();
@@ -453,9 +455,9 @@ public:
             const bool favorite = index.data(SongListModel::FavoriteRole).toBool();
             const qreal hoverAmount = heartHoverAmount(index.row());
             const bool pressed = index.row() == m_pressedHeartRow;
-            QColor color = favorite ? kPrimary : blendedColor(kText3, kPrimaryHover, hoverAmount);
+            QColor color = favorite ? accentColor() : blendedColor(textTertiaryColor(), accentHoverColor(), hoverAmount);
             if (pressed)
-                color = kPrimaryActive;
+                color = accentPressedColor();
             qreal scale = pressed ? 0.92 : 1.0 + 0.06 * hoverAmount;
             if (m_heartStateAnimation.state() == QAbstractAnimation::Running) {
                 const qreal t = m_heartStateAnimation.currentValue().toReal();
@@ -478,7 +480,7 @@ public:
                     || m_downloadMode == SongListView::DeleteDownloadAction);
             if (downloading && m_downloadMode == SongListView::DownloadAction) {
                 painter->setRenderHint(QPainter::Antialiasing);
-                painter->setPen(QPen(kPrimaryHover, 2.2, Qt::SolidLine, Qt::RoundCap));
+                painter->setPen(QPen(accentHoverColor(), 2.2, Qt::SolidLine, Qt::RoundCap));
                 const QRectF spinner(rect.center().x() - 10.5, rect.center().y() - 10.5, 21, 21);
                 painter->drawArc(spinner, (90 - m_loadingAngle) * 16, -270 * 16);
             } else if (deleteAction) {
@@ -486,7 +488,7 @@ public:
                 if (completion < 1.0) {
                     painter->save();
                     painter->setOpacity(1.0 - completion);
-                    painter->setPen(QPen(kPrimaryHover, 2.2, Qt::SolidLine, Qt::RoundCap));
+                    painter->setPen(QPen(accentHoverColor(), 2.2, Qt::SolidLine, Qt::RoundCap));
                     const QRectF spinner(rect.center().x() - 10.5, rect.center().y() - 10.5, 21, 21);
                     painter->drawArc(spinner, (90 - m_loadingAngle) * 16, -270 * 16);
                     painter->restore();
@@ -499,14 +501,14 @@ public:
                 const QRectF buttonRect(rect.center().x() - buttonWidth / 2.0,
                                         rect.center().y() - 15.0, buttonWidth, 30.0);
                 painter->setPen(Qt::NoPen);
-                painter->setBrush(pressed ? kPrimaryActive
-                                  : blendedColor(QColor(QStringLiteral("#1B1B24")),
-                                                 kPrimaryHover, hoverAmount));
+                painter->setBrush(pressed ? accentPressedColor()
+                                  : blendedColor(themeColor(ThemeColor::SurfaceAlt),
+                                                 accentHoverColor(), hoverAmount));
                 painter->drawRoundedRect(buttonRect, 15, 15);
 
                 const qreal iconCenterX = rect.center().x()
                     + (buttonRect.left() + 15.0 - rect.center().x()) * hoverAmount;
-                const QColor iconColor = pressed || hoverAmount > 0.05 ? Qt::white : kText2;
+                const QColor iconColor = pressed || hoverAmount > 0.05 ? Qt::white : textSecondaryColor();
                 const QPixmap trash = tintedIcon(QStringLiteral(":/icons/icon-trash.svg"), 20,
                                                   iconColor);
                 const qreal iconCenterY = rect.center().y();
@@ -525,8 +527,8 @@ public:
             } else if (m_downloadMode == SongListView::DownloadAction && song.isOnline()) {
                 const qreal hoverAmount = actionHoverAmount(index.row());
                 const bool pressed = index.row() == m_pressedActionRow;
-                const QColor color = pressed ? kPrimaryActive
-                    : blendedColor(kText2, kPrimaryHover, hoverAmount);
+                const QColor color = pressed ? accentPressedColor()
+                    : blendedColor(textSecondaryColor(), accentHoverColor(), hoverAmount);
                 const QPointF center = rect.center();
                 painter->setRenderHint(QPainter::Antialiasing);
                 painter->setPen(QPen(color, 2.2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
@@ -898,7 +900,7 @@ SongListView::SongListView(QWidget *parent)
     setColumnWidth(6, 64);
     setColumnWidth(7, 86);
     viewport()->setAutoFillBackground(false);
-    setStyleSheet(QStringLiteral("QTableView{background:#0E0E14;border:none;}"));
+    setThemedStyleSheet(this, QStringLiteral("QTableView{background:@pageBackground;border:none;}"));
 
     m_pointerGuardTimer = new QTimer(this);
     m_pointerGuardTimer->setInterval(80);
@@ -910,18 +912,18 @@ SongListView::SongListView(QWidget *parent)
     setViewportMargins(0, 0, 0, 0);
     m_batchBar = new QWidget(this);
     m_batchBar->setObjectName(QStringLiteral("batchBar"));
-    m_batchBar->setStyleSheet(QStringLiteral("#batchBar{background:#16161E;border-radius:10px;}"));
+    setThemedStyleSheet(m_batchBar, QStringLiteral("#batchBar{background:@surface;border-radius:10px;}"));
     auto *bar = new QHBoxLayout(m_batchBar);
     bar->setContentsMargins(8, 3, 8, 3);
     bar->setSpacing(6);
     auto makeBarButton = [this](const QString &text) {
         auto *button = new QPushButton(text, m_batchBar);
         button->setCursor(Qt::PointingHandCursor);
-        button->setStyleSheet(QStringLiteral(
-            "QPushButton{border:none;background:#1B1B24;color:#C8C8D0;"
+        setThemedStyleSheet(button, QStringLiteral(
+            "QPushButton{border:none;background:@surfaceAlt;color:@textSecondary;"
             "padding:5px 11px;border-radius:14px;font-size:12px;}"
-            "QPushButton:hover{background:#3A2024;color:#EC4141;}"
-            "QPushButton:disabled{color:#555563;background:#16161E;}"));
+            "QPushButton:hover{background:@accentSoft;color:@accent;}"
+            "QPushButton:disabled{color:@disabledText;background:@surface;}"));
         return button;
     };
     m_batchToggle = makeBarButton(QStringLiteral("批量操作"));
@@ -929,7 +931,7 @@ SongListView::SongListView(QWidget *parent)
     m_batchToggle->setAccessibleName(QStringLiteral("批量操作"));
     m_selectionSummary = new QLabel(QStringLiteral("已选择 0 首"), m_batchBar);
     m_selectionSummary->setObjectName(QStringLiteral("batchSelectionSummary"));
-    m_selectionSummary->setStyleSheet(QStringLiteral("color:#C8C8D0;font-size:12px;padding:0 4px;"));
+    setThemedStyleSheet(m_selectionSummary, QStringLiteral("color:@textSecondary;font-size:12px;padding:0 4px;"));
     m_selectAll = makeBarButton(QStringLiteral("全选"));
     m_selectAll->setObjectName(QStringLiteral("batchSelectAll"));
     m_clearSelection = makeBarButton(QStringLiteral("清空选择"));
@@ -952,11 +954,11 @@ SongListView::SongListView(QWidget *parent)
     m_moreSelected->setText(QStringLiteral("更多"));
     m_moreSelected->setCursor(Qt::PointingHandCursor);
     m_moreSelected->setPopupMode(QToolButton::InstantPopup);
-    m_moreSelected->setStyleSheet(QStringLiteral(
-        "QToolButton{border:none;background:#1B1B24;color:#C8C8D0;"
+    setThemedStyleSheet(m_moreSelected, QStringLiteral(
+        "QToolButton{border:none;background:@surfaceAlt;color:@textSecondary;"
         "padding:5px 11px;border-radius:14px;font-size:12px;}"
-        "QToolButton:hover{background:#3A2024;color:#EC4141;}"
-        "QToolButton:disabled{color:#555563;background:#16161E;}"));
+        "QToolButton:hover{background:@accentSoft;color:@accent;}"
+        "QToolButton:disabled{color:@disabledText;background:@surface;}"));
     bar->addWidget(m_batchToggle);
     bar->addWidget(m_selectionSummary);
     bar->addWidget(m_selectAll);
@@ -1087,11 +1089,11 @@ void SongListView::showSourcePicker(int row, const QRect &cellRect)
     auto *popup = new QFrame(this, Qt::Popup | Qt::FramelessWindowHint);
     popup->setObjectName(QStringLiteral("sourcePickerPopup"));
     popup->setAttribute(Qt::WA_DeleteOnClose);
-    popup->setStyleSheet(QStringLiteral(
-        "QFrame#sourcePickerPopup{background:#14141B;border:none;border-radius:10px;}"
+    setThemedStyleSheet(popup, QStringLiteral(
+        "QFrame#sourcePickerPopup{background:@surface;border:none;border-radius:10px;}"
         "QToolButton{background:transparent;border:none;border-radius:8px;padding:0;}"
-        "QToolButton:hover{background:#1B1B24;}"
-        "QToolButton:pressed{background:#24242E;}"));
+        "QToolButton:hover{background:@surfaceAlt;}"
+        "QToolButton:pressed{background:@surfacePressed;}"));
     auto *layout = new QVBoxLayout(popup);
     layout->setContentsMargins(8, 8, 8, 8);
     layout->setSpacing(8);

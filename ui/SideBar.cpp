@@ -1,5 +1,7 @@
 #include "SideBar.h"
 
+#include "ui/ThemeManager.h"
+
 #include "ui/CoverProvider.h"
 #include "ui/SourceIcons.h"
 #include "ui/SvgIcon.h"
@@ -17,10 +19,10 @@ namespace ui {
 namespace {
 
 const char kPlaylistStyle[] =
-    "QPushButton{text-align:left;border:none;background:#0E0E14;color:#9A9AA5;"
+    "QPushButton{text-align:left;border:none;background:@pageBackground;color:@textSecondary;"
     "font-size:14px;padding:6px 10px;border-radius:6px;}"
-    "QPushButton:hover{background:#1B1B24;color:#FF5A5A;}"
-    "QPushButton:checked{background:#1B1B24;color:#EC4141;font-weight:600;}";
+    "QPushButton:hover{background:@surfaceAlt;color:@accentHover;}"
+    "QPushButton:checked{background:@surfaceAlt;color:@accent;font-weight:600;}";
 
 class NavButton : public QPushButton
 {
@@ -84,7 +86,7 @@ protected:
             QPainter iconPainter(&tinted);
             iconPainter.drawPixmap(0, 0, icon);
             iconPainter.setCompositionMode(QPainter::CompositionMode_SourceIn);
-            iconPainter.fillRect(tinted.rect(), QColor(0xEC, 0x41, 0x41));
+            iconPainter.fillRect(tinted.rect(), themeColor(ThemeColor::Accent));
             icon = tinted;
         }
         if (!icon.isNull())
@@ -92,9 +94,9 @@ protected:
 
         const QRect textRect(left + iconSize + gap, 0, metrics.horizontalAdvance(m_label), height());
         if (active) {
-            painter.setPen(QPen(QColor(0xEC, 0x41, 0x41), 1));
+            painter.setPen(QPen(themeColor(ThemeColor::Accent), 1));
         } else {
-            painter.setPen(QPen(QColor(0x9A, 0x9A, 0xA5), 1));
+            painter.setPen(QPen(themeColor(ThemeColor::TextSecondary), 1));
         }
         painter.drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter, m_label);
     }
@@ -144,7 +146,7 @@ SideBar::SideBar(QWidget *parent)
     setObjectName("sidebar");
     setFixedWidth(240);
     setAttribute(Qt::WA_StyledBackground, true);
-    setStyleSheet(QStringLiteral("QWidget#sidebar{background:#0E0E14;border:none;}"));
+    setThemedStyleSheet(this, QStringLiteral("QWidget#sidebar{background:@pageBackground;border:none;}"));
 
     m_navGroup = new QButtonGroup(this);
     m_navGroup->setExclusive(true);
@@ -159,9 +161,9 @@ SideBar::SideBar(QWidget *parent)
     navigationScroll->setWidgetResizable(true);
     navigationScroll->setFrameShape(QFrame::NoFrame);
     navigationScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    navigationScroll->setStyleSheet(QStringLiteral(
-        "QScrollArea{background:#0E0E14;border:none;}"
-        "QScrollArea>QWidget>QWidget{background:#0E0E14;}"));
+    setThemedStyleSheet(navigationScroll, QStringLiteral(
+        "QScrollArea{background:@pageBackground;border:none;}"
+        "QScrollArea>QWidget>QWidget{background:@pageBackground;}"));
     auto *content = new QWidget(navigationScroll);
     m_contentLayout = new QVBoxLayout(content);
     m_contentLayout->setContentsMargins(0, 0, 0, 10);
@@ -180,8 +182,8 @@ SideBar::SideBar(QWidget *parent)
     headLayout->setContentsMargins(12, 10, 12, 4);
     headLayout->setSpacing(4);
     auto *sectionTitle = new QLabel(QStringLiteral("自建歌单"), sectionHead);
-    sectionTitle->setStyleSheet(QStringLiteral(
-        "color:#9A9AA5;font-size:13px;background:transparent;"));
+    setThemedStyleSheet(sectionTitle, QStringLiteral(
+        "color:@textSecondary;font-size:13px;background:transparent;"));
     headLayout->addWidget(sectionTitle);
     headLayout->addStretch(1);
     auto *plusBtn = new QPushButton(sectionHead);
@@ -191,9 +193,9 @@ SideBar::SideBar(QWidget *parent)
     plusBtn->setFixedSize(22, 22);
     plusBtn->setCursor(Qt::PointingHandCursor);
     plusBtn->setToolTip(QStringLiteral("创建歌单"));
-    plusBtn->setStyleSheet(QStringLiteral(
-        "QPushButton{border:none;background:#0E0E14;border-radius:11px;}"
-        "QPushButton:hover{background:#1B1B24;}"));
+    setThemedStyleSheet(plusBtn, QStringLiteral(
+        "QPushButton{border:none;background:@pageBackground;border-radius:11px;}"
+        "QPushButton:hover{background:@surfaceAlt;}"));
     connect(plusBtn, &QPushButton::clicked, this, &SideBar::createPlaylistRequested);
     headLayout->addWidget(plusBtn);
     m_contentLayout->addWidget(sectionHead);
@@ -208,9 +210,9 @@ SideBar::SideBar(QWidget *parent)
     playlistScroll->setWidgetResizable(true);
     playlistScroll->setFrameShape(QFrame::NoFrame);
     playlistScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    playlistScroll->setStyleSheet(QStringLiteral(
-        "QScrollArea{background:#0E0E14;border:none;}"
-        "QScrollArea>QWidget>QWidget{background:#0E0E14;}"));
+    setThemedStyleSheet(playlistScroll, QStringLiteral(
+        "QScrollArea{background:@pageBackground;border:none;}"
+        "QScrollArea>QWidget>QWidget{background:@pageBackground;}"));
     playlistScroll->setWidget(m_playlistSection);
     playlistScroll->setMinimumHeight(144);
     m_contentLayout->addWidget(playlistScroll, 1);
@@ -252,7 +254,7 @@ void SideBar::rebuildPlaylistButtons(const QList<PlaylistItem> &items, int activ
         if (item.cloud)
             style.replace(QStringLiteral("padding:6px 10px"),
                           QStringLiteral("padding:6px 34px 6px 10px"));
-        btn->setStyleSheet(style);
+        setThemedStyleSheet(btn, style);
         QPixmap cover;
         if (!item.coverPath.isEmpty() && QFileInfo::exists(item.coverPath))
             cover = QPixmap(item.coverPath);

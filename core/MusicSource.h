@@ -131,10 +131,7 @@ public:
     virtual void playlistDetail(const QString &id, OkFn ok, ErrFn err = {}) = 0;
     virtual void playlistTracks(const QString &id, JsonArrayFn ok, ErrFn err = {}) = 0;
     virtual void topPlaylists(const QString &cat, int offset, JsonArrayFn ok, ErrFn err = {}) = 0;
-    virtual void topLists(JsonArrayFn ok, ErrFn err = {}) = 0;
     virtual void recommendSongs(JsonArrayFn ok, ErrFn err = {}) = 0;
-    virtual void personalFm(JsonArrayFn ok, ErrFn err = {}) = 0;
-    virtual void comments(const QString &id, int offset, int limit, OkFn ok, ErrFn err = {}) = 0;
     virtual void qrKey(StringFn ok, ErrFn err = {}) = 0;
     virtual void qrCreate(const QString &key, StringFn ok, ErrFn err = {}) = 0;
     virtual void qrCheck(const QString &key, OkFn ok, ErrFn err = {}) = 0;
@@ -145,8 +142,6 @@ public:
     virtual OnlinePlaylist playlistFromJson(const QJsonObject &obj) const;
     virtual void userPlaylistItems(const QString &uid, OnlinePlaylistsFn ok,
                                    ErrFn err = {});
-    virtual void like(const QString &id, bool like, OkFn ok, ErrFn err = {}) = 0;
-    virtual void likeList(const QString &uid, JsonArrayFn ok, ErrFn err = {}) = 0;
 
     // 旧网易云调用点的兼容入口。新代码统一传字符串远端 ID。
     void songUrls(const QList<qint64> &ids, JsonArrayFn ok, ErrFn err = {});
@@ -157,10 +152,7 @@ public:
     void artistSongs(qint64 id, JsonArrayFn ok, ErrFn err = {});
     void playlistDetail(qint64 id, OkFn ok, ErrFn err = {});
     void playlistTracks(qint64 id, JsonArrayFn ok, ErrFn err = {});
-    void comments(qint64 id, int offset, int limit, OkFn ok, ErrFn err = {});
     void userPlaylists(qint64 uid, JsonArrayFn ok, ErrFn err = {});
-    void like(qint64 id, bool liked, OkFn ok, ErrFn err = {});
-    void likeList(qint64 uid, JsonArrayFn ok, ErrFn err = {});
 
     // 通用下载(播放缓存)
     virtual void downloadToFile(const QUrl &url, const QString &filePath, BoolFn done) = 0;

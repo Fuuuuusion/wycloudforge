@@ -1,5 +1,7 @@
 #include "DownloadPage.h"
 
+#include "ui/ThemeManager.h"
+
 #include <QDateTime>
 #include <QFileInfo>
 #include <QGridLayout>
@@ -45,10 +47,10 @@ QPushButton *makeButton(const QString &text, QWidget *parent)
     auto *button = new QPushButton(text, parent);
     button->setCursor(Qt::PointingHandCursor);
     button->setFixedHeight(30);
-    button->setStyleSheet(QStringLiteral(
-        "QPushButton{border:none;background:#1B1B24;color:#C8C8D0;"
+    setThemedStyleSheet(button, QStringLiteral(
+        "QPushButton{border:none;background:@surfaceAlt;color:@textSecondary;"
         "padding:5px 12px;border-radius:15px;font-size:12px;}"
-        "QPushButton:hover{background:#3A2024;color:#EC4141;}"));
+        "QPushButton:hover{background:@accentSoft;color:@accent;}"));
     return button;
 }
 
@@ -79,8 +81,8 @@ protected:
     {
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing);
-        const QColor color(m_active ? QStringLiteral("#EC4141")
-                                    : QStringLiteral("#8C8C98"));
+        const QColor color = themeColor(m_active ? ThemeColor::Accent
+                                                 : ThemeColor::TextSecondary);
         painter.setPen(QPen(color, 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
         if (m_active) {
             const qreal phase = (QDateTime::currentMSecsSinceEpoch() % 900) / 900.0;
@@ -108,13 +110,13 @@ QVBoxLayout *makeColumn(const QString &title, QWidget *parent, QHBoxLayout *host
 {
     auto *panel = new QWidget(parent);
     panel->setObjectName(QStringLiteral("downloadColumn"));
-    panel->setStyleSheet(QStringLiteral(
-        "QWidget#downloadColumn{background:#111118;border:none;border-radius:10px;}"));
+    setThemedStyleSheet(panel, QStringLiteral(
+        "QWidget#downloadColumn{background:@pageBackground;border:none;border-radius:10px;}"));
     auto *layout = new QVBoxLayout(panel);
     layout->setContentsMargins(14, 14, 14, 14);
     layout->setSpacing(10);
     auto *heading = new QLabel(title, panel);
-    heading->setStyleSheet(QStringLiteral("color:#E8E8E8;font-size:15px;font-weight:600;"));
+    setThemedStyleSheet(heading, QStringLiteral("color:@textPrimary;font-size:15px;font-weight:600;"));
     layout->addWidget(heading);
 
     auto *scroll = new QScrollArea(panel);
@@ -138,7 +140,7 @@ QVBoxLayout *makeColumn(const QString &title, QWidget *parent, QHBoxLayout *host
 QLabel *makeElidedLabel(const QString &text, const QString &style, QWidget *parent)
 {
     auto *label = new QLabel(text, parent);
-    label->setStyleSheet(style);
+    setThemedStyleSheet(label, style);
     label->setToolTip(text);
     label->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     return label;
@@ -166,7 +168,7 @@ DownloadPage::DownloadPage(QWidget *parent)
     connect(back, &QPushButton::clicked, this, &DownloadPage::backRequested);
 
     auto *hint = new QLabel(QStringLiteral("任务按顺序逐项下载；完成后会即时进入右侧已下载列表。"), this);
-    hint->setStyleSheet(QStringLiteral("color:#6E6E7A;font-size:12px;"));
+    setThemedStyleSheet(hint, QStringLiteral("color:@textTertiary;font-size:12px;"));
     layout->addWidget(hint);
 
     auto *columns = new QHBoxLayout;
@@ -195,7 +197,7 @@ void DownloadPage::rebuildTasks()
     if (m_tasks.isEmpty()) {
         auto *empty = new QLabel(QStringLiteral("暂无下载任务"), this);
         empty->setAlignment(Qt::AlignCenter);
-        empty->setStyleSheet(QStringLiteral("color:#6E6E7A;font-size:13px;padding:28px;"));
+        setThemedStyleSheet(empty, QStringLiteral("color:@textTertiary;font-size:13px;padding:28px;"));
         m_taskLayout->addWidget(empty);
         return;
     }
@@ -204,7 +206,7 @@ void DownloadPage::rebuildTasks()
         auto *row = new QWidget(this);
         row->setObjectName(QStringLiteral("downloadTaskRow"));
         row->setFixedHeight(76);
-        row->setStyleSheet(QStringLiteral("QWidget{background:#16161E;border-radius:9px;}"));
+        setThemedStyleSheet(row, QStringLiteral("QWidget{background:@surface;border-radius:9px;}"));
         auto *grid = new QGridLayout(row);
         grid->setContentsMargins(10, 8, 10, 8);
         grid->setHorizontalSpacing(10);
@@ -218,15 +220,15 @@ void DownloadPage::rebuildTasks()
                                       task.song.artist.isEmpty() ? QStringLiteral("未知歌手")
                                                                  : task.song.artist);
         grid->addWidget(makeElidedLabel(main,
-            QStringLiteral("color:#E8E8E8;font-size:13px;font-weight:600;"), row), 0, 1);
+            QStringLiteral("color:@textPrimary;font-size:13px;font-weight:600;"), row), 0, 1);
         grid->addWidget(makeElidedLabel(
             task.song.album.isEmpty() ? QStringLiteral("未知专辑") : task.song.album,
-            QStringLiteral("color:#777783;font-size:11px;"), row), 1, 1);
+            QStringLiteral("color:@textTertiary;font-size:11px;"), row), 1, 1);
 
         auto *size = new QLabel(formatTransfer(task.receivedBytes, task.totalBytes), row);
         size->setFixedWidth(128);
         size->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        size->setStyleSheet(QStringLiteral("color:#9A9AA5;font-size:11px;"));
+        setThemedStyleSheet(size, QStringLiteral("color:@textSecondary;font-size:11px;"));
         grid->addWidget(size, 0, 2, 2, 1);
 
         QString stateText;
@@ -241,7 +243,7 @@ void DownloadPage::rebuildTasks()
         auto *state = new QLabel(stateText, row);
         state->setFixedWidth(82);
         state->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        state->setStyleSheet(QStringLiteral("color:#B8B8C4;font-size:11px;"));
+        setThemedStyleSheet(state, QStringLiteral("color:@focus;font-size:11px;"));
         state->setToolTip(task.error);
         grid->addWidget(state, 0, 3);
 
@@ -250,9 +252,9 @@ void DownloadPage::rebuildTasks()
         progress->setRange(0, 100);
         progress->setValue(task.percent);
         progress->setTextVisible(false);
-        progress->setStyleSheet(QStringLiteral(
-            "QProgressBar{border:none;background:#24242E;border-radius:2px;}"
-            "QProgressBar::chunk{background:#EC4141;border-radius:2px;}"));
+        setThemedStyleSheet(progress, QStringLiteral(
+            "QProgressBar{border:none;background:@surfacePressed;border-radius:2px;}"
+            "QProgressBar::chunk{background:@accent;border-radius:2px;}"));
         grid->addWidget(progress, 1, 3);
 
         auto *action = makeButton(
@@ -280,7 +282,7 @@ void DownloadPage::rebuildDownloads()
     if (m_downloadedSongs.isEmpty()) {
         auto *empty = new QLabel(QStringLiteral("暂无永久下载"), this);
         empty->setAlignment(Qt::AlignCenter);
-        empty->setStyleSheet(QStringLiteral("color:#6E6E7A;font-size:13px;padding:28px;"));
+        setThemedStyleSheet(empty, QStringLiteral("color:@textTertiary;font-size:13px;padding:28px;"));
         m_downloadLayout->addWidget(empty);
         return;
     }
@@ -289,7 +291,7 @@ void DownloadPage::rebuildDownloads()
         auto *row = new QWidget(this);
         row->setObjectName(QStringLiteral("downloadedSongRow"));
         row->setFixedHeight(76);
-        row->setStyleSheet(QStringLiteral("QWidget{background:#16161E;border-radius:9px;}"));
+        setThemedStyleSheet(row, QStringLiteral("QWidget{background:@surface;border-radius:9px;}"));
         auto *grid = new QGridLayout(row);
         grid->setContentsMargins(10, 8, 10, 8);
         grid->setHorizontalSpacing(10);
@@ -299,19 +301,19 @@ void DownloadPage::rebuildDownloads()
                                  .arg(song.title.isEmpty() ? QStringLiteral("未知歌曲") : song.title,
                                       song.artist.isEmpty() ? QStringLiteral("未知歌手") : song.artist);
         grid->addWidget(makeElidedLabel(main,
-            QStringLiteral("color:#E8E8E8;font-size:13px;font-weight:600;"), row), 0, 1);
+            QStringLiteral("color:@textPrimary;font-size:13px;font-weight:600;"), row), 0, 1);
         grid->addWidget(makeElidedLabel(
             song.album.isEmpty() ? QStringLiteral("未知专辑") : song.album,
-            QStringLiteral("color:#777783;font-size:11px;"), row), 1, 1);
+            QStringLiteral("color:@textTertiary;font-size:11px;"), row), 1, 1);
         auto *size = new QLabel(formatBytes(QFileInfo(song.downloadPath).size()), row);
         size->setFixedWidth(78);
         size->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        size->setStyleSheet(QStringLiteral("color:#9A9AA5;font-size:11px;"));
+        setThemedStyleSheet(size, QStringLiteral("color:@textSecondary;font-size:11px;"));
         grid->addWidget(size, 0, 2, 2, 1);
         auto *state = new QLabel(QStringLiteral("已下载"), row);
         state->setFixedWidth(58);
         state->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        state->setStyleSheet(QStringLiteral("color:#8FCB9B;font-size:11px;"));
+        setThemedStyleSheet(state, QStringLiteral("color:@success;font-size:11px;"));
         grid->addWidget(state, 0, 3, 2, 1);
         auto *remove = makeButton(QStringLiteral("删除"), row);
         remove->setFixedWidth(54);
