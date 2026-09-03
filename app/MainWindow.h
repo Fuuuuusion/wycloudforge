@@ -23,6 +23,7 @@
 
 namespace ui {
 class AccountPanel;
+class AiReportPage;
 class DownloadPage;
 class FavoritesPage;
 class LibraryPage;
@@ -54,6 +55,8 @@ protected:
     void resizeEvent(QResizeEvent *event) override;
 
 private:
+    static constexpr int kAiReportPageIndex = 8;
+
     struct RouteEntry
     {
         int pageId = -1;
@@ -153,6 +156,7 @@ private:
     ui::PlayingPage *m_playing = nullptr;
     ui::SearchPage *m_search = nullptr;
     ui::DownloadPage *m_downloadPage = nullptr;
+    ui::AiReportPage *m_aiReportPage = nullptr;
     QStackedWidget *m_stack = nullptr;
     QPushButton *m_sidebarRefreshButton = nullptr;
     ui::SidebarFooter *m_sidebarFooter = nullptr;

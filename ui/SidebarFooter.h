@@ -16,17 +16,20 @@ public:
 
     AccountSettingsButton *settingsButton() const { return m_settingsButton; }
     QPushButton *refreshButton() const { return m_refreshButton; }
+    QPushButton *aiReportButton() const { return m_aiReportButton; }
     QPushButton *downloadButton() const { return m_downloadButton; }
     void setDownloadStatus(bool downloading, bool queued, bool hasDownloads);
 
 signals:
     void settingsClicked();
     void refreshClicked();
+    void aiReportClicked();
     void downloadClicked();
 
 private:
     AccountSettingsButton *m_settingsButton = nullptr;
     QPushButton *m_refreshButton = nullptr;
+    QPushButton *m_aiReportButton = nullptr;
     QPushButton *m_downloadButton = nullptr;
 };
 
