@@ -192,6 +192,7 @@ class PlayerServiceTest : public QObject
 {
     Q_OBJECT
 private slots:
+    void cleanup();
     void playlistNavigation();
     void playbackQueueMutations();
     void removeSongByIdSynchronizesQueue();
@@ -204,6 +205,8 @@ private slots:
     void mixedSourceAutoAdvanceInShuffleMode();
     void stoppedStateAdvancesWithoutBackendClock();
     void explicitPauseRejectsLateStoppedState();
+    void seekToEndAdvancesWithoutBackendEvents();
+    void pausedSeekToEndDoesNotAdvance();
     void cachedAndDownloadedAutoAdvance();
     void httpStreamAutoAdvance();
     void onlineUrlRetriesOnce();
@@ -213,6 +216,15 @@ private slots:
     void unifiedSearchRejectsUnsupportedCategory();
     void unifiedCloudPlaylistContract();
 };
+
+void PlayerServiceTest::cleanup()
+{
+    // QMediaPlayer tears down its WASAPI/FFmpeg workers asynchronously. Give
+    // the endpoint a brief release window before the next test constructs a
+    // fresh player, otherwise a full-suite run can invalidate the device even
+    // though each strict playback case passes in isolation.
+    QTest::qWait(250);
+}
 
 void PlayerServiceTest::playlistNavigation()
 {
@@ -463,7 +475,7 @@ void PlayerServiceTest::autoAdvanceInOrderMode()
     const QString p1 = dir.filePath(QStringLiteral("order-a.wav"));
     const QString p2 = dir.filePath(QStringLiteral("order-b.wav"));
     writeWav(p1, 1);
-    writeWav(p2, 1);
+    writeWav(p2, 3);
 
     Song s1;
     s1.id = 101;
@@ -480,7 +492,12 @@ void PlayerServiceTest::autoAdvanceInOrderMode()
     player.play();
     if (!QTest::qWaitFor([&player] { return player.isPlaying(); }, 4000))
         QSKIP("无可用音频输出设备,跳过自动联播验证");
-    QVERIFY(QTest::qWaitFor([&player] { return player.currentIndex() == 1; }, 4000));
+    QVERIFY(QTest::qWaitFor([&player] {
+        return player.currentIndex() == 1 && player.isPlaying();
+    }, 4000));
+    QVERIFY(QTest::qWaitFor([&player] {
+        return player.currentIndex() == 1 && player.position() >= 150;
+    }, 2500));
     QCOMPARE(player.currentSong().title, QStringLiteral("顺序二"));
 }
 
@@ -508,7 +525,11 @@ void PlayerServiceTest::repeatOneRestartsCurrentSong()
     player.play();
     if (!QTest::qWaitFor([&player] { return player.isPlaying(); }, 4000))
         QSKIP("无可用音频输出设备,跳过单曲循环验证");
-    QTest::qWait(1500);
+    QTest::qWait(1100);
+    QVERIFY(QTest::qWaitFor([&player] {
+        return player.currentIndex() == 0 && player.isPlaying()
+            && player.position() > 0 && player.position() < 900;
+    }, 2500));
     QCOMPARE(player.currentIndex(), 0);
     QCOMPARE(player.currentSong().title, QStringLiteral("循环一"));
 }
@@ -520,7 +541,7 @@ void PlayerServiceTest::autoAdvanceInShuffleMode()
     QList<Song> songs;
     for (int i = 0; i < 3; ++i) {
         const QString path = dir.filePath(QStringLiteral("shuffle-%1.wav").arg(i));
-        writeWav(path, 1);
+        writeWav(path, i == 0 ? 1 : 3);
         Song song;
         song.id = 121 + i;
         song.filePath = path;
@@ -534,7 +555,12 @@ void PlayerServiceTest::autoAdvanceInShuffleMode()
     player.play();
     if (!QTest::qWaitFor([&player] { return player.isPlaying(); }, 4000))
         QSKIP("无可用音频输出设备,跳过随机播放验证");
-    QVERIFY(QTest::qWaitFor([&player] { return player.currentIndex() != 0; }, 4000));
+    QVERIFY(QTest::qWaitFor([&player] {
+        return player.currentIndex() != 0 && player.isPlaying();
+    }, 4000));
+    QVERIFY(QTest::qWaitFor([&player] {
+        return player.currentIndex() != 0 && player.position() >= 150;
+    }, 2500));
     QVERIFY(player.currentIndex() >= 0 && player.currentIndex() < songs.size());
 }
 
@@ -545,7 +571,7 @@ void PlayerServiceTest::mixedSourceAutoAdvanceInOrderMode()
     const QString neteasePath = dir.filePath(QStringLiteral("mixed-netease.wav"));
     const QString qqPath = dir.filePath(QStringLiteral("mixed-qq.wav"));
     writeWav(neteasePath, 1);
-    writeWav(qqPath, 1);
+    writeWav(qqPath, 3);
 
     LocalUrlSource<NeteaseApiClient> netease;
     LocalUrlSource<QqMusicSource> qq;
@@ -561,7 +587,7 @@ void PlayerServiceTest::mixedSourceAutoAdvanceInOrderMode()
     first.id = 201;
     Song second = MusicSource::makeOnlineSong(SourceId::QqMusic, QStringLiteral("qqmusic"),
                                                QStringLiteral("q-order"), QStringLiteral("QQ二"),
-                                               {}, {}, 1000, {});
+                                               {}, {}, 3000, {});
     second.id = 202;
 
     QCOMPARE(registry.sourceFor(first), static_cast<MusicSource *>(&netease));
@@ -573,7 +599,12 @@ void PlayerServiceTest::mixedSourceAutoAdvanceInOrderMode()
     player.play();
     if (!QTest::qWaitFor([&player] { return player.isPlaying(); }, 4000))
         QSKIP("无可用音频输出设备,跳过混合来源顺序联播验证");
-    QVERIFY(QTest::qWaitFor([&player] { return player.currentIndex() == 1; }, 4000));
+    QVERIFY(QTest::qWaitFor([&player] {
+        return player.currentIndex() == 1 && player.isPlaying();
+    }, 4000));
+    QVERIFY(QTest::qWaitFor([&player] {
+        return player.currentIndex() == 1 && player.position() >= 150;
+    }, 2500));
     QCOMPARE(netease.requests, QStringList{ QStringLiteral("n-order") });
     QCOMPARE(qq.requests, QStringList{ QStringLiteral("q-order") });
 }
@@ -584,7 +615,7 @@ void PlayerServiceTest::mixedSourceRepeatOneMode()
     QVERIFY(dir.isValid());
     const QString qqPath = dir.filePath(QStringLiteral("mixed-repeat-qq.wav"));
     const QString neteasePath = dir.filePath(QStringLiteral("mixed-repeat-netease.wav"));
-    writeWav(qqPath, 1);
+    writeWav(qqPath, 3);
     writeWav(neteasePath, 1);
 
     LocalUrlSource<NeteaseApiClient> netease;
@@ -597,7 +628,7 @@ void PlayerServiceTest::mixedSourceRepeatOneMode()
 
     Song first = MusicSource::makeOnlineSong(SourceId::QqMusic, QStringLiteral("qqmusic"),
                                               QStringLiteral("q-repeat"), QStringLiteral("QQ循环"),
-                                              {}, {}, 1000, {});
+                                              {}, {}, 3000, {});
     first.id = 211;
     Song second = MusicSource::makeOnlineSong(SourceId::Netease, QStringLiteral("netease"),
                                                QStringLiteral("n-repeat"), QStringLiteral("网易云候选"),
@@ -613,7 +644,10 @@ void PlayerServiceTest::mixedSourceRepeatOneMode()
         QSKIP("无可用音频输出设备,跳过混合来源单曲循环验证");
     if (!QTest::qWaitFor([&player] { return player.position() >= 300; }, 3000))
         QSKIP("音频端点未推进媒体时钟,跳过混合来源单曲循环验证");
-    QVERIFY(QTest::qWaitFor([&qq] { return qq.requests.size() >= 2; }, 4000));
+    QVERIFY(QTest::qWaitFor([&qq] { return qq.requests.size() >= 2; }, 5000));
+    QVERIFY(QTest::qWaitFor([&player] {
+        return player.currentIndex() == 0 && player.isPlaying() && player.position() >= 150;
+    }, 2500));
     QCOMPARE(player.currentIndex(), 0);
     for (const QString &request : qq.requests)
         QCOMPARE(request, QStringLiteral("q-repeat"));
@@ -631,7 +665,7 @@ void PlayerServiceTest::mixedSourceAutoAdvanceInShuffleMode()
         const QString remoteId = QStringLiteral("%1-shuffle-%2")
                                      .arg(i == 1 ? QStringLiteral("n") : QStringLiteral("q")).arg(i);
         const QString path = dir.filePath(remoteId + QStringLiteral(".wav"));
-        writeWav(path, 1);
+        writeWav(path, i == 0 ? 1 : 3);
         const SourceId sourceId = i == 1 ? SourceId::Netease : SourceId::QqMusic;
         if (sourceId == SourceId::Netease)
             netease.addMedia(remoteId, path);
@@ -640,7 +674,7 @@ void PlayerServiceTest::mixedSourceAutoAdvanceInShuffleMode()
         Song song = MusicSource::makeOnlineSong(
             sourceId, sourceId == SourceId::Netease ? QStringLiteral("netease")
                                                      : QStringLiteral("qqmusic"),
-            remoteId, QStringLiteral("混合随机%1").arg(i), {}, {}, 1000, {});
+            remoteId, QStringLiteral("混合随机%1").arg(i), {}, {}, i == 0 ? 1000 : 3000, {});
         song.id = 221 + i;
         songs.append(song);
     }
@@ -654,7 +688,12 @@ void PlayerServiceTest::mixedSourceAutoAdvanceInShuffleMode()
     player.play();
     if (!QTest::qWaitFor([&player] { return player.isPlaying(); }, 4000))
         QSKIP("无可用音频输出设备,跳过混合来源随机联播验证");
-    QVERIFY(QTest::qWaitFor([&player] { return player.currentIndex() != 0; }, 4000));
+    QVERIFY(QTest::qWaitFor([&player] {
+        return player.currentIndex() != 0 && player.isPlaying();
+    }, 4000));
+    QVERIFY(QTest::qWaitFor([&player] {
+        return player.currentIndex() != 0 && player.position() >= 150;
+    }, 2500));
     const Song current = player.currentSong();
     if (current.sourceId() == SourceId::Netease)
         QVERIFY(netease.requests.contains(current.effectiveRemoteId()));
@@ -717,6 +756,56 @@ void PlayerServiceTest::explicitPauseRejectsLateStoppedState()
     QCOMPARE(source.requests, QStringList({ QStringLiteral("paused-first") }));
 }
 
+void PlayerServiceTest::seekToEndAdvancesWithoutBackendEvents()
+{
+    LocalUrlSource<NeteaseApiClient> source;
+    source.deferUrlResponses = true;
+    Song first = MusicSource::makeOnlineSong(SourceId::Netease, QStringLiteral("netease"),
+        QStringLiteral("seek-end-first"), QStringLiteral("拖动末尾一"), {}, {}, 180000, {});
+    first.id = 235;
+    Song second = MusicSource::makeOnlineSong(SourceId::Netease, QStringLiteral("netease"),
+        QStringLiteral("seek-end-second"), QStringLiteral("拖动末尾二"), {}, {}, 180000, {});
+    second.id = 236;
+
+    PlayerService player;
+    player.setSourceProvider(&source);
+    player.setPlaylist({ first, second }, 0);
+    QVERIFY(QMetaObject::invokeMethod(&player, "handlePlaybackStateChanged",
+        Qt::DirectConnection,
+        Q_ARG(QMediaPlayer::PlaybackState, QMediaPlayer::PlayingState)));
+    player.seek(first.durationMs);
+
+    QVERIFY(QTest::qWaitFor([&player] { return player.currentIndex() == 1; }, 2500));
+    QCOMPARE(source.requests,
+             QStringList({ QStringLiteral("seek-end-first"),
+                           QStringLiteral("seek-end-second") }));
+}
+
+void PlayerServiceTest::pausedSeekToEndDoesNotAdvance()
+{
+    LocalUrlSource<NeteaseApiClient> source;
+    source.deferUrlResponses = true;
+    Song first = MusicSource::makeOnlineSong(SourceId::Netease, QStringLiteral("netease"),
+        QStringLiteral("paused-seek-first"), QStringLiteral("暂停拖动一"), {}, {}, 180000, {});
+    first.id = 237;
+    Song second = MusicSource::makeOnlineSong(SourceId::Netease, QStringLiteral("netease"),
+        QStringLiteral("paused-seek-second"), QStringLiteral("暂停拖动二"), {}, {}, 180000, {});
+    second.id = 238;
+
+    PlayerService player;
+    player.setSourceProvider(&source);
+    player.setPlaylist({ first, second }, 0);
+    QVERIFY(QMetaObject::invokeMethod(&player, "handlePlaybackStateChanged",
+        Qt::DirectConnection,
+        Q_ARG(QMediaPlayer::PlaybackState, QMediaPlayer::PlayingState)));
+    player.pause();
+    player.seek(first.durationMs);
+    QTest::qWait(1400);
+
+    QCOMPARE(player.currentIndex(), 0);
+    QCOMPARE(source.requests, QStringList({ QStringLiteral("paused-seek-first") }));
+}
+
 void PlayerServiceTest::cachedAndDownloadedAutoAdvance()
 {
     QTemporaryDir dir;
@@ -724,13 +813,13 @@ void PlayerServiceTest::cachedAndDownloadedAutoAdvance()
     const QString cachePath = dir.filePath(QStringLiteral("cached-first.wav"));
     const QString downloadPath = dir.filePath(QStringLiteral("downloaded-second.wav"));
     writeWav(cachePath, 1);
-    writeWav(downloadPath, 1);
+    writeWav(downloadPath, 3);
     Song cached = MusicSource::makeOnlineSong(SourceId::Netease, QStringLiteral("netease"),
         QStringLiteral("cached-first"), QStringLiteral("缓存一"), {}, {}, 1000, {});
     cached.id = 241;
     cached.cachePath = cachePath;
     Song downloaded = MusicSource::makeOnlineSong(SourceId::QqMusic, QStringLiteral("qqmusic"),
-        QStringLiteral("downloaded-second"), QStringLiteral("下载二"), {}, {}, 1000, {});
+        QStringLiteral("downloaded-second"), QStringLiteral("下载二"), {}, {}, 3000, {});
     downloaded.id = 242;
     downloaded.downloadPath = downloadPath;
 
@@ -739,7 +828,12 @@ void PlayerServiceTest::cachedAndDownloadedAutoAdvance()
     player.play();
     if (!QTest::qWaitFor([&player] { return player.isPlaying(); }, 4000))
         QSKIP("无可用音频输出设备,跳过缓存与下载联播验证");
-    QVERIFY(QTest::qWaitFor([&player] { return player.currentIndex() == 1; }, 5000));
+    QVERIFY(QTest::qWaitFor([&player] {
+        return player.currentIndex() == 1 && player.isPlaying();
+    }, 5000));
+    QVERIFY(QTest::qWaitFor([&player] {
+        return player.currentIndex() == 1 && player.position() >= 150;
+    }, 2500));
 }
 
 void PlayerServiceTest::httpStreamAutoAdvance()
@@ -749,7 +843,7 @@ void PlayerServiceTest::httpStreamAutoAdvance()
     const QString firstPath = dir.filePath(QStringLiteral("http-first.wav"));
     const QString secondPath = dir.filePath(QStringLiteral("http-second.wav"));
     writeWav(firstPath, 1);
-    writeWav(secondPath, 1);
+    writeWav(secondPath, 3);
     QFile firstFile(firstPath);
     QFile secondFile(secondPath);
     QVERIFY(firstFile.open(QIODevice::ReadOnly));
@@ -766,7 +860,7 @@ void PlayerServiceTest::httpStreamAutoAdvance()
         QStringLiteral("http-first"), QStringLiteral("HTTP一"), {}, {}, 1000, {});
     first.id = 251;
     Song second = MusicSource::makeOnlineSong(SourceId::Netease, QStringLiteral("netease"),
-        QStringLiteral("http-second"), QStringLiteral("HTTP二"), {}, {}, 1000, {});
+        QStringLiteral("http-second"), QStringLiteral("HTTP二"), {}, {}, 3000, {});
     second.id = 252;
     PlayerService player;
     player.setSourceProvider(&source);
@@ -776,7 +870,12 @@ void PlayerServiceTest::httpStreamAutoAdvance()
         QSKIP("无可用音频输出设备,跳过 HTTP 流联播验证");
     if (!QTest::qWaitFor([&player] { return player.position() >= 300; }, 3000))
         QSKIP("音频端点未推进 HTTP 媒体时钟,跳过 HTTP 流联播验证");
-    QVERIFY(QTest::qWaitFor([&player] { return player.currentIndex() == 1; }, 6000));
+    QVERIFY(QTest::qWaitFor([&player] {
+        return player.currentIndex() == 1 && player.isPlaying();
+    }, 6000));
+    QVERIFY(QTest::qWaitFor([&player] {
+        return player.currentIndex() == 1 && player.position() >= 150;
+    }, 2500));
 }
 
 void PlayerServiceTest::onlineUrlRetriesOnce()

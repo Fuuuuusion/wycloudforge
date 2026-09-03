@@ -726,3 +726,16 @@ a4dcb21  SongListModel 改多列表 + 登录补齐uid/昵称 + QPointer防闪退
 - 构建 EXE 与 `dist\FuSinplayer-beta5.0\FuSinplayer.exe` 的 SHA-256 均为 `E608873DA4F7F8ACB241D989A7B9DB0798F1CCDF426FB913456446A6EB8CB0A0`。发布目录为 38 个文件、90,723,857 bytes；`windeployqt` 仅报告既有可选 `dxcompiler.dll/dxil.dll` 警告。为避免清理后再次制造数百 MB 重复副本，本轮覆盖既有 beta5.0 目录，没有另建便携目录或 ZIP。
 - 构建版本和快捷方式解析后的发布版本都使用空音乐目录、空永久下载目录、独立 SQLite 和独立 QSettings 完成 1280×800 GUI 截图 smoke，退出码均为 0；最终隔离库歌曲数为 0，未修改真实曲库、下载目录或设置。
 - 受限进程读取桌面 `FuSinplayer beta5.0.lnk` 时只能取得工作目录和图标、`TargetPath` 显示为空；重写后受限进程仍会隐藏该字段，因此不能把这个现象当作旧快捷方式实际为空的证据。已在完整桌面上下文显式重建并回读：目标为 `dist\FuSinplayer-beta5.0\FuSinplayer.exe`，工作目录为 `dist\FuSinplayer-beta5.0`，目标存在且哈希与本轮构建一致；再从该回读目标完成隔离 smoke，退出码 0。
+
+## 自动联播换源重入与拖到末尾修复（2026-09-03）
+
+- 真实 beta5.0 信号跟踪确认：歌曲结束和播放中手动“下一首”都会正确切换队列索引，但新歌停在 `00:00`；手动再点播放即可正常播放。根因不是队列推进，而是 `loadCurrent(true)` 在拆卸旧媒体前过早设置 `m_pendingAutoPlay`。Windows FFmpeg 在 `stop()/setSource({})` 期间会同步重入并短暂发出旧媒体的 `Loaded/Playing`，旧事件提前消费自动播放意图，随后安装的新 source 不再收到有效 `play()`。
+- `PlayerService::loadCurrent()` 现在在旧 source 拆卸期间保持自动播放意图关闭，拆卸结束后才重新按本次加载参数挂起；`handlePlaybackStateChanged()` 和 `handleMediaStatusChanged()` 在 `m_internalStop` 期间忽略旧媒体状态，并清除拆卸阶段可能污染的 `m_wasPlaying`。手动下一首、自然结束、顺序/随机切换和在线 URL 换源因此都只由新媒体消费本次自动播放意图。
+- 播放中拖动到媒体末尾还有独立边界：FFmpeg 可能不再发送新的 `positionChanged` 或 `EndOfMedia`。`seek()` 现在在仍有连续播放意图且目标已进入末尾阈值时，重新挂起带 `m_loadToken` 的末尾看门狗；显式暂停后拖到末尾不会推进。
+- `tst_playerservice` 新增播放中 seek 到末尾必须推进、暂停后 seek 到末尾不得推进两条确定性回归。顺序、随机、单曲循环、网易云/QQ 混合来源、缓存到下载以及 HTTP 联播用例不再只检查索引，全部同时要求下一首保持 `PlayingState` 且位置继续增长，堵住了此前“索引变化但停在 00:00”的假绿。
+
+### 验证与发布
+
+- 完整 `tst_playerservice` 单进程运行通过，耗时 36.65 秒。连续构造多个 `QMediaPlayer/QAudioOutput` 曾使 WASAPI 后台端点未及时释放并报 `AUDCLNT_E_DEVICE_INVALIDATED`；每例析构后增加 250ms 释放窗口后，保留全部严格业务断言，完整 Qt CTest 9/9 通过，总计 62.35 秒。
+- 在覆盖后的真实 `dist\FuSinplayer-beta5.0\FuSinplayer.exe` 窗口验证：播放《这个世界》时点击下一首，切到《日落》后仍处于播放并推进；再把《日落》从播放中拖到 `04:04/04:09`，自动切到《尚好的青春》，按钮仍为“暂停”且位置推进到 `00:10`。
+- 构建 EXE 与 beta5.0 发布 EXE 的 SHA-256 均为 `6A9330FF478ED019A41F013ACEDEBA34D77F2313E65C79C3037C10087B2EF079`。发布目录仍为 38 个文件、90,723,857 bytes；本轮覆盖既有 beta5.0 目录，没有创建新的重复便携副本。`windeployqt` 仍只有可选 `dxcompiler.dll/dxil.dll` 警告。

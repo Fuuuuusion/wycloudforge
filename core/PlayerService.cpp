@@ -67,6 +67,13 @@ PlayerService::PlayerService(QObject *parent)
 
 void PlayerService::handlePlaybackStateChanged(QMediaPlayer::PlaybackState state)
 {
+    if (m_internalStop) {
+        // stop()/setSource({}) may synchronously re-enter through FFmpeg with
+        // transient states from the media being detached. Those states do not
+        // belong to the next load and must not consume its autoplay intent.
+        emit playingChanged(false);
+        return;
+    }
     if (state == QMediaPlayer::PlayingState) {
         m_pendingAutoPlay = false;
         // Treat an observed PlayingState as authoritative. This keeps natural-end
@@ -97,6 +104,8 @@ void PlayerService::handlePlaybackStateChanged(QMediaPlayer::PlaybackState state
 
 void PlayerService::handleMediaStatusChanged(QMediaPlayer::MediaStatus status)
 {
+    if (m_internalStop)
+        return;
     if ((status == QMediaPlayer::LoadedMedia || status == QMediaPlayer::BufferedMedia)
         && m_pendingAutoPlay) {
         applyPendingResume();
@@ -289,10 +298,18 @@ void PlayerService::prev()
 
 void PlayerService::seek(qint64 ms)
 {
-    m_lastKnownPositionMs = qMax<qint64>(0, ms);
+    const qint64 targetMs = qMax<qint64>(0, ms);
+    m_lastKnownPositionMs = targetMs;
     m_endStallTimer.stop();
     m_endStallToken = -1;
-    m_player.setPosition(ms);
+    m_player.setPosition(targetMs);
+    // Seeking exactly to the end can leave FFmpeg without another position or
+    // EndOfMedia notification. Keep the same token-scoped watchdog used for a
+    // naturally stalled tail so an active playlist still advances.
+    if (m_playbackIntent && m_wasPlaying && isNearMediaEnd(2500)) {
+        m_endStallToken = m_loadToken;
+        m_endStallTimer.start();
+    }
 }
 
 PlayerService::FileReleaseState PlayerService::releaseFileForRemoval(const QString &path)
@@ -462,7 +479,11 @@ void PlayerService::loadCurrent(bool autoPlay, bool allowCached, bool resetCache
     if (resetCacheRetry)
         m_urlRetryAttempted = false;
     m_currentUrl.clear();
-    m_pendingAutoPlay = autoPlay;
+    // Keep autoplay disarmed while the old backend is being detached. Qt's
+    // FFmpeg backend can emit Loaded/Buffered followed by a brief PlayingState
+    // from the exhausted source during setSource({}); arming early lets that
+    // stale event clear m_pendingAutoPlay before the new source is installed.
+    m_pendingAutoPlay = false;
     m_playbackIntent = autoPlay;
     m_usingCachedSource = false;
     m_usingDownloadedSource = false;
@@ -473,6 +494,8 @@ void PlayerService::loadCurrent(bool autoPlay, bool allowCached, bool resetCache
     m_player.stop();
     m_player.setSource(QUrl());
     m_internalStop = false;
+    m_wasPlaying = false;
+    m_pendingAutoPlay = autoPlay;
 
     if (song.isOnline()) {
         MusicSource *source = sourceFor(song);
