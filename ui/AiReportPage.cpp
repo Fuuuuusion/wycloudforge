@@ -208,7 +208,8 @@ void AiReportPage::startDemo()
     m_reportView->hide();
     m_generateButton->hide();
     m_loadingTimer->start(350);
-    m_demoTimer->start(m_demoDelayMs > 0 ? 1200 : 0);
+    // 流式输出第一个字符前先等待 10 秒，保持“AI 正在总结”的演示节奏。
+    m_demoTimer->start(m_demoDelayMs);
 }
 
 void AiReportPage::setDemoDelayMsForTesting(int ms)
