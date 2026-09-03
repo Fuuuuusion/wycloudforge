@@ -137,12 +137,28 @@ SidebarFooter::SidebarFooter(QWidget *parent)
         "QPushButton#sidebarRefreshButton:disabled{background:transparent;}"));
     layout->addWidget(m_refreshButton, 0, Qt::AlignLeft | Qt::AlignBottom);
 
+    m_aiReportButton = new QPushButton(this);
+    m_aiReportButton->setObjectName(QStringLiteral("sidebarAiReportButton"));
+    m_aiReportButton->setFixedSize(28, 28);
+    m_aiReportButton->setIconSize(QSize(18, 18));
+    m_aiReportButton->setIcon(QIcon(QStringLiteral(":/icons/ai.png")));
+    m_aiReportButton->setCursor(Qt::PointingHandCursor);
+    m_aiReportButton->setToolTip(QStringLiteral("AI 听歌报告"));
+    m_aiReportButton->setAccessibleName(QStringLiteral("AI 听歌报告"));
+    m_aiReportButton->setFocusPolicy(Qt::StrongFocus);
+    setThemedStyleSheet(m_aiReportButton, QStringLiteral(
+        "QPushButton#sidebarAiReportButton{background:transparent;border:none;border-radius:6px;padding:0;}"
+        "QPushButton#sidebarAiReportButton:hover{background:@surfaceAlt;}"
+        "QPushButton#sidebarAiReportButton:pressed{background:@surfacePressed;}"));
+    layout->addWidget(m_aiReportButton, 0, Qt::AlignLeft | Qt::AlignBottom);
+
     m_downloadButton = new DownloadStatusButton(this);
     layout->addWidget(m_downloadButton, 0, Qt::AlignLeft | Qt::AlignBottom);
     layout->addStretch(1);
 
     connect(m_settingsButton, &QPushButton::clicked, this, &SidebarFooter::settingsClicked);
     connect(m_refreshButton, &QPushButton::clicked, this, &SidebarFooter::refreshClicked);
+    connect(m_aiReportButton, &QPushButton::clicked, this, &SidebarFooter::aiReportClicked);
     connect(m_downloadButton, &QPushButton::clicked, this, &SidebarFooter::downloadClicked);
 }
 

@@ -10,6 +10,7 @@
 #include "ui/AccountPanel.h"
 #include "ui/AccountSettingsButton.h"
 #include "ui/SideBar.h"
+#include "ui/AiReportPage.h"
 #include "ui/SidebarFooter.h"
 #include "ui/DownloadPage.h"
 #include "ui/SourceIcons.h"
@@ -37,6 +38,7 @@
 #include <QSettings>
 #include <QStandardPaths>
 #include <QTemporaryDir>
+#include <QTextBrowser>
 #include <QToolButton>
 #include <QtTest>
 
@@ -123,6 +125,7 @@ private slots:
     void sourceSwitchIsVisibleAndExclusive();
     void sourceIconResourcesPreserveSizeAndAlpha();
     void sidebarFooterKeepsConfirmedGeometryAndRefreshIcon();
+    void aiReportPageStartsLoadingAndCompletes();
     void manualRecommendRefreshUsesPlatformTopListsAndFeedback();
     void recommendedPlaylistsScrollAtNarrowWidths();
     void accountActionIsExplicitAndPreservesSignal();
@@ -1523,20 +1526,29 @@ void SongListViewTest::sidebarFooterKeepsConfirmedGeometryAndRefreshIcon()
 
     auto *settings = footer.settingsButton();
     auto *refresh = footer.refreshButton();
+    auto *ai = footer.aiReportButton();
     auto *download = footer.downloadButton();
     QVERIFY(settings);
     QVERIFY(refresh);
+    QVERIFY(ai);
     QVERIFY(download);
     QCOMPARE(settings->size(), QSize(28, 28));
     QCOMPARE(refresh->size(), QSize(28, 28));
+    QCOMPARE(ai->size(), QSize(28, 28));
     QCOMPARE(download->size(), QSize(28, 28));
     QCOMPARE(refresh->iconSize(), QSize(18, 18));
+    QCOMPARE(ai->iconSize(), QSize(18, 18));
     QCOMPARE(settings->geometry().left(), 18);
     QCOMPARE(settings->geometry().bottom(), footer.height() - 18 - 1);
     QCOMPARE(refresh->geometry().left() - settings->geometry().right() - 1, 12);
+    QCOMPARE(ai->geometry().left() - refresh->geometry().right() - 1, 12);
+    QCOMPARE(download->geometry().left() - ai->geometry().right() - 1, 12);
     QCOMPARE(refresh->geometry().bottom(), settings->geometry().bottom());
-    QCOMPARE(download->geometry().left() - refresh->geometry().right() - 1, 12);
     QCOMPARE(download->geometry().bottom(), settings->geometry().bottom());
+
+    const QImage aiIcon = ai->icon().pixmap(ai->iconSize()).toImage();
+    QVERIFY(!aiIcon.isNull());
+    QCOMPARE(ai->toolTip(), QStringLiteral("AI 听歌报告"));
 
     const QImage icon = refresh->icon().pixmap(refresh->iconSize()).toImage();
     QVERIFY(!icon.isNull());
@@ -1555,11 +1567,45 @@ void SongListViewTest::sidebarFooterKeepsConfirmedGeometryAndRefreshIcon()
     QCOMPARE(strongestPixel.rgb(), themeColor(ThemeColor::TextSecondary).rgb());
 
     QSignalSpy refreshSpy(&footer, &SidebarFooter::refreshClicked);
+    QSignalSpy aiSpy(&footer, &SidebarFooter::aiReportClicked);
     QSignalSpy downloadSpy(&footer, &SidebarFooter::downloadClicked);
     refresh->click();
+    ai->click();
     download->click();
     QCOMPARE(refreshSpy.count(), 1);
+    QCOMPARE(aiSpy.count(), 1);
     QCOMPARE(downloadSpy.count(), 1);
+}
+
+void SongListViewTest::aiReportPageStartsLoadingAndCompletes()
+{
+    AiReportPage page;
+    page.show();
+    QApplication::processEvents();
+
+    auto *status = page.findChild<QLabel *>(QStringLiteral("aiReportStatus"));
+    auto *report = page.findChild<QTextBrowser *>(QStringLiteral("aiReportView"));
+    auto *generate = page.findChild<QPushButton *>(QStringLiteral("aiReportGenerateButton"));
+    QVERIFY(status);
+    QVERIFY(report);
+    QVERIFY(generate);
+
+    page.startDemo();
+    QCOMPARE(status->text(), QStringLiteral("AI 正在分析你的听歌偏好…"));
+    QVERIFY(!report->isVisible());
+    QVERIFY(!generate->isVisible());
+
+    page.setDemoDelayMsForTesting(0);
+    page.completeForTesting();
+    QVERIFY(report->isVisible());
+    QVERIFY(generate->isVisible());
+    QVERIFY(report->toPlainText().contains(QStringLiteral("AI 听歌报告（演示版）")));
+    QVERIFY(report->toPlainText().contains(QStringLiteral("推荐歌曲")));
+
+    page.startDemo();
+    QVERIFY(status->isVisible());
+    QVERIFY(!report->isVisible());
+    QVERIFY(!generate->isVisible());
 }
 
 void SongListViewTest::manualRecommendRefreshUsesPlatformTopListsAndFeedback()

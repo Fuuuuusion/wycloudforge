@@ -21,6 +21,7 @@
 #include "ui/SelfPlaylistsPage.h"
 #include "ui/SideBar.h"
 #include "ui/SidebarFooter.h"
+#include "ui/AiReportPage.h"
 #include "ui/SettingsDialog.h"
 #include "ui/SongListPage.h"
 #include "ui/SongListView.h"
@@ -248,6 +249,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_playing = new ui::PlayingPage(this);
     m_search = new ui::SearchPage(this);
     m_downloadPage = new ui::DownloadPage(this);
+    m_aiReportPage = new ui::AiReportPage(this);
 
     connect(&ui::ThemeManager::instance(), &ui::ThemeManager::themeChanged,
             this, [this] {
@@ -294,6 +296,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_stack->addWidget(m_playing);
     m_stack->addWidget(m_search);
     m_stack->addWidget(m_downloadPage);
+    m_stack->addWidget(m_aiReportPage);
 
     connectSongListActions();
 
@@ -321,6 +324,8 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::refreshFromSidebar);
     connect(settingsFooter, &ui::SidebarFooter::downloadClicked,
             this, [this] { showPage(7); });
+    connect(settingsFooter, &ui::SidebarFooter::aiReportClicked,
+            this, [this] { showPage(kAiReportPageIndex); });
 
     auto *rightColumn = new QWidget(central);
     rightColumn->setObjectName(QStringLiteral("rightColumn"));
@@ -458,6 +463,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_playerBar, &ui::PlayerBar::playlistClicked, this, &MainWindow::openPlaybackQueue);
 
     connect(m_downloadPage, &ui::DownloadPage::backRequested, this, &MainWindow::navigateBack);
+    connect(m_aiReportPage, &ui::AiReportPage::backRequested, this, &MainWindow::navigateBack);
     connect(m_search, &ui::SearchPage::backRequested, this, &MainWindow::navigateBack);
     connect(m_songListPage, &ui::SongListPage::backRequested, this, &MainWindow::navigateBack);
     connect(m_playing, &ui::PlayingPage::backRequested, this, &MainWindow::navigateBack);
@@ -807,6 +813,8 @@ void MainWindow::showPage(int pageId)
         refreshAllPages();
     if (pageId == 7)
         refreshDownloadPage();
+    if (pageId == kAiReportPageIndex && m_aiReportPage)
+        m_aiReportPage->startDemo();
     m_sideBar->setActivePage(pageId);
 }
 

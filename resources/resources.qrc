@@ -8,6 +8,7 @@
     <file alias="icons/icon-pause-white.svg">icons/icon-pause-white.svg</file>
     <file alias="icons/icon-restore.svg">icons/icon-restore.svg</file>
     <file alias="icons/icon-search.svg">icons/icon-search.svg</file>
+    <file alias="icons/ai.png">icons/ai.png</file>
     <file alias="icons/icon-min.svg">icons/icon-min.svg</file>
     <file alias="icons/icon-max.svg">icons/icon-max.svg</file>
     <file alias="icons/icon-close.svg">icons/icon-close.svg</file>
