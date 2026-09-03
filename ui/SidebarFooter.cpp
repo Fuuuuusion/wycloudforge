@@ -141,7 +141,8 @@ SidebarFooter::SidebarFooter(QWidget *parent)
     m_aiReportButton->setObjectName(QStringLiteral("sidebarAiReportButton"));
     m_aiReportButton->setFixedSize(28, 28);
     m_aiReportButton->setIconSize(QSize(18, 18));
-    m_aiReportButton->setIcon(QIcon(QStringLiteral(":/icons/ai.png")));
+    m_aiReportButton->setIcon(makeThemedRasterIcon(QStringLiteral(":/icons/ai.png"),
+                                                   ThemeColor::Accent));
     m_aiReportButton->setCursor(Qt::PointingHandCursor);
     m_aiReportButton->setToolTip(QStringLiteral("AI 听歌报告"));
     m_aiReportButton->setAccessibleName(QStringLiteral("AI 听歌报告"));

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QString>
 #include <QWidget>
 
 class QLabel;
@@ -23,6 +24,8 @@ signals:
     void backRequested();
 
 private:
+    void beginStream();
+    void streamTick();
     void finishDemo();
     void updateLoadingDots();
 
@@ -34,8 +37,13 @@ private:
     QTextBrowser *m_reportView = nullptr;
     QTimer *m_loadingTimer = nullptr;
     QTimer *m_demoTimer = nullptr;
+    QTimer *m_streamTimer = nullptr;
+    QString m_selectedReport;
     int m_demoDelayMs = 10000;
     int m_dotCount = 0;
+    int m_streamPosition = 0;
+    int m_streamChunkSize = 4;
+    int m_streamIntervalMs = 28;
 };
 
 } // namespace ui

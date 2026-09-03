@@ -1548,6 +1548,19 @@ void SongListViewTest::sidebarFooterKeepsConfirmedGeometryAndRefreshIcon()
 
     const QImage aiIcon = ai->icon().pixmap(ai->iconSize()).toImage();
     QVERIFY(!aiIcon.isNull());
+    QColor aiStrongestPixel;
+    int aiStrongestAlpha = -1;
+    for (int y = 0; y < aiIcon.height(); ++y) {
+        for (int x = 0; x < aiIcon.width(); ++x) {
+            const QColor pixel = aiIcon.pixelColor(x, y);
+            if (pixel.alpha() > aiStrongestAlpha) {
+                aiStrongestAlpha = pixel.alpha();
+                aiStrongestPixel = pixel;
+            }
+        }
+    }
+    QVERIFY(aiStrongestAlpha > 0);
+    QCOMPARE(aiStrongestPixel.rgb(), themeColor(ThemeColor::Accent).rgb());
     QCOMPARE(ai->toolTip(), QStringLiteral("AI 听歌报告"));
 
     const QImage icon = refresh->icon().pixmap(refresh->iconSize()).toImage();
@@ -1590,17 +1603,21 @@ void SongListViewTest::aiReportPageStartsLoadingAndCompletes()
     QVERIFY(report);
     QVERIFY(generate);
 
+    page.setDemoDelayMsForTesting(0);
     page.startDemo();
-    QCOMPARE(status->text(), QStringLiteral("AI 正在分析你的听歌偏好…"));
+    QCOMPARE(status->text(), QStringLiteral("正在根据历史听歌总结…"));
     QVERIFY(!report->isVisible());
     QVERIFY(!generate->isVisible());
 
-    page.setDemoDelayMsForTesting(0);
+    QTest::qWait(80);
+    QVERIFY(!report->toPlainText().isEmpty());
     page.completeForTesting();
     QVERIFY(report->isVisible());
     QVERIFY(generate->isVisible());
-    QVERIFY(report->toPlainText().contains(QStringLiteral("AI 听歌报告（演示版）")));
+    QVERIFY(report->toPlainText().contains(QStringLiteral("AI 听歌报告")));
+    QVERIFY(!report->toPlainText().contains(QStringLiteral("演示版")));
     QVERIFY(report->toPlainText().contains(QStringLiteral("推荐歌曲")));
+    QVERIFY(report->toPlainText().size() > 300);
 
     page.startDemo();
     QVERIFY(status->isVisible());
