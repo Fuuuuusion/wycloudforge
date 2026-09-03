@@ -11,19 +11,94 @@
 #include "core/MusicSourceRegistry.h"
 
 #include <QButtonGroup>
+#include <QGraphicsBlurEffect>
+#include <QGraphicsPixmapItem>
+#include <QGraphicsScene>
 #include <QHBoxLayout>
 #include <QFileInfo>
+#include <QImage>
 #include <QLabel>
+#include <QPainter>
 #include <QPointer>
 #include <QPushButton>
+#include <QResizeEvent>
 #include <QVBoxLayout>
 
 namespace ui {
+namespace {
+
+QImage blurredImage(const QImage &source, qreal radius)
+{
+    QGraphicsScene scene;
+    QGraphicsPixmapItem item(QPixmap::fromImage(source));
+    auto *effect = new QGraphicsBlurEffect;
+    effect->setBlurRadius(radius);
+    item.setGraphicsEffect(effect);
+    scene.addItem(&item);
+
+    QImage result(source.size(), QImage::Format_ARGB32);
+    result.fill(Qt::transparent);
+    QPainter painter(&result);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform);
+    scene.render(&painter, QRectF(0, 0, source.width(), source.height()),
+                 QRectF(0, 0, source.width(), source.height()));
+    return result;
+}
+
+class BlurredCoverBackground final : public QWidget
+{
+public:
+    explicit BlurredCoverBackground(QWidget *parent = nullptr)
+        : QWidget(parent)
+    {
+        setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    }
+
+    void setCover(const QPixmap &cover)
+    {
+        if (cover.isNull()) {
+            m_blurred = QPixmap();
+            update();
+            return;
+        }
+        const QImage source = cover.toImage().scaled(
+            240, 240, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+        m_blurred = QPixmap::fromImage(blurredImage(source, 18.0));
+        update();
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override
+    {
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.setRenderHint(QPainter::SmoothPixmapTransform);
+        if (!m_blurred.isNull()) {
+            painter.drawImage(rect(),
+                              m_blurred.toImage().scaled(
+                                  rect().size(), Qt::IgnoreAspectRatio,
+                                  Qt::SmoothTransformation));
+        }
+        QColor overlay = themeColor(ThemeColor::PageBackground);
+        overlay.setAlpha(130);
+        painter.fillRect(rect(), overlay);
+    }
+
+private:
+    QPixmap m_blurred;
+};
+
+} // namespace
 
 PlayingPage::PlayingPage(QWidget *parent)
     : QWidget(parent)
 {
     setObjectName(QStringLiteral("playingPage"));
+    m_background = new BlurredCoverBackground(this);
+    m_background->setObjectName(QStringLiteral("blurredCoverBackground"));
+    m_background->setGeometry(rect());
+    m_background->lower();
 
     m_cover = new QLabel(this);
     m_cover->setFixedSize(320, 320);
@@ -106,8 +181,21 @@ void PlayingPage::setSong(const core::Song &song, const QPixmap &cover)
     m_song = song;
     m_coverPix = cover.isNull() ? CoverProvider::coverFor(song, 320, 14) : cover;
     m_cover->setPixmap(m_coverPix);
+    if (m_background) {
+        static_cast<BlurredCoverBackground *>(m_background)->setCover(
+            cover.isNull() ? CoverProvider::coverFor(song, 640, 0) : cover);
+    }
     m_title->setText(song.title.isEmpty() ? QFileInfo(song.filePath).completeBaseName() : song.title);
     m_artist->setText(song.artist.isEmpty() ? QStringLiteral("未知歌手") : song.artist);
+}
+
+void PlayingPage::resizeEvent(QResizeEvent *event)
+{
+    QWidget::resizeEvent(event);
+    if (m_background) {
+        m_background->setGeometry(rect());
+        m_background->lower();
+    }
 }
 
 void PlayingPage::setLyrics(const QList<core::LyricLine> &lines)
