@@ -712,3 +712,17 @@ a4dcb21  SongListModel 改多列表 + 登录补齐uid/昵称 + QPointer防闪退
 - 正式目录为 `dist\FuSinplayer\FuSinplayer.exe`；便携目录为 `dist\FuSinplayer-portable-20260902-204841`，共 219,953,452 bytes；便携 ZIP 为 `dist\FuSinplayer-portable-20260902-204841.zip`，大小 89,561,020 bytes，SHA-256 为 `92692212578D4D4993322C7CFBFC4D6120D0810EB10222E67A3918AF9D1DCEEB`。
 - 构建 EXE、正式 EXE 与便携目录 EXE 的 SHA-256 均为 `41EFCB7D9621DC3E3D8C13CA747B8141020235FD05602501B4E534311D35FCC0`。便携目录包含 QQ 包装服务、网易云 API 依赖和对应 `node_modules`，可在新机器上直接解压测试。
 - 桌面快捷方式已更新为 `FuSinplayer.lnk`，目标和工作目录分别指向 `dist\FuSinplayer\FuSinplayer.exe` 与 `dist\FuSinplayer`，图标使用 EXE 内嵌品牌图标；旧名称快捷方式已移除，正式版本已启动供预览。
+
+## 播放结束自动连播二次修复与 beta5.0 本机发布（2026-09-03）
+
+- 用户在真实播放中确认 `05706c7` 的自动联播修复仍未解决问题。代码复核定位到缺失路径：此前 `StoppedState` 兜底同时要求停止瞬间的 `QMediaPlayer::duration()>0` 和末尾位置命中阈值；Windows FFmpeg 对耗尽的 HTTP 流可能先把当前时长/位置清零，或先停在 `PausedState`，因此声音已经结束却没有进入队列推进。此前依赖真实声卡的 1 秒 WAV/HTTP 测试在当前端点上可以通过，但没有覆盖“停止信号到达时媒体时钟已经归零”。
+- `PlayerService` 现在保存最后一个有效媒体时长；末尾停滞判断依次使用播放器最后有效时长、当前时长和歌曲元数据时长。只要实际观察过 `PlayingState`、仍保留连续播放意图且不是内部换源导致的停止，`StoppedState` 不再依赖停止瞬间的时长/位置即可进入带加载代次的统一推进路径。`EndOfMedia`、末尾 `PausedState`/停滞和停止兜底仍会去重，错误/重试信号先获得一个短事件循环窗口，手动切歌产生的旧事件会被加载代次丢弃。
+- 所有内部 `stop()/setSource()` 前先清除自然结束资格，避免旧媒体迟到的停止信号把新队列再多推进一首。播放栏的播放/暂停切换改为调用 `PlayerService::pause()`，确保显式暂停立即清除连续播放意图；重新设置队列时同时清空旧歌曲的末尾位置和时长，避免同曲重选继承过期进度。
+- `tst_playerservice` 新增两条不依赖声卡或真实媒体时钟的确定性回归：模拟已播放媒体在 `duration()==0` 时进入 `StoppedState`，必须从第一首推进到第二首；显式暂停后即使收到迟到的 `StoppedState` 也不得切歌。状态机定向压力复跑 25/25 通过，现有本地文件、缓存、永久下载、HTTP 流、网易云/QQ 混合来源、顺序、随机和单曲循环测试保持通过。
+
+### 本轮验证与发布
+
+- `W:\build-ascii` 全部目标编译链接成功。完整桌面用户上下文 Qt CTest 9/9 通过，总计 53.16 秒，其中 `tst_playerservice` 33.05 秒；受限上下文唯一失败仍是既有 DPAPI 用户配置文件边界，同一二进制在完整桌面上下文通过，没有跳过或放宽凭据断言。
+- 构建 EXE 与 `dist\FuSinplayer-beta5.0\FuSinplayer.exe` 的 SHA-256 均为 `E608873DA4F7F8ACB241D989A7B9DB0798F1CCDF426FB913456446A6EB8CB0A0`。发布目录为 38 个文件、90,723,857 bytes；`windeployqt` 仅报告既有可选 `dxcompiler.dll/dxil.dll` 警告。为避免清理后再次制造数百 MB 重复副本，本轮覆盖既有 beta5.0 目录，没有另建便携目录或 ZIP。
+- 构建版本和快捷方式解析后的发布版本都使用空音乐目录、空永久下载目录、独立 SQLite 和独立 QSettings 完成 1280×800 GUI 截图 smoke，退出码均为 0；最终隔离库歌曲数为 0，未修改真实曲库、下载目录或设置。
+- 受限进程读取桌面 `FuSinplayer beta5.0.lnk` 时只能取得工作目录和图标、`TargetPath` 显示为空；重写后受限进程仍会隐藏该字段，因此不能把这个现象当作旧快捷方式实际为空的证据。已在完整桌面上下文显式重建并回读：目标为 `dist\FuSinplayer-beta5.0\FuSinplayer.exe`，工作目录为 `dist\FuSinplayer-beta5.0`，目标存在且哈希与本轮构建一致；再从该回读目标完成隔离 smoke，退出码 0。

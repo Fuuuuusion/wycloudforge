@@ -31,6 +31,10 @@ public:
     void songUrls(const QStringList &ids, MusicSource::JsonArrayFn ok,
                   MusicSource::ErrFn err = {}) override
     {
+        if (deferUrlResponses) {
+            requests.append(ids);
+            return;
+        }
         QJsonArray result;
         for (const QString &id : ids) {
             requests.append(id);
@@ -96,6 +100,7 @@ public:
     int searchLimit = 0;
     int searchOffset = 0;
     int searchRequests = 0;
+    bool deferUrlResponses = false;
 
 private:
     QHash<QString, QString> m_urls;
@@ -197,6 +202,8 @@ private slots:
     void mixedSourceAutoAdvanceInOrderMode();
     void mixedSourceRepeatOneMode();
     void mixedSourceAutoAdvanceInShuffleMode();
+    void stoppedStateAdvancesWithoutBackendClock();
+    void explicitPauseRejectsLateStoppedState();
     void cachedAndDownloadedAutoAdvance();
     void httpStreamAutoAdvance();
     void onlineUrlRetriesOnce();
@@ -653,6 +660,61 @@ void PlayerServiceTest::mixedSourceAutoAdvanceInShuffleMode()
         QVERIFY(netease.requests.contains(current.effectiveRemoteId()));
     else
         QVERIFY(qq.requests.contains(current.effectiveRemoteId()));
+}
+
+void PlayerServiceTest::stoppedStateAdvancesWithoutBackendClock()
+{
+    LocalUrlSource<NeteaseApiClient> source;
+    source.deferUrlResponses = true;
+    Song first = MusicSource::makeOnlineSong(SourceId::Netease, QStringLiteral("netease"),
+        QStringLiteral("clockless-first"), QStringLiteral("无时钟一"), {}, {}, 180000, {});
+    first.id = 231;
+    Song second = MusicSource::makeOnlineSong(SourceId::Netease, QStringLiteral("netease"),
+        QStringLiteral("clockless-second"), QStringLiteral("无时钟二"), {}, {}, 180000, {});
+    second.id = 232;
+
+    PlayerService player;
+    player.setSourceProvider(&source);
+    player.setPlaylist({ first, second }, 0);
+    QCOMPARE(player.duration(), 0);
+    QVERIFY(QMetaObject::invokeMethod(&player, "handlePlaybackStateChanged",
+        Qt::DirectConnection,
+        Q_ARG(QMediaPlayer::PlaybackState, QMediaPlayer::PlayingState)));
+    QVERIFY(QMetaObject::invokeMethod(&player, "handlePlaybackStateChanged",
+        Qt::DirectConnection,
+        Q_ARG(QMediaPlayer::PlaybackState, QMediaPlayer::StoppedState)));
+
+    QTRY_COMPARE(player.currentIndex(), 1);
+    QCOMPARE(source.requests,
+             QStringList({ QStringLiteral("clockless-first"),
+                           QStringLiteral("clockless-second") }));
+}
+
+void PlayerServiceTest::explicitPauseRejectsLateStoppedState()
+{
+    LocalUrlSource<NeteaseApiClient> source;
+    source.deferUrlResponses = true;
+    Song first = MusicSource::makeOnlineSong(SourceId::Netease, QStringLiteral("netease"),
+        QStringLiteral("paused-first"), QStringLiteral("暂停一"), {}, {}, 180000, {});
+    first.id = 233;
+    Song second = MusicSource::makeOnlineSong(SourceId::Netease, QStringLiteral("netease"),
+        QStringLiteral("paused-second"), QStringLiteral("暂停二"), {}, {}, 180000, {});
+    second.id = 234;
+
+    PlayerService player;
+    player.setSourceProvider(&source);
+    player.setPlaylist({ first, second }, 0);
+    QVERIFY(QMetaObject::invokeMethod(&player, "handlePlaybackStateChanged",
+        Qt::DirectConnection,
+        Q_ARG(QMediaPlayer::PlaybackState, QMediaPlayer::PlayingState)));
+    player.pause();
+    QVERIFY(QMetaObject::invokeMethod(&player, "handlePlaybackStateChanged",
+        Qt::DirectConnection,
+        Q_ARG(QMediaPlayer::PlaybackState, QMediaPlayer::StoppedState)));
+    QTest::qWait(20);
+
+    QCOMPARE(player.currentIndex(), 0);
+    QCOMPARE(source.requests, QStringList({ QStringLiteral("paused-first") }));
 }
 
 void PlayerServiceTest::cachedAndDownloadedAutoAdvance()

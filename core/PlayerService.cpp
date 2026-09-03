@@ -25,61 +25,31 @@ PlayerService::PlayerService(QObject *parent)
         ensureAudioOutput();
     });
 
-    connect(&m_player, &QMediaPlayer::playbackStateChanged, this, [this](QMediaPlayer::PlaybackState state) {
-        if (state == QMediaPlayer::PlayingState) {
-            m_pendingAutoPlay = false;
-            m_wasPlaying = true;
-            m_consecutiveFailures = 0;
-        } else if (state == QMediaPlayer::PausedState) {
-            // Some FFmpeg streams briefly report PausedState while draining at
-            // end-of-stream. Only an explicit user pause clears the natural-end
-            // eligibility; pause() has already cleared m_playbackIntent.
-            if (!m_playbackIntent)
-                m_wasPlaying = false;
-        } else if (state == QMediaPlayer::StoppedState && m_wasPlaying && !m_internalStop
-                   && m_playbackIntent && m_player.duration() > 0) {
-            const qint64 endPosition = qMax(m_player.position(), m_lastKnownPositionMs);
-            if (endPosition >= qMax<qint64>(0, m_player.duration() - 1800))
-                scheduleAdvanceAfterEndOfMedia();
-        }
-        emit playingChanged(state == QMediaPlayer::PlayingState);
-    });
+    connect(&m_player, &QMediaPlayer::playbackStateChanged,
+            this, &PlayerService::handlePlaybackStateChanged);
     connect(&m_player, &QMediaPlayer::positionChanged, this, [this](qint64 pos) {
         if (pos > 0)
             m_lastKnownPositionMs = pos;
         emit positionChanged(pos);
         maybeCacheCurrent(pos);
-        const qint64 duration = m_player.duration();
-        const qint64 endPosition = qMax(pos, m_lastKnownPositionMs);
-        if (m_playbackIntent && duration > 0
-            && endPosition >= qMax<qint64>(0, duration - 2500)) {
+        if (m_playbackIntent && m_wasPlaying && isNearMediaEnd(2500)) {
             m_endStallToken = m_loadToken;
             m_endStallTimer.start();
-        } else {
+        } else if (pos > 0 || !m_wasPlaying) {
+            // FFmpeg may reset position to zero while draining an online stream.
+            // Preserve an already armed end watchdog in that terminal transition.
             m_endStallTimer.stop();
             m_endStallToken = -1;
         }
     });
     connect(&m_player, &QMediaPlayer::durationChanged, this, [this](qint64 dur) {
+        if (dur > 0)
+            m_lastKnownDurationMs = dur;
         emit durationChanged(dur);
         applyPendingResume();
     });
-    connect(&m_player, &QMediaPlayer::mediaStatusChanged, this, [this](QMediaPlayer::MediaStatus status) {
-        if ((status == QMediaPlayer::LoadedMedia || status == QMediaPlayer::BufferedMedia)
-            && m_pendingAutoPlay) {
-            applyPendingResume();
-            m_player.play();
-        }
-        if (status == QMediaPlayer::EndOfMedia) {
-            // 结束状态可能在同一轮事件循环内重复通知。延迟到播放器完成状态切换后
-            // 再处理，并用加载 token 丢弃用户手动切歌产生的过期任务。
-            scheduleAdvanceAfterEndOfMedia();
-        }
-        if (status == QMediaPlayer::InvalidMedia
-            && !retryInvalidDownloadedFile() && !retryInvalidCache()
-            && !retryInvalidRemoteSource())
-            handleUnrecoverableError(QStringLiteral("媒体无法解码或播放源已失效"));
-    });
+    connect(&m_player, &QMediaPlayer::mediaStatusChanged,
+            this, &PlayerService::handleMediaStatusChanged);
     connect(&m_player, &QMediaPlayer::errorOccurred, this, [this](QMediaPlayer::Error, const QString &err) {
         if (!retryInvalidDownloadedFile() && !retryInvalidCache()
             && !retryInvalidRemoteSource())
@@ -90,16 +60,66 @@ PlayerService::PlayerService(QObject *parent)
     connect(&m_endStallTimer, &QTimer::timeout, this, [this] {
         if (m_endStallToken != m_loadToken || !m_playbackIntent || m_internalStop)
             return;
-        const qint64 duration = m_player.duration();
-        const qint64 endPosition = qMax(m_player.position(), m_lastKnownPositionMs);
-        if (duration > 0 && endPosition >= qMax<qint64>(0, duration - 1800))
+        if (m_wasPlaying && isNearMediaEnd(1800))
             scheduleAdvanceAfterEndOfMedia();
     });
+}
+
+void PlayerService::handlePlaybackStateChanged(QMediaPlayer::PlaybackState state)
+{
+    if (state == QMediaPlayer::PlayingState) {
+        m_pendingAutoPlay = false;
+        // Treat an observed PlayingState as authoritative. This keeps natural-end
+        // handling independent from whichever asynchronous source path called play().
+        m_playbackIntent = true;
+        m_wasPlaying = true;
+        m_consecutiveFailures = 0;
+    } else if (state == QMediaPlayer::PausedState) {
+        // Some FFmpeg streams briefly report PausedState while draining at the
+        // end. An explicit pause has already cleared m_playbackIntent.
+        if (!m_playbackIntent) {
+            m_wasPlaying = false;
+            m_endStallTimer.stop();
+            m_endStallToken = -1;
+        } else if (m_wasPlaying && isNearMediaEnd(2500)) {
+            m_endStallToken = m_loadToken;
+            m_endStallTimer.start();
+        }
+    } else if (state == QMediaPlayer::StoppedState && m_wasPlaying
+               && !m_internalStop && m_playbackIntent) {
+        // Do not require duration()/position() here. FFmpeg can clear both before
+        // announcing StoppedState for an exhausted HTTP stream. Internal source
+        // changes clear m_wasPlaying before stopping the old backend.
+        scheduleAdvanceAfterEndOfMedia();
+    }
+    emit playingChanged(state == QMediaPlayer::PlayingState);
+}
+
+void PlayerService::handleMediaStatusChanged(QMediaPlayer::MediaStatus status)
+{
+    if ((status == QMediaPlayer::LoadedMedia || status == QMediaPlayer::BufferedMedia)
+        && m_pendingAutoPlay) {
+        applyPendingResume();
+        m_player.play();
+    }
+    if (status == QMediaPlayer::EndOfMedia && m_playbackIntent && m_wasPlaying) {
+        // EndOfMedia may repeat in one event-loop turn; the load token deduplicates
+        // it and rejects events belonging to a source that the user already changed.
+        scheduleAdvanceAfterEndOfMedia();
+    }
+    if (status == QMediaPlayer::InvalidMedia
+        && !retryInvalidDownloadedFile() && !retryInvalidCache()
+        && !retryInvalidRemoteSource()) {
+        handleUnrecoverableError(QStringLiteral("媒体无法解码或播放源已失效"));
+    }
 }
 
 void PlayerService::setPlaylist(const QList<Song> &songs, int startIndex)
 {
     m_pendingResumePositionMs = -1;
+    m_loadedSongIdentity.clear();
+    m_lastKnownPositionMs = 0;
+    m_lastKnownDurationMs = 0;
     m_playlist = songs;
     buildShuffleOrder();
     m_history.clear();
@@ -171,6 +191,7 @@ void PlayerService::clearPlaylist()
     m_urlRetryAttempted = false;
     m_pendingResumePositionMs = -1;
     m_lastKnownPositionMs = 0;
+    m_lastKnownDurationMs = 0;
     m_loadedSongIdentity.clear();
     m_wasPlaying = false;
     m_playbackIntent = false;
@@ -194,7 +215,7 @@ void PlayerService::playIndex(int index)
 void PlayerService::playPause()
 {
     if (m_player.playbackState() == QMediaPlayer::PlayingState)
-        m_player.pause();
+        pause();
     else
         play();
 }
@@ -225,6 +246,7 @@ void PlayerService::pause()
     m_playbackIntent = false;
     m_endStallTimer.stop();
     m_endStallToken = -1;
+    m_wasPlaying = false;
     m_player.pause();
 }
 
@@ -426,13 +448,15 @@ void PlayerService::loadCurrent(bool autoPlay, bool allowCached, bool resetCache
     }
     const Song &song = m_playlist[m_index];
     const QString identity = song.selectionIdentity();
-    if (identity != m_loadedSongIdentity) {
+    if (identity != m_loadedSongIdentity || m_pendingResumePositionMs < 0) {
         m_loadedSongIdentity = identity;
         m_lastKnownPositionMs = 0;
+        m_lastKnownDurationMs = 0;
     }
     ++m_loadToken;
     m_endStallTimer.stop();
     m_endStallToken = -1;
+    m_endOfMediaToken = -1;
     if (resetCacheRetry)
         m_cacheRetryAttempted = false;
     if (resetCacheRetry)
@@ -442,6 +466,9 @@ void PlayerService::loadCurrent(bool autoPlay, bool allowCached, bool resetCache
     m_playbackIntent = autoPlay;
     m_usingCachedSource = false;
     m_usingDownloadedSource = false;
+    // Clear natural-end eligibility before stopping the old backend. Some Qt
+    // backends deliver StoppedState after stop()/setSource() has returned.
+    m_wasPlaying = false;
     m_internalStop = true;
     m_player.stop();
     m_player.setSource(QUrl());
@@ -726,15 +753,34 @@ void PlayerService::scheduleAdvanceAfterEndOfMedia()
     if (m_endOfMediaToken == token)
         return;
     m_endOfMediaToken = token;
-    QTimer::singleShot(0, this, [this, token] {
+    // Give error/status signals from the same backend transition one short turn
+    // to run first. Their retry/skip path changes the load token and cancels this.
+    QTimer::singleShot(25, this, [this, token] {
         if (m_endOfMediaToken != token)
             return;
-    m_endOfMediaToken = -1;
-        if (token != m_loadToken)
+        m_endOfMediaToken = -1;
+        if (token != m_loadToken || !m_playbackIntent || !m_wasPlaying || m_internalStop)
+            return;
+        // Invalid media is advanced by handleUnrecoverableError(), which also
+        // limits consecutive failures and avoids retrying one bad song forever.
+        if (m_player.mediaStatus() == QMediaPlayer::InvalidMedia)
             return;
         m_wasPlaying = false;
         advanceAfterEndOfMedia();
     });
+}
+
+bool PlayerService::isNearMediaEnd(qint64 toleranceMs) const
+{
+    qint64 durationMs = m_lastKnownDurationMs;
+    if (durationMs <= 0)
+        durationMs = m_player.duration();
+    if (durationMs <= 0)
+        durationMs = currentSong().durationMs;
+    if (durationMs <= 0)
+        return false;
+    const qint64 positionMs = qMax(m_player.position(), m_lastKnownPositionMs);
+    return positionMs >= qMax<qint64>(0, durationMs - toleranceMs);
 }
 
 void PlayerService::handleUnrecoverableError(const QString &message)

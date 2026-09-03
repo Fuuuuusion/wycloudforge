@@ -75,6 +75,10 @@ signals:
     void mutedChanged(bool muted);
     void errorOccurred(const QString &message);
 
+private slots:
+    void handlePlaybackStateChanged(QMediaPlayer::PlaybackState state);
+    void handleMediaStatusChanged(QMediaPlayer::MediaStatus status);
+
 private:
     void loadCurrent(bool autoPlay, bool allowCached = true, bool resetCacheRetry = true);
     bool ensureAudioOutput();
@@ -83,6 +87,7 @@ private:
     bool retryInvalidRemoteSource();
     void advanceAfterEndOfMedia();
     void scheduleAdvanceAfterEndOfMedia();
+    bool isNearMediaEnd(qint64 toleranceMs) const;
     void handleUnrecoverableError(const QString &message);
     void applyPendingResume();
     void buildShuffleOrder();
@@ -117,6 +122,7 @@ private:
     bool m_playbackIntent = false;
     qint64 m_pendingResumePositionMs = -1;
     qint64 m_lastKnownPositionMs = 0;
+    qint64 m_lastKnownDurationMs = 0;
     QString m_loadedSongIdentity;
     int m_consecutiveFailures = 0;
     QSet<qint64> m_coverSaveInFlight;
