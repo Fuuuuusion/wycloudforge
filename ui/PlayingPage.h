@@ -40,6 +40,9 @@ signals:
     void seekRequested(qint64 ms);
     void editLyricsRequested();
 
+protected:
+    void resizeEvent(QResizeEvent *event) override;
+
 private:
     void applyLyricMode();
 
@@ -59,6 +62,7 @@ private:
     quint64 m_lyricRequestGeneration = 0;
     core::Song m_song;
     QPixmap m_coverPix;
+    QWidget *m_background = nullptr;
 };
 
 } // namespace ui

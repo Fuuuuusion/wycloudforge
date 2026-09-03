@@ -75,6 +75,13 @@ Start-Process "$env:TEMP\netease_build\bin\NeteaseClone.exe" -ArgumentList "--fo
 - 回归覆盖：`tst_uiwidgets` 新增 AI 按钮尺寸/间距/信号、红色主题图标、流式中间态、完成后的长篇报告和重复重置测试；完整 Qt CTest 9/9 通过（约 54 秒）。
 - 隔离 GUI smoke：空音乐目录、独立 SQLite/QSettings 下以 `--page 8 --screenshot` 打开 AI 报告页，应用退出码 `0` 并生成加载态截图；未读取真实曲库或账号设置。
 
+## 歌词页模糊封面背景（2026-09-03）
+
+- 只为“正在播放/歌词页面”（页面栈索引 `5`）增加当前歌曲封面模糊背景，不提供开关，不改变侧栏、推荐、歌单、搜索、下载和 AI 报告页背景。
+- `PlayingPage` 底部新增独立模糊背景部件：使用 `CoverProvider` 获取 `640px` 封面，缩放到 `240px` 后用 `QGraphicsBlurEffect` 模糊并放大铺满页面，再叠加当前主题背景色遮罩；模糊结果按歌曲封面缓存，不随歌词滚动反复计算。
+- 封面缺失或仍在加载时回退到当前主题背景；无全局背景改动，README 的“主界面无模糊”已补充歌词页例外。
+- 新增 `tst_uiwidgets::lyricsPageUsesBlurredCoverBackground`，验证背景部件存在、随页面几何同步、设置歌曲后能生成背景；完整 Qt CTest 9/9 通过（约 52 秒）。
+
 ### 隔离截图验证(推荐)
 
 ```powershell

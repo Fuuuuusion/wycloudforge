@@ -13,6 +13,7 @@
 #include "ui/AiReportPage.h"
 #include "ui/SidebarFooter.h"
 #include "ui/DownloadPage.h"
+#include "ui/PlayingPage.h"
 #include "ui/SourceIcons.h"
 #include "ui/ThemeManager.h"
 #include "ui/TitleBar.h"
@@ -126,6 +127,7 @@ private slots:
     void sourceIconResourcesPreserveSizeAndAlpha();
     void sidebarFooterKeepsConfirmedGeometryAndRefreshIcon();
     void aiReportPageStartsLoadingAndCompletes();
+    void lyricsPageUsesBlurredCoverBackground();
     void manualRecommendRefreshUsesPlatformTopListsAndFeedback();
     void recommendedPlaylistsScrollAtNarrowWidths();
     void accountActionIsExplicitAndPreservesSignal();
@@ -1623,6 +1625,27 @@ void SongListViewTest::aiReportPageStartsLoadingAndCompletes()
     QVERIFY(status->isVisible());
     QVERIFY(!report->isVisible());
     QVERIFY(!generate->isVisible());
+}
+
+void SongListViewTest::lyricsPageUsesBlurredCoverBackground()
+{
+    PlayingPage page;
+    page.resize(960, 540);
+    page.show();
+    QApplication::processEvents();
+
+    auto *background = page.findChild<QWidget *>(
+        QStringLiteral("blurredCoverBackground"));
+    QVERIFY(background);
+    QCOMPARE(background->geometry(), page.rect());
+
+    core::Song song;
+    song.title = QStringLiteral("测试歌曲");
+    song.artist = QStringLiteral("测试歌手");
+    page.setSong(song, QPixmap());
+    QApplication::processEvents();
+    QVERIFY(!background->grab().toImage().isNull());
+    QCOMPARE(background->geometry(), page.rect());
 }
 
 void SongListViewTest::manualRecommendRefreshUsesPlatformTopListsAndFeedback()
