@@ -71,8 +71,8 @@ private:
 class ThemedRasterIconEngine final : public QIconEngine
 {
 public:
-    explicit ThemedRasterIconEngine(QString path)
-        : m_path(std::move(path))
+    explicit ThemedRasterIconEngine(QString path, ThemeColor role = ThemeColor::TextSecondary)
+        : m_path(std::move(path)), m_role(role)
     {
     }
 
@@ -88,7 +88,7 @@ public:
         tinted.fill(Qt::transparent);
         const QColor color = themeColor(mode == QIcon::Disabled
                                             ? ThemeColor::DisabledText
-                                            : ThemeColor::TextSecondary);
+                                            : m_role);
         for (int y = 0; y < source.height(); ++y) {
             QRgb *target = reinterpret_cast<QRgb *>(tinted.scanLine(y));
             for (int x = 0; x < source.width(); ++x)
@@ -107,6 +107,7 @@ public:
 
 private:
     QString m_path;
+    ThemeColor m_role = ThemeColor::TextSecondary;
 };
 
 // 使用动态 QIconEngine 渲染单色 SVG；主题切换后现有按钮无需重新设置图标。
@@ -115,9 +116,10 @@ inline QIcon makeSvgIcon(const QString &path, int size = 18)
     return QIcon(new ThemedSvgIconEngine(path, size));
 }
 
-inline QIcon makeThemedRasterIcon(const QString &path)
+inline QIcon makeThemedRasterIcon(const QString &path,
+                                  ThemeColor role = ThemeColor::TextSecondary)
 {
-    return QIcon(new ThemedRasterIconEngine(path));
+    return QIcon(new ThemedRasterIconEngine(path, role));
 }
 
 } // namespace ui
